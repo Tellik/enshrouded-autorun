@@ -169,7 +169,7 @@ void usage() {
         "  inspect-provider <kfc-runtime.dll> [--out <provider-report.json>]\n"
         "  validate-profile <profile.json>\n"
         "  approve-profile <draft.json> --function-scan <scan.json> --components <catalog.json>\n"
-        "  generate-profile <base-profile.json> <image-report.json> <scan-report.json> --components <live-capture.json> --out <draft.json>\n\n"
+        "  generate-profile <base-profile.json> <image-report.json> <scan-report.json> --kfc-format <3|4> --components <live-capture.json> --out <draft.json>\n\n"
         "This console is developer-only. It is not run by the game or modloader.\n";
 }
 
@@ -276,6 +276,8 @@ bool validate_profile(const json& profile, std::string& error, const json* exter
         if (profile.at("schemaVersion") != 1) throw std::runtime_error("unsupported schemaVersion");
         const auto target = profile.at("target").get<std::string>();
         if (target != "enshrouded.exe" && target != "enshrouded_server.exe") throw std::runtime_error("unsupported target");
+        const auto kfc_format = profile.at("kfcFormat").get<unsigned>();
+        if (kfc_format != 3 && kfc_format != 4) throw std::runtime_error("unsupported kfcFormat");
         const auto& image = profile.at("image");
         if (image.at("size").get<std::uint64_t>() < 4096) throw std::runtime_error("image size is too small");
         const auto& layout = profile.at("ecsLayout");
@@ -858,9 +860,17 @@ int generate_command(int argc, char** argv) {
     const auto out_path = option(argc, argv, "--out");
     const auto components_path = option(argc, argv, "--components");
     const auto catalog_out = option(argc, argv, "--catalog-out");
-    if (!out_path || !components_path) { std::cerr << "generate-profile requires --components and --out\n"; return 2; }
+    const auto kfc_format_option = option(argc, argv, "--kfc-format");
+    if (!out_path || !components_path || !kfc_format_option) {
+        std::cerr << "generate-profile requires --kfc-format, --components, and --out\n"; return 2;
+    }
+    const auto kfc_format_text = kfc_format_option->string();
+    if (kfc_format_text != "3" && kfc_format_text != "4") {
+        std::cerr << "--kfc-format must be 3 or 4\n"; return 2;
+    }
     try {
         auto profile = json::parse(std::ifstream(base_path));
+        profile["kfcFormat"] = kfc_format_text == "3" ? 3 : 4;
         // A relocated signature does not prove calculation semantics in a new build.
         profile.erase("attributeCalculationModel");
         const auto image = json::parse(std::ifstream(image_path));

@@ -6,6 +6,7 @@
     "schemaVersion",
     "id",
     "target",
+    "kfcFormat",
     "image",
     "allowStructuralRevalidation",
     "ecsLayout",
@@ -27,6 +28,9 @@
         "enshrouded.exe",
         "enshrouded_server.exe"
       ]
+    },
+    "kfcFormat": {
+      "enum": [3, 4]
     },
     "image": {
       "type": "object",

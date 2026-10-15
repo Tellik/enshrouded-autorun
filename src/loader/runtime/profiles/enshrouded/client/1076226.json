@@ -2,6 +2,7 @@
   "schemaVersion": 1,
   "id": "enshrouded-client-1076226",
   "target": "enshrouded.exe",
+  "kfcFormat": 3,
   "image": {
     "timestamp": 1782724296,
     "size": 47869952,

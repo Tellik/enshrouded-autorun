@@ -107,6 +107,7 @@ $componentsDraft = "$capture\enshrouded-client-new-build.components.json"
 build\native-runtime\tools\kfc-runtime-dev.exe generate-profile `
   src\loader\runtime\profiles\enshrouded\client\1076226.json `
   "$capture\image-report.json" "$capture\function-scan.json" `
+  --kfc-format 4 `
   --components "$capture\components-live.json" `
   --catalog-out $componentsDraft --out $profileDraft
 build\native-runtime\tools\kfc-runtime-dev.exe validate-profile $profileDraft
@@ -132,10 +133,13 @@ cmake --build build/native-runtime --config Release --target kfc-runtime
 (No separate runtime package is produced.)
 ```
 
-The approved profile is the only per-build runtime data. The profile uses
-camelCase field names consistently. its sections are ordered as executable
-identity, memory layout, hooks, world access, ECS components, and runtime code
-patches. See `src/loader/runtime/profiles/README.md` for the field definitions.
+The approved profile is the only per-build runtime data. Set `--kfc-format` to
+the format reported by that build's KFC file. The parser also checks the KFC
+header marker directly and keeps the detected format when writing incremental
+mod data. The profile uses camelCase field names consistently. its sections
+are ordered as executable identity, KFC format, memory layout, hooks, world
+access, ECS components, and runtime code patches. See
+`src/loader/runtime/profiles/README.md` for the field definitions.
 Separate capture data
 may remain under `profile-tools/devdata/` for review.
 The function catalog, capture logs, reflection source, and draft stay in the

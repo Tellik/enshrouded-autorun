@@ -37,6 +37,7 @@ struct RuntimePatch {
     std::size_t overwrite{}, return_rel32_offset{}, target_offset{};
 };
 inline std::uint32_t image_timestamp{}, image_size{};
+inline std::uint8_t kfc_format{};
 inline std::string image_sha256, image_target;
 inline bool exact_build_match{};
 inline std::string attribute_calculation_model;

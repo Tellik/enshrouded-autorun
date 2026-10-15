@@ -121,6 +121,9 @@ bool Load() {
         }
         for (auto& candidate : candidates) {
             if (candidate.at("schemaVersion") != 1 || candidate.at("target") != process) continue;
+            if (!candidate.contains("kfcFormat") || !candidate.at("kfcFormat").is_number_integer()) continue;
+            const auto candidate_kfc_format = candidate.at("kfcFormat").get<int>();
+            if (candidate_kfc_format != 3 && candidate_kfc_format != 4) continue;
             // Generated profile drafts are developer artifacts. They must never
             // become active merely because the EXE identity happens to match.
             if (candidate.contains("provenance") &&
@@ -158,6 +161,7 @@ bool Load() {
         }
         const auto& selected = exact ? exact_profile : fallback_profile;
         exact_build_match = exact;
+        kfc_format = static_cast<std::uint8_t>(selected.at("kfcFormat").get<unsigned>());
         // Identity is a lookup hint. Both hooks still require unique executable
         // matches and exact overwritten instructions before any patch is made.
         image_timestamp = nt->FileHeader.TimeDateStamp;

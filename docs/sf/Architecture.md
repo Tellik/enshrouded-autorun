@@ -38,7 +38,7 @@ shroudforge/
 └── build.ps1                    # Windows release build
 ~~~
 
-The KFC parser is an upstream project kept at a fixed revision under **src/parser/kfc-parser/**. ShroudForge's own parser adapter lives next to it. This keeps ShroudForge changes separate from the upstream source.
+The KFC parser is an upstream project pinned as a Git submodule under **src/parser/kfc-parser/**. The ShroudForge parser adapter lives next to it. The Rust packages currently consume a fixed upstream Git revision. Parser changes in the submodule become active after the corresponding upstream revision is published and the Cargo pins are updated.
 
 ## What happens when a mod loads?
 

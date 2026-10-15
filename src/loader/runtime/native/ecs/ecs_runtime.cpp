@@ -1155,6 +1155,7 @@ std::string Diagnostics() {
     return nlohmann::json({
         {"schemaVersion",1}, {"providerAbi",KFC_RUNTIME_ABI_VERSION},
         {"profile",KfcRuntimeCompatibility::EnshroudedClient::status},
+        {"kfcFormat",KfcRuntimeCompatibility::EnshroudedClient::kfc_format},
         {"candidateTypeBreakdown",nlohmann::json{
             {"total",configured_types.size()},
             {"otherEcsTypes",configured_types.size() - dynamic_candidates},

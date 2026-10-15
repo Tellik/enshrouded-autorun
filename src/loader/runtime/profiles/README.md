@@ -7,6 +7,7 @@ and ECS metadata, to executable patch definitions.
 | Section | Meaning |
 | --- | --- |
 | `schemaVersion`, `id`, `target` | Profile format version, stable launcher selection ID, and executable name. |
+| `kfcFormat` | KFC directory format expected for this build, currently `3` or `4`. The parser confirms the file's own header marker. |
 | `image` | Executable identity: PE timestamp, image size in bytes, and optional SHA-256. |
 | `allowStructuralRevalidation` | Whether automatic selection may try this profile when executable identity differs. A manually selected profile is tried regardless. |
 | `ecsLayout` | Byte offsets used to read the entity manager, entities, and component storage. These are offsets, not absolute addresses. All field names use `camelCase`. `entityDefinitionPointer` is the entity record's pointer to its definition. |
