@@ -24,6 +24,7 @@
   "runtime": {
     "profileId": null
   },
+  "modloader": "shroudforge",
   "catalog": {
     "provider": null
   },

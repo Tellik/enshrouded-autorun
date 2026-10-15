@@ -70,6 +70,10 @@ ShroudForge activation and player settings are stored in the mod package's
 state stays in the adjacent extension. Inline ShroudForge manifest fields and
 obsolete extension formats are rejected.
 
+The proxy loader is selected with `modloader` in
+`shroudforge/config/modloader-config.json`. It defaults to `"shroudforge"`.
+Set it to `"eml"` to use EML while keeping the ShroudForge installation available.
+
 ## Source ownership
 
 - `package/src/registry/` owns manifest discovery, parsing, and manifest schemas.

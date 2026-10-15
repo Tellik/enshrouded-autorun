@@ -10,7 +10,7 @@ shroudforge-runtime-diagnostics = { path = "../modules/runtime-diagnostics" }
 shroudforge-steam-networking = { path = "../modules/steam-networking" }
 shroudforge-parser = { path = "../../parser" }
 shroudforge-compatibility = { path = "../compatibility" }
-kfc = { git = "https://github.com/bonsaibauer/kfc-parser.git", rev = "933c11a68854894dd75414812f275543c4ee2faa", features = ["resource", "content"] }
+kfc = { git = "https://github.com/bonsaibauer/kfc-parser.git", rev = "a404b15cde40fc7bd43d812bb460ce40d2a9d3b1", features = ["resource", "content"] }
 mod-loader = { package = "shroudforge-package", path = "../package" }
 
 thiserror = "2.0"

@@ -253,17 +253,17 @@ mod companion_backup_tests {
 }
 
 pub fn validate_backup(kfc_path: &Path, kfc_path_bak: &Path) -> bool {
-    let version_bak = match KFCFile::get_version_tag(kfc_path_bak) {
+    let file_bak = match KFCFile::from_path(kfc_path_bak, true) {
         Ok(file) => file,
         Err(_) => return false,
     };
 
-    let version = match KFCFile::get_version_tag(kfc_path) {
+    let file = match KFCFile::from_path(kfc_path, true) {
         Ok(file) => file,
         Err(_) => return false,
     };
 
-    version == version_bak
+    file.game_version() == file_bak.game_version() && file.format() == file_bak.format()
 }
 
 pub fn load_type_registry(
@@ -288,7 +288,7 @@ pub fn load_type_registry(
     // repackaging can preserve both). Schema 2 invalidates the old cache once.
     let identity = std::fs::read(&exe_path).ok().map(|bytes| {
         serde_json::json!({"schemaVersion": 2, "executableSha256": format!("{:x}", Sha256::digest(bytes)),
-            "reflectionExtractor": "kfc-933c11a68854894dd75414812f275543c4ee2faa"})
+            "reflectionExtractor": "kfc-a404b15cde40fc7bd43d812bb460ce40d2a9d3b1"})
     });
     let cached_identity = std::fs::read(&identity_path)
         .ok()

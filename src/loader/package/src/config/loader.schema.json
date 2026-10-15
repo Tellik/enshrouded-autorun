@@ -49,6 +49,12 @@
       },
       "additionalProperties": false
     },
+    "modloader": {
+      "enum": [
+        "eml",
+        "shroudforge"
+      ]
+    },
     "catalog": {
       "type": "object",
       "properties": {

@@ -35,4 +35,4 @@ mlua = { version = "0.11.2", features = ["lua54", "vendored"] }
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
-kfc = { git = "https://github.com/bonsaibauer/kfc-parser.git", rev = "933c11a68854894dd75414812f275543c4ee2faa", features = ["resource"] }
+kfc = { git = "https://github.com/bonsaibauer/kfc-parser.git", rev = "a404b15cde40fc7bd43d812bb460ce40d2a9d3b1", features = ["resource"] }
