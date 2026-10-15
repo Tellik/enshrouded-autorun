@@ -4,6 +4,7 @@
 [![Repository](https://img.shields.io/badge/Repository-shroudforge-blue?style=flat&logo=github)](https://github.com/bonsaibauer/shroudforge)
 [![License](https://img.shields.io/badge/License-MIT-blue)](https://github.com/bonsaibauer/shroudforge/blob/main/LICENSE)
 [![Visitors](https://visitor-badge.laobi.icu/badge?page_id=bonsaibauer.shroudforge)](https://github.com/bonsaibauer/shroudforge)
+[![Downloads](https://img.shields.io/github/downloads/bonsaibauer/shroudforge/total)](https://github.com/bonsaibauer/shroudforge/releases)
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?style=flat&logo=windows&logoColor=white)](https://github.com/bonsaibauer/shroudforge)
 
 
@@ -26,7 +27,11 @@ New to mods? Start with the illustrated guide. It explains everything in simple 
 The guide includes separate instructions for your PC and game server, pictures of the Modloader, a first-mod lesson, and an interactive preview for mod settings.
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=V57iZcn-hfo"><img src="assets/youtube-logo.svg" width="100%" alt="ShroudForge on YouTube: watch the trailer"></a>
+  <a href="https://github.com/bonsaibauer/shroudforge/releases/latest"><img src="assets\shroudforge-banner-2-github_v1.svg" width="100%" alt="ShroudForge Download Link"></a>
+</p>
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=V57iZcn-hfo"><img src="assets\shroudforge-banner-1-ohne-strich_v1.svg" width="100%" alt="ShroudForge on YouTube: watch the trailer"></a>
 </p>
 
 ![ShroudForge Modloader in Enshrouded](assets/modloader-ui-2.png)
@@ -155,6 +160,7 @@ This table describes the current state of ShroudForge itself. **Proven** means t
 | **World Editor: automatic world targeting** | The client selects the local or Dedicated Server route from the detected world context. Startup, reconnect, and world-switch cases need continued live validation. | 🚧 Beta |
 | **EML mod support** | ShroudForge supports documented EML-style package and API flows. Compatibility depends on the APIs and native behavior used by each mod. | 🚧 Beta |
 | **Mod discovery and updater** | The Modloader can find and install catalog mods, queue mod updates, and stage ShroudForge updates with backups. Broader recovery scenarios still need validation. | 🚧 Beta |
+| **Client-server loader and mod compatibility** | Steam P2P `PING`/`PONG` checks connectivity only. ShroudForge validates mod targets, dependency version ranges, and ShroudForge API requirements locally, but does not compare loader/API versions or installed mod IDs and versions when a client joins a server. Add a compatibility handshake that reports missing or mismatched mods and defines whether each mismatch warns or blocks the session; validate it with client and Dedicated Server builds. | 🕓 Open |
 | **More game builds and server profiles** | Add and validate profiles for further Enshrouded builds and targets. | 🕓 Open |
 | **Stable ECS-backed mod API** | Make world-context detection and ECS access dependable, then document supported operations based on live verification. | 🕓 Open |
 
