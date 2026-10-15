@@ -230,10 +230,32 @@ std::string runtime_status_state(std::string_view status) {
         " voxel_context=" + std::string(voxel_context.empty() ? "unknown" : voxel_context);
 }
 
+void start_recovery_update_window(const std::filesystem::path& root) {
+    const auto executable = shroudforge_directory(root) / L"shroudforge-updater.exe";
+    if (!std::filesystem::is_regular_file(executable)) {
+        log('E', "Recovery updater executable is missing: " + executable.string());
+        return;
+    }
+
+    std::wstring command = L"\"" + executable.wstring() + L"\" --open-window --root \"" +
+        root.wstring() + L"\"";
+    STARTUPINFOW startup{sizeof(startup)};
+    PROCESS_INFORMATION process{};
+    if (!CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, FALSE,
+            CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT, nullptr, root.c_str(),
+            &startup, &process)) {
+        log('E', "Recovery updater window could not be started. " + windows_error(GetLastError()));
+        return;
+    }
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    log("Independent recovery updater window started after fatal ShroudForge error");
+}
+
 void startup_failed(const std::filesystem::path& root, const char* stage,
         const std::string& detail) {
-    (void)root;
     log('E', std::string("Startup failed at ") + stage + ": " + detail);
+    if (!is_dedicated_server_process()) start_recovery_update_window(root);
 }
 
 void show_startup_error(const std::filesystem::path& root, const std::string& detail) {
