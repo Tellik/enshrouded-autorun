@@ -27,6 +27,10 @@ New to mods? Start with the illustrated guide. It explains everything in simple 
 The guide includes separate instructions for your PC and game server, pictures of the Modloader, a first-mod lesson, and an interactive preview for mod settings.
 
 <p align="center">
+  <a href="https://github.com/bonsaibauer/shroudforge/releases/latest"><img src="assets\shroudforge-banner-4-release-1.0.svg" width="100%" alt="ShroudForge 10 Support"></a>
+</p>
+
+<p align="center">
   <a href="https://github.com/bonsaibauer/shroudforge/releases/latest"><img src="assets\shroudforge-banner-2-github_v1.svg" width="100%" alt="ShroudForge Download Link"></a>
 </p>
 
