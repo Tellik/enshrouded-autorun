@@ -5,13 +5,20 @@ namespace {
 unsigned virtual_query_calls{}, read_process_memory_calls{};
 unsigned virtual_protect_calls{};
 bool fail_next_restore{}, fail_next_prepare{};
+const void* scalar_mutation_trigger{};
+unsigned char* scalar_mutation_target{};
 SIZE_T WINAPI counted_virtual_query(LPCVOID address, PMEMORY_BASIC_INFORMATION info, SIZE_T length) {
     ++virtual_query_calls;
     return ::VirtualQuery(address, info, length);
 }
 BOOL WINAPI counted_read_process_memory(HANDLE process, LPCVOID source, LPVOID target, SIZE_T size, SIZE_T* actual) {
     ++read_process_memory_calls;
-    return ::ReadProcessMemory(process, source, target, size, actual);
+    const auto result = ::ReadProcessMemory(process, source, target, size, actual);
+    if (result && size == sizeof(DWORD) && source == scalar_mutation_trigger && scalar_mutation_target) {
+        *scalar_mutation_target ^= 1;
+        scalar_mutation_target = nullptr;
+    }
+    return result;
 }
 BOOL WINAPI counted_virtual_protect(LPVOID address, SIZE_T size, DWORD protection, PDWORD previous) {
     ++virtual_protect_calls;
@@ -38,20 +45,28 @@ BOOL WINAPI counted_virtual_protect(LPVOID address, SIZE_T size, DWORD protectio
 #include <cstdio>
 #include <cstdlib>
 
-// This isolated fixture has no ECS world binding. Session-bound resource
-// writes must fail closed here while the legacy ResourceService contract stays
-// independently testable. The ECS fixture links the real SessionGuard.
+// This isolated fixture admits one explicitly configured read session. It does
+// not admit writes. The ECS fixture separately links the real SessionGuard.
 namespace EcsRuntime {
-struct SessionGuard::State {};
+std::uint64_t fixture_read_session{};
+bool fixture_client_replica{};
+struct SessionGuard::State { EngineContext::EcsView view; };
 SessionGuard::SessionGuard() = default;
 SessionGuard::~SessionGuard() = default;
-bool SessionGuard::TryAcquire(std::uint64_t) { return false; }
+bool SessionGuard::TryAcquire(std::uint64_t expected) {
+    if (!expected || expected != fixture_read_session || fixture_client_replica) return false;
+    state_ = std::make_unique<State>();
+    return EngineContext::ResolveOwners(state_->view.owners);
+}
 const EngineContext::EcsView& SessionGuard::View() const {
     static const EngineContext::EcsView unavailable;
-    return unavailable;
+    return state_ ? state_->view : unavailable;
 }
 bool SessionGuard::WritesAllowed() const { return false; }
 void SessionGuard::MarkWriteUncertain(const char*) {}
+}
+uint64_t KFC_RUNTIME_CALL KfcRuntimeWorldSessionId(void) {
+    return EcsRuntime::fixture_read_session;
 }
 
 namespace {
@@ -79,11 +94,16 @@ struct ThreadRow { std::uintptr_t handle{}, name{}; std::uint64_t length{}; } th
 LONG thread_registry_gate{};
 std::uint16_t thread_count{};
 struct Root { std::uintptr_t type{}, client{}; } root;
-struct Client { std::uintptr_t type{}, controller{}; };
+struct Client { std::uintptr_t type{}, controller{}, scene_owner{}; };
 struct Controller { std::uintptr_t type{}, client{}, main{}; };
 struct Main { std::uintptr_t allocator{}, context{}; };
 struct Context { std::uintptr_t allocator{}, registry{}; };
-struct Registry { std::uintptr_t allocator{}, service{}; std::uint32_t handle{}; std::uintptr_t resource{}; };
+struct Registry {
+    std::uintptr_t allocator{}, service{};
+    std::uint32_t handle{};
+    std::uintptr_t resource{};
+    std::array<unsigned char, 96> item_map{};
+};
 struct Reader { std::uintptr_t allocator{}, metadata{}; };
 struct Chunk { std::uintptr_t data{}; std::uint64_t size{}; };
 struct Service {
@@ -406,6 +426,259 @@ int main() {
         {"servicePayloadSizeOffset",offsetof(Service,payload_size)}};
     check(EngineContext::Configure(owner_profile, reason));
     check(EngineContext::ResourceWriteConfigured() && ResourceRuntime::CanWrite());
+    // Projection samples fixed scalar bits under the original content-worker
+    // lifetime. A late failure publishes neither a prefix nor a partial count.
+    EcsRuntime::fixture_read_session = 4242;
+    std::array<KfcRuntimeResourceScalarRequest, 64> scalar_requests{};
+    for (auto& request : scalar_requests) request = {metadata.key.id, 0};
+    std::array<std::uint32_t, 64> scalar_keys{};
+    const auto projection = [&](std::size_t requested = 1, std::size_t root_bytes = 8,
+        std::size_t key_offset = 0, std::uint64_t session = 4242) {
+        actual = 999;
+        const auto result = KfcRuntimeResourceReadScalarBatch(scalar_requests.data(), requested,
+            metadata.key.id.type_hash, root_bytes, key_offset, session,
+            scalar_keys.data(), scalar_keys.size(), &actual);
+        check(thread_registry_gate == 0);
+        return result;
+    };
+    std::uint32_t expected_key{};
+    std::memcpy(&expected_key, scalar_page, sizeof(expected_key));
+    check(projection() == 1 && actual == 1 && scalar_keys[0] == expected_key);
+    check(projection(1, 8, 4) == 1 && actual == 1);
+    check(projection(0) == 2 && actual == 0);
+    check(projection(65) == 2 && actual == 0);
+    check(projection(1, 3) == 2 && actual == 0);
+    check(projection(1, 8, 1) == 2 && actual == 0);
+    check(projection(1, 8, 8) == 2 && actual == 0);
+    check(projection(1, 2048) == 2 && actual == 0);
+    check(projection(1, 8, 0, 0) == 2 && actual == 0);
+    check(projection(1, 8, 0, 4243) == 4 && actual == 0);
+    scalar_requests[0].resource.type_hash ^= 1;
+    check(projection() == 2 && actual == 0);
+    scalar_requests[0].resource = metadata.key.id;
+    scalar_keys.fill(0xfeedface);
+    scalar_requests[1].resource.part_index += 99;
+    check(projection(2) == 5 && actual == 0 && scalar_keys[0] == 0xfeedface);
+    scalar_requests[1].resource = metadata.key.id;
+    // A changed key, selected entry or owner cannot become a valid projected
+    // row merely because the content-worker lifetime remains protected.
+    scalar_mutation_trigger = scalar_page;
+    scalar_mutation_target = scalar_page;
+    check(projection() == 5 && actual == 0 && scalar_keys[0] == 0xfeedface);
+    scalar_page[0] ^= 1;
+    scalar_mutation_target = reinterpret_cast<unsigned char*>(&metadata.value.offset);
+    check(projection() == 5 && actual == 0 && scalar_keys[0] == 0xfeedface);
+    metadata.value.offset ^= 1;
+    scalar_mutation_target = reinterpret_cast<unsigned char*>(&service.worker.stop);
+    check(projection() == 4 && actual == 0 && scalar_keys[0] == 0xfeedface);
+    service.worker.stop = 0;
+    scalar_mutation_trigger = scalar_mutation_target = nullptr;
+    thread_registry_gate = static_cast<LONG>(0x80000000u);
+    actual = 999;
+    check(KfcRuntimeResourceReadScalarBatch(scalar_requests.data(), 1, metadata.key.id.type_hash,
+        8, 0, 4242, scalar_keys.data(), scalar_keys.size(), &actual) == 5 && actual == 0 &&
+        thread_registry_gate == static_cast<LONG>(0x80000000u));
+    thread_registry_gate = 0;
+    actual = 999;
+    check(KfcRuntimeResourceReadScalarBatch(reinterpret_cast<const KfcRuntimeResourceScalarRequest*>(1),
+        1, metadata.key.id.type_hash, 8, 0, 4242, scalar_keys.data(), scalar_keys.size(), &actual) == 2 && actual == 0);
+    check(KfcRuntimeResourceReadScalarBatch(scalar_requests.data(), 1, metadata.key.id.type_hash,
+        8, 0, 4242, reinterpret_cast<std::uint32_t*>(1), 1, &actual) == 2 && actual == 0 && thread_registry_gate == 0);
+    DWORD projection_protection{};
+    check(::VirtualProtect(scalar_page, 4096, PAGE_NOACCESS, &projection_protection));
+    check(projection() == 5 && actual == 0);
+    check(::VirtualProtect(scalar_page, 4096, projection_protection, &projection_protection));
+    profile_loaded = false;
+    check(projection() == 3 && actual == 0);
+    profile_loaded = true;
+
+    // A stable remote client can read resources but cannot acquire the local
+    // authority SessionGuard. Decline only the projection optimization, keeping
+    // a stale session or invalid original owner out of the fallback path.
+    struct ReplicaManager { std::uintptr_t owner{}; std::uint64_t count{}; std::uintptr_t table{}; };
+    struct ReplicaExecution { std::uintptr_t registry{}; ReplicaManager manager; } replica;
+    struct EmptyScenes { std::uintptr_t entries{}; std::uint64_t count{}, capacity{}; } scenes;
+    std::uintptr_t replica_table[]{1};
+    replica.manager = {address(&replica.registry), 1, address(replica_table)};
+    const auto previous_allocator = main.allocator;
+    main.allocator = address(&replica);
+    client.scene_owner = address(&scenes);
+    auto replica_profile = owner_profile;
+    auto& replica_ecs = replica_profile["ecsReadLayout"];
+    replica_ecs["mainExecutionOwnerOffset"] = offsetof(Main,allocator);
+    replica_ecs["executionRegistryOwnerOffset"] = offsetof(ReplicaExecution,registry);
+    replica_ecs["executionEntityManagerOffset"] = offsetof(ReplicaExecution,manager);
+    replica_ecs["entityManagerOwnerOffset"] = offsetof(ReplicaManager,owner);
+    replica_ecs["entityManagerCount"] = offsetof(ReplicaManager,count);
+    replica_ecs["entityManagerTable"] = offsetof(ReplicaManager,table);
+    replica_ecs["clientSceneOwnerOffset"] = offsetof(Client,scene_owner);
+    replica_ecs["sceneEntriesPointerOffset"] = offsetof(EmptyScenes,entries);
+    replica_ecs["sceneEntriesCountOffset"] = offsetof(EmptyScenes,count);
+    replica_ecs["sceneEntriesCapacityOffset"] = offsetof(EmptyScenes,capacity);
+    check(EngineContext::Configure(replica_profile, reason));
+    EngineContext::EcsView replica_view;
+    check(EngineContext::ResolveEcs(replica_view) && replica_view.role == EngineContext::EcsRole::ClientReplica);
+    EcsRuntime::fixture_client_replica = true;
+    scalar_keys.fill(0xfeedface);
+    check(ResourceRuntime::Read(metadata.key.id, 0, copied.data(), copied.size(), &actual));
+    check(projection() == 3 && actual == 0 && scalar_keys[0] == 0xfeedface);
+    check(projection(1, 8, 0, 4243) == 4 && actual == 0);
+    ++replica.manager.owner;
+    check(projection() == 4 && actual == 0 && scalar_keys[0] == 0xfeedface);
+    --replica.manager.owner;
+    EcsRuntime::fixture_client_replica = false;
+    main.allocator = previous_allocator;
+    client.scene_owner = 0;
+    check(EngineContext::Configure(owner_profile, reason));
+
+    read_process_memory_calls = 0;
+    for (unsigned iteration = 0; iteration < 64; ++iteration) {
+        check(ResourceRuntime::Read(metadata.key.id, 0, nullptr, 0, &actual));
+        check(ResourceRuntime::Read(metadata.key.id, 0, copied.data(), copied.size(), &actual));
+    }
+    const auto individual_projection_reads = read_process_memory_calls;
+    read_process_memory_calls = 0;
+    const auto projection_started = std::chrono::steady_clock::now();
+    check(projection(64) == 1 && actual == 64);
+    const auto projection_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - projection_started).count();
+    check(std::all_of(scalar_keys.begin(), scalar_keys.end(), [&](auto value) { return value == expected_key; }));
+    check(read_process_memory_calls < individual_projection_reads);
+    std::printf("resource scalar projection: 64 rows %.3f ms, resource RPM=%u vs full size+copy=%u\n",
+        projection_ms, read_process_memory_calls, individual_projection_reads);
+
+    // Canonical resource hash vectors use the parser's little-endian GUID
+    // seed, followed by the type and part bytes in their original order.
+    KfcRuntimeResourceId hash_vector{};
+    const unsigned char vector_guid[]{0x8b,0x7d,0x16,0x32,0x09,0x5f,0xd6,0x42,
+        0x83,0x90,0x69,0x04,0x49,0x5d,0x6c,0x10};
+    std::memcpy(hash_vector.guid, vector_guid, sizeof(vector_guid));
+    hash_vector.type_hash = 0xb5ce8765;
+    check(canonical_resource_hash(hash_vector) == 0xb761514a);
+    hash_vector = {};
+    const std::uint32_t seed = 0x12345678;
+    std::memcpy(hash_vector.guid, &seed, sizeof(seed));
+    hash_vector.type_hash = 0x89abcdef;
+    hash_vector.part_index = 0x01020304;
+    check(canonical_resource_hash(hash_vector) == 0x73849c34);
+    check(canonical_resource_hash({}) == 0);
+
+    // One original open-addressed ItemRegistry entry joins directly to the
+    // identical generic ResourceService span. No complete resource walk.
+    const auto saved_id = metadata.key.id;
+    metadata.key.id.part_index = 0;
+    metadata.value.packed = 32;
+    std::uint64_t item_bits = 1u << 2;
+    std::array<std::uint32_t, 8> item_keys{};
+    std::array<std::uintptr_t, 8> item_values{};
+    item_keys[2] = 42;
+    item_values[2] = address(scalar_page);
+    const auto set_map_field = [&](std::size_t offset, auto value) {
+        std::memcpy(registry.item_map.data() + offset, &value, sizeof(value));
+    };
+    set_map_field(8, address(&item_bits));
+    set_map_field(16, std::uint64_t{8});
+    set_map_field(40, address(item_keys.data()));
+    set_map_field(64, address(item_values.data()));
+    set_map_field(84, std::uint32_t{1});
+    auto& item_layout = active_layout.item_map;
+    item_layout.enabled = true;
+    item_layout.type_hash = metadata.key.id.type_hash;
+    item_layout.root_size = 32;
+    item_layout.guid_offset = 4;
+    item_layout.map_offset = offsetof(Registry, item_map);
+    item_layout.header_size = registry.item_map.size();
+    item_layout.bits_offset = 8;
+    item_layout.capacity_offset = 16;
+    item_layout.keys_offset = 40;
+    item_layout.values_offset = 64;
+    item_layout.count_offset = 84;
+    item_layout.maximum_capacity = 64;
+    item_layout.maximum_probes = 8;
+    const std::uint32_t item_id = 42;
+    std::memcpy(scalar_page, &item_id, sizeof(item_id));
+    std::memcpy(scalar_page + 4, metadata.key.id.guid, sizeof(metadata.key.id.guid));
+    KfcRuntimeResourceId resolved_item{};
+    const auto resolve_item = [&](std::uint32_t wanted = 42, std::uint64_t session = 4242,
+        std::uint32_t target_hash = 0x12345678, std::size_t root_bytes = 32,
+        std::size_t item_offset = 0, std::size_t guid_offset = 4) {
+        const auto result = KfcRuntimeResourceResolveItem(wanted, target_hash, root_bytes,
+            item_offset, guid_offset, session, &resolved_item);
+        check(thread_registry_gate == 0);
+        return result;
+    };
+    check(resolve_item() == 1 && std::memcmp(&resolved_item, &metadata.key.id, sizeof(resolved_item)) == 0);
+    check(json::parse(ResourceRuntime::Status())["itemRegistryResolverConfigured"] == true);
+    check(resolve_item(43) == 6 && resolved_item.guid[0] == 0);
+    check(resolve_item(0) == 2 && resolve_item(42, 0) == 2);
+    check(resolve_item(42, 4243) == 4);
+    check(resolve_item(42, 4242, 1) == 2);
+    check(resolve_item(42, 4242, 0x12345678, 31) == 2);
+    check(resolve_item(42, 4242, 0x12345678, 32, 1) == 2);
+    check(resolve_item(42, 4242, 0x12345678, 32, 0, 8) == 2);
+    set_map_field(84, std::uint32_t{0});
+    check(resolve_item() == 6);
+    set_map_field(84, std::uint32_t{1});
+    set_map_field(16, std::uint64_t{7});
+    check(resolve_item() == 5);
+    set_map_field(16, std::uint64_t{128});
+    check(resolve_item() == 5);
+    set_map_field(16, std::uint64_t{8});
+    set_map_field(84, std::uint32_t{9});
+    check(resolve_item() == 5);
+    set_map_field(84, std::uint32_t{1});
+    scalar_page[0] ^= 1;
+    check(resolve_item() == 5 && resolved_item.guid[0] == 0);
+    scalar_page[0] ^= 1;
+    scalar_page[4] ^= 1;
+    check(resolve_item() == 5);
+    scalar_page[4] ^= 1;
+    // Original probing wraps around to slot 0 after a collision at slot 7.
+    item_bits = (1u << 7) | 1;
+    item_keys[7] = 15;
+    item_keys[0] = 7;
+    item_values[0] = address(scalar_page);
+    scalar_page[0] = 7;
+    set_map_field(84, std::uint32_t{2});
+    check(resolve_item(7) == 1);
+    // A bounded occupied probe prefix is incomplete, not a negative lookup.
+    item_bits = 255;
+    item_keys.fill(9);
+    item_layout.maximum_probes = 2;
+    check(resolve_item() == 5);
+    item_layout.maximum_probes = 8;
+    item_bits = 1u << 2;
+    item_keys[2] = 42;
+    scalar_page[0] = 42;
+    set_map_field(84, std::uint32_t{1});
+    scalar_mutation_trigger = scalar_page;
+    scalar_mutation_target = reinterpret_cast<unsigned char*>(&item_values[2]);
+    check(resolve_item() == 5);
+    item_values[2] ^= 1;
+    scalar_mutation_target = registry.item_map.data() + 84;
+    check(resolve_item() == 5);
+    registry.item_map[84] ^= 1;
+    scalar_mutation_target = reinterpret_cast<unsigned char*>(&metadata.value.offset);
+    check(resolve_item() == 5);
+    metadata.value.offset ^= 1;
+    scalar_mutation_target = reinterpret_cast<unsigned char*>(&service.worker.stop);
+    check(resolve_item() == 4);
+    service.worker.stop = 0;
+    scalar_mutation_trigger = scalar_mutation_target = nullptr;
+    item_layout.enabled = false;
+    check(resolve_item() == 3);
+    item_layout.enabled = true;
+    check(KfcRuntimeResourceResolveItem(42, metadata.key.id.type_hash, 32, 0, 4, 4242,
+        reinterpret_cast<KfcRuntimeResourceId*>(1)) == 2 && thread_registry_gate == 0);
+    const auto item_started = std::chrono::steady_clock::now();
+    for (unsigned iteration = 0; iteration < 100; ++iteration) check(resolve_item() == 1);
+    const auto item_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - item_started).count();
+    std::printf("original ItemRegistry: 100 checked direct lookups %.3f ms\n", item_ms);
+    metadata.key.id = saved_id;
+    metadata.value.packed = static_cast<std::uint32_t>(payload.size());
+    std::memcpy(scalar_page, payload.data(), payload.size());
+    item_layout.enabled = false;
     std::uint32_t session_expected{}, session_desired{42};
     std::memcpy(&session_expected, scalar_page, sizeof(session_expected));
     std::array<unsigned char, 8> session_snapshot{};

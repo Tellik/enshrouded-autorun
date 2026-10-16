@@ -25,6 +25,13 @@ using KfcRuntimeCompatibility::EnshroudedClient::image_target;
 using KfcRuntimeCompatibility::EnshroudedClient::image_timestamp;
 using KfcRuntimeCompatibility::EnshroudedClient::attribute_calculation_model;
 
+struct ItemMapLayout {
+    bool enabled{};
+    std::uint32_t type_hash{}, part_index{};
+    std::size_t root_size{}, item_id_offset{}, guid_offset{}, map_offset{}, header_size{};
+    std::size_t bits_offset{}, capacity_offset{}, keys_offset{}, values_offset{}, count_offset{};
+    std::size_t maximum_capacity{}, maximum_probes{};
+};
 struct Layout {
     std::string profile_id;
     std::size_t main_active_context_offset{}, context_item_registry_offset{};
@@ -40,6 +47,7 @@ struct Layout {
     std::size_t resource_offset_offset{}, packed_size_offset{}, chunk_index_offset{}, size_mask{};
     std::size_t chunk_stride{}, chunk_base_pointer_offset{}, chunk_size_offset{};
     std::size_t maximum_entries{}, maximum_chunks{}, maximum_resource_bytes{};
+    ItemMapLayout item_map;
 };
 
 struct View {
@@ -126,6 +134,25 @@ bool copy_memory(std::uintptr_t address, void* destination, std::size_t size) {
     SIZE_T actual{};
     return ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<const void*>(address),
         destination, size, &actual) && actual == size;
+}
+
+// Caller buffers are copied only before or after original engine gates. The
+// count is published last, so failed output copies never publish partial rows.
+bool set_batch_count(std::size_t* actual, std::size_t count) noexcept {
+    __try { *actual = count; return true; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+bool publish_scalar_batch(const std::uint32_t* values, std::size_t count,
+    std::uint32_t* output, std::size_t* actual) noexcept {
+    __try {
+        std::memcpy(output, values, count * sizeof(std::uint32_t));
+        *actual = count;
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+bool publish_resource_id(const KfcRuntimeResourceId& value, KfcRuntimeResourceId* output) noexcept {
+    __try { std::memcpy(output, &value, sizeof(value)); return true; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 
 template <typename T>
@@ -227,6 +254,39 @@ Layout parse_layout(const json& candidate) {
         result.values_rel32_offset + sizeof(std::int32_t) > result.map_header_size ||
         !result.maximum_entries || !result.maximum_chunks || !result.maximum_resource_bytes)
         throw std::runtime_error("incomplete ResourceService profile layout");
+    if (value.contains("itemIdMap")) {
+        const auto& model = value.at("itemIdMap");
+        const auto& provenance = candidate.at("provenance");
+        if (model.at("id") != "original-item-id-map-v1" || model.at("registry") != "g38_items::ItemRegistry" ||
+            model.at("targetType") != "keen::ItemInfo" || !provenance.value("itemIdMapValidated", false) ||
+            !model.at("source").is_string() || model.at("source").get_ref<const std::string&>().empty() ||
+            !provenance.at("itemIdMapEvidence").is_string() ||
+            provenance.at("itemIdMapEvidence").get_ref<const std::string&>().empty())
+            throw std::runtime_error("unproven original ItemRegistry map contract");
+        auto& item = result.item_map;
+        item.type_hash = model.at("targetHash").get<std::uint32_t>();
+        item.part_index = model.at("partIndex").get<std::uint32_t>();
+        item.root_size = json_size(model, "targetSize", result.maximum_resource_bytes);
+        item.item_id_offset = json_size(model, "itemIdOffset", result.maximum_resource_bytes);
+        item.guid_offset = json_size(model, "guidOffset", result.maximum_resource_bytes);
+        item.map_offset = json_size(model, "mapOffset", 0x1000000);
+        item.header_size = json_size(model, "headerSize", 128);
+        item.bits_offset = json_size(model, "bitsPointerOffset", 128);
+        item.capacity_offset = json_size(model, "capacityOffset", 128);
+        item.keys_offset = json_size(model, "keysPointerOffset", 128);
+        item.values_offset = json_size(model, "valuesPointerOffset", 128);
+        item.count_offset = json_size(model, "countOffset", 128);
+        item.maximum_capacity = json_size(model, "maximumCapacity", 1u << 20);
+        item.maximum_probes = json_size(model, "maximumProbes", 256);
+        if (!item.type_hash || item.root_size < 20 || item.item_id_offset > item.root_size - 4 ||
+            item.guid_offset > item.root_size - 16 || item.item_id_offset % 4 ||
+            item.header_size < 8 || item.bits_offset > item.header_size - 8 ||
+            item.capacity_offset > item.header_size - 8 || item.keys_offset > item.header_size - 8 ||
+            item.values_offset > item.header_size - 8 || item.count_offset > item.header_size - 4 ||
+            !item.maximum_capacity || !item.maximum_probes || item.part_index != 0)
+            throw std::runtime_error("invalid original ItemRegistry map contract");
+        item.enabled = true;
+    }
     return result;
 }
 
@@ -395,6 +455,73 @@ bool locate(const Layout& layout, const View& view, const KfcRuntimeResourceId& 
     if (!add(view.values, found * layout.value_stride, entry_address) ||
         !copy_memory(entry_address, entry.data(), entry.size())) return false;
     return span_from_entry(layout, view, found, entry.data(), span);
+}
+
+// Same canonical StaticHash as kfc-base/src/guid/resource.rs. This native
+// resolver learns the GUID inside the guarded lookup, before a Rust caller can
+// hash it. Conformance vectors cover GUID seeding, byte order, type and part.
+std::uint32_t canonical_resource_hash(const KfcRuntimeResourceId& id) {
+    std::uint32_t hash{};
+    std::memcpy(&hash, id.guid, sizeof(hash));
+    const std::uint32_t fields[]{id.type_hash, id.part_index};
+    for (const auto field : fields) {
+        for (unsigned shift = 0; shift < 32; shift += 8) {
+            hash ^= (field >> shift) & 0xff;
+            hash *= 0x01000193u;
+        }
+    }
+    return hash;
+}
+
+struct ItemMapView {
+    std::uintptr_t address{}, bits{}, keys{}, values{};
+    std::uint64_t capacity{};
+    std::uint32_t count{};
+    std::array<unsigned char, 128> header{};
+};
+
+bool item_map_view(const ItemMapLayout& layout, const View& owner, ItemMapView& view) {
+    view = {};
+    if (!add(owner.registry, layout.map_offset, view.address) ||
+        !copy_memory(view.address, view.header.data(), layout.header_size)) return false;
+    const auto field = [&](std::size_t offset, auto& value) {
+        std::memcpy(&value, view.header.data() + offset, sizeof(value));
+    };
+    field(layout.bits_offset, view.bits);
+    field(layout.capacity_offset, view.capacity);
+    field(layout.keys_offset, view.keys);
+    field(layout.values_offset, view.values);
+    field(layout.count_offset, view.count);
+    if (view.capacity > layout.maximum_capacity || view.count > view.capacity ||
+        (view.capacity && (view.capacity & (view.capacity - 1)))) return false;
+    // The original getter returns null before using the arrays if count is 0.
+    if (!view.count) return true;
+    return view.capacity && view.bits && view.keys && view.values &&
+        ((view.capacity + 63) / 64) * 8 <= UINTPTR_MAX - view.bits &&
+        view.capacity * 4 <= UINTPTR_MAX - view.keys &&
+        view.capacity * 8 <= UINTPTR_MAX - view.values;
+}
+
+// Original uint32 hash + linear probing, stopping at the first unoccupied
+// slot. A bounded prefix without an empty slot is incomplete, never not-found.
+std::uint32_t item_map_lookup(const ItemMapLayout& layout, const ItemMapView& view,
+    std::uint32_t wanted, std::uintptr_t& payload) {
+    payload = 0;
+    if (!view.count) return 6;
+    auto slot = static_cast<std::size_t>(wanted) & (view.capacity - 1);
+    const auto maximum = std::min<std::uint64_t>(view.capacity, layout.maximum_probes);
+    for (std::uint64_t probe = 0; probe < maximum; ++probe) {
+        std::uint64_t bits{};
+        std::uint32_t key{};
+        if (!read_value(view.bits + (slot / 64) * 8, bits)) return 5;
+        if (!(bits & (std::uint64_t{1} << (slot % 64)))) return 6;
+        if (!read_value(view.keys + slot * 4, key)) return 5;
+        if (key == wanted) {
+            return read_value(view.values + slot * 8, payload) && payload ? 1 : 5;
+        }
+        slot = (slot + 1) & (view.capacity - 1);
+    }
+    return 5;
 }
 
 bool snapshot_arrays(const Layout& layout, const View& view,
@@ -694,6 +821,181 @@ bool Read(const KfcRuntimeResourceId& resource, std::uint32_t static_hash,
     return true;
 }
 
+std::uint32_t ReadScalarBatch(const KfcRuntimeResourceScalarRequest* requests,
+    std::size_t count, std::uint32_t type_hash, std::size_t root_size,
+    std::size_t offset, std::uint64_t expected_session,
+    std::uint32_t* scalar_bits, std::size_t capacity, std::size_t* actual) {
+    constexpr std::size_t maximum_batch = 64;
+    constexpr std::uint32_t success = 1, invalid_argument = 2, unsupported = 3,
+        stale_context = 4, retry_incomplete = 5;
+    static_assert(sizeof(KfcRuntimeResourceId) == 24);
+    static_assert(sizeof(KfcRuntimeResourceScalarRequest) == 28);
+    if (!actual || !set_batch_count(actual, 0)) return invalid_argument;
+    if (!requests || !scalar_bits || !count || count > maximum_batch || capacity < count ||
+        !expected_session || root_size < sizeof(std::uint32_t) ||
+        offset % alignof(std::uint32_t) || offset > root_size - sizeof(std::uint32_t))
+        return invalid_argument;
+
+    std::array<KfcRuntimeResourceScalarRequest, maximum_batch> copied_requests{};
+    std::array<std::uint32_t, maximum_batch> keys{};
+    std::array<Span, maximum_batch> spans{};
+    if (!copy_memory(reinterpret_cast<std::uintptr_t>(requests), copied_requests.data(),
+        count * sizeof(KfcRuntimeResourceScalarRequest))) return invalid_argument;
+    for (std::size_t index = 0; index < count; ++index) {
+        const auto& id = copied_requests[index].resource;
+        if (id.type_hash != type_hash ||
+            std::all_of(std::begin(id.guid), std::end(id.guid), [](auto value) { return value == 0; }))
+            return invalid_argument;
+    }
+
+    // All allocation and our own mutex acquisitions precede original engine
+    // gates. SessionGuard pins the binding epoch, not mutable resource contents.
+    const auto result = [&]() -> std::uint32_t {
+        std::scoped_lock lock(state_mutex);
+        if (!profile_loaded || !EngineContext::ResourceWriteConfigured()) return unsupported;
+        const auto& layout = active_layout;
+        if (root_size > layout.maximum_resource_bytes) return invalid_argument;
+        EcsRuntime::SessionGuard session;
+        if (!session.TryAcquire(expected_session)) {
+            // SessionGuard intentionally admits only local authority. A stable
+            // client replica still supports the established guarded Read path,
+            // so decline this optimization without weakening stale-session errors.
+            EngineContext::EcsView replica{}, confirmation{};
+            View before{}, after{};
+            if (KfcRuntimeWorldSessionId() == expected_session &&
+                EngineContext::ResolveEcs(replica) && replica.role == EngineContext::EcsRole::ClientReplica &&
+                resolve_view(layout, before, nullptr, &replica.owners) && registry_is_bound(layout, before) &&
+                EngineContext::ResolveEcs(confirmation) && confirmation == replica &&
+                resolve_view(layout, after, nullptr, &confirmation.owners) && registry_is_bound(layout, after) && same_view(before, after) &&
+                KfcRuntimeWorldSessionId() == expected_session) return unsupported;
+            return stale_context;
+        }
+        View initial{};
+        if (!resolve_view(layout, initial) || !registry_is_bound(layout, initial)) return retry_incomplete;
+        EngineContext::ResourceLifeGuard lifetime;
+        if (!lifetime.TryAcquire(initial.service, initial.reader)) return retry_incomplete;
+        EngineContext::Owners owners;
+        View before{};
+        if (!lifetime.Validate(owners) || owners != session.View().owners ||
+            !resolve_view(layout, before, nullptr, &owners) || !same_view(initial, before) ||
+            !registry_is_bound(layout, before)) return stale_context;
+
+        // Read only the fixed inline key. Full resources are still read by the
+        // final candidate lookup and every existing guarded resource writer.
+        for (std::size_t index = 0; index < count; ++index) {
+            const auto& request = copied_requests[index];
+            auto& span = spans[index];
+            if (!locate(layout, before, request.resource, request.static_hash, span) ||
+                span.size < root_size || !lifetime.Contains(span.data, span.size)) return retry_incomplete;
+            std::uintptr_t scalar{};
+            if (!add(span.data, offset, scalar) || scalar % alignof(std::uint32_t)) return retry_incomplete;
+            if (!read_value(scalar, keys[index])) return retry_incomplete;
+        }
+
+        // The lifetime guard does not freeze keys or map entries. Check every
+        // selected identity/span and key again before returning sampled rows.
+        for (std::size_t index = 0; index < count; ++index) {
+            const auto& request = copied_requests[index];
+            const auto& span = spans[index];
+            Span current{};
+            std::uint32_t confirmation{};
+            std::uintptr_t scalar{};
+            if (!locate(layout, before, request.resource, request.static_hash, current) ||
+                current.data != span.data || current.size != span.size ||
+                current.handle != span.handle || current.chunk != span.chunk ||
+                !lifetime.Contains(current.data, current.size) || !add(current.data, offset, scalar) ||
+                !read_value(scalar, confirmation) || confirmation != keys[index]) return retry_incomplete;
+        }
+        EngineContext::Owners after_owners;
+        View after{};
+        if (!lifetime.Validate(after_owners) || after_owners != owners ||
+            !resolve_view(layout, after, nullptr, &after_owners) || !same_view(before, after) ||
+            !registry_is_bound(layout, after)) return stale_context;
+        return success;
+    }();
+    if (result != success) return result;
+    return publish_scalar_batch(keys.data(), count, scalar_bits, actual) ? success : invalid_argument;
+}
+
+std::uint32_t ResolveItem(std::uint32_t item_id, std::uint32_t type_hash,
+    std::size_t root_size, std::size_t item_id_offset, std::size_t guid_offset,
+    std::uint64_t expected_session, KfcRuntimeResourceId* resource) {
+    constexpr std::uint32_t found = 1, invalid_argument = 2, unsupported = 3,
+        stale_context = 4, retry_incomplete = 5, not_found = 6;
+    if (!resource || !publish_resource_id({}, resource) || !item_id || !expected_session ||
+        root_size < 20 || item_id_offset > root_size - 4 || item_id_offset % 4 ||
+        guid_offset > root_size - 16) return invalid_argument;
+    KfcRuntimeResourceId resolved{};
+    const auto result = [&]() -> std::uint32_t {
+        std::scoped_lock lock(state_mutex);
+        if (!profile_loaded || !active_layout.item_map.enabled || !EngineContext::ResourceWriteConfigured())
+            return unsupported;
+        const auto& layout = active_layout;
+        const auto& item = layout.item_map;
+        if (type_hash != item.type_hash || root_size != item.root_size ||
+            item_id_offset != item.item_id_offset || guid_offset != item.guid_offset) return invalid_argument;
+        EcsRuntime::SessionGuard session;
+        if (!session.TryAcquire(expected_session)) return stale_context;
+        View initial{};
+        if (!resolve_view(layout, initial) || !registry_is_bound(layout, initial)) return retry_incomplete;
+        EngineContext::ResourceLifeGuard lifetime;
+        if (!lifetime.TryAcquire(initial.service, initial.reader)) return retry_incomplete;
+        EngineContext::Owners owners;
+        View before{};
+        if (!lifetime.Validate(owners) || owners != session.View().owners ||
+            !resolve_view(layout, before, nullptr, &owners) || !same_view(initial, before) ||
+            !registry_is_bound(layout, before)) return stale_context;
+        ItemMapView map_before{};
+        if (!item_map_view(item, before, map_before)) return retry_incomplete;
+        std::uintptr_t payload{};
+        const auto lookup = item_map_lookup(item, map_before, item_id, payload);
+        if (lookup != found && lookup != not_found) return retry_incomplete;
+        Span span{};
+        if (lookup == found) {
+            std::uintptr_t id_address{}, guid_address{};
+            std::uint32_t stored_id{};
+            if (!lifetime.Contains(payload, root_size) || !add(payload, item_id_offset, id_address) ||
+                !add(payload, guid_offset, guid_address) || !read_value(id_address, stored_id) ||
+                stored_id != item_id || !copy_memory(guid_address, resolved.guid, sizeof(resolved.guid)))
+                return retry_incomplete;
+            resolved.type_hash = type_hash;
+            resolved.part_index = item.part_index;
+            if (!locate(layout, before, resolved, canonical_resource_hash(resolved), span) ||
+                span.data != payload || span.size < root_size || !lifetime.Contains(span.data, span.size))
+                return retry_incomplete;
+        }
+
+        // The original map is a borrowed, read-only sampled view. Resource
+        // lifetime does not freeze its header/arrays, so recheck the original
+        // probe and payload identity rather than trusting a retained pointer.
+        ItemMapView map_after{};
+        std::uintptr_t confirmed_payload{};
+        if (!item_map_view(item, before, map_after) || map_after.address != map_before.address ||
+            map_after.header != map_before.header ||
+            item_map_lookup(item, map_after, item_id, confirmed_payload) != lookup ||
+            confirmed_payload != payload) return retry_incomplete;
+        if (lookup == found) {
+            std::uint32_t confirmed_id{};
+            std::array<unsigned char, 16> confirmed_guid{};
+            Span current{};
+            if (!read_value(payload + item_id_offset, confirmed_id) || confirmed_id != item_id ||
+                !copy_memory(payload + guid_offset, confirmed_guid.data(), confirmed_guid.size()) ||
+                std::memcmp(confirmed_guid.data(), resolved.guid, confirmed_guid.size()) ||
+                !locate(layout, before, resolved, canonical_resource_hash(resolved), current) ||
+                current.data != span.data || current.size != span.size || current.handle != span.handle ||
+                current.chunk != span.chunk || !lifetime.Contains(current.data, current.size)) return retry_incomplete;
+        }
+        EngineContext::Owners after_owners;
+        View after{};
+        if (!lifetime.Validate(after_owners) || after_owners != owners ||
+            !resolve_view(layout, after, nullptr, &after_owners) || !same_view(before, after) ||
+            !registry_is_bound(layout, after)) return stale_context;
+        return lookup;
+    }();
+    if (result != found) return result;
+    return publish_resource_id(resolved, resource) ? found : invalid_argument;
+}
+
 static std::uint32_t compare_exchange_scalar(const KfcRuntimeResourceId& resource, std::uint32_t static_hash,
     std::size_t resource_size, std::size_t offset, const void* expected, const void* desired, std::size_t width,
     std::uint64_t expected_session) {
@@ -824,6 +1126,8 @@ std::string Status() {
         {"mode", "resource-service"}, {"reason", available ? "ready" : reason},
         {"bucketCount", view.bucket_count}, {"resourceIndexCount", view.key_count},
         {"chunkCount", view.chunk_count}, {"resourceEngineCalls", false},
+        {"itemRegistryResolverConfigured", layout.item_map.enabled},
+        {"itemRegistryResolverScope", "resource-service-owner-registry"},
         {"resourceWrites", writes_available}, {"resourceWritesConfigured", writes_configured},
         {"resourceWriteFault", write_fault != nullptr},
         {"resourceWriteReason", write_fault ? write_fault :
@@ -867,6 +1171,24 @@ extern "C" bool __cdecl KfcRuntimeResourceRead(const KfcRuntimeResourceId* resou
     if (!resource) return false;
     try { return ResourceRuntime::Read(*resource, static_hash, buffer, capacity, actual); }
     catch (...) { if (actual) *actual = 0; return false; }
+}
+
+extern "C" std::uint32_t __cdecl KfcRuntimeResourceReadScalarBatch(
+    const KfcRuntimeResourceScalarRequest* requests, std::size_t count, std::uint32_t type_hash,
+    std::size_t root_size, std::size_t offset, std::uint64_t expected_session,
+    std::uint32_t* scalar_bits, std::size_t capacity, std::size_t* actual) {
+    try { return ResourceRuntime::ReadScalarBatch(requests, count, type_hash, root_size, offset,
+        expected_session, scalar_bits, capacity, actual); }
+    catch (...) { if (actual) set_batch_count(actual, 0); return 5; }
+}
+
+extern "C" std::uint32_t __cdecl KfcRuntimeResourceResolveItem(
+    std::uint32_t item_id, std::uint32_t type_hash, std::size_t root_size,
+    std::size_t item_id_offset, std::size_t guid_offset, std::uint64_t expected_session,
+    KfcRuntimeResourceId* resource) {
+    try { return ResourceRuntime::ResolveItem(item_id, type_hash, root_size,
+        item_id_offset, guid_offset, expected_session, resource); }
+    catch (...) { if (resource) publish_resource_id({}, resource); return 5; }
 }
 
 extern "C" std::size_t __cdecl KfcRuntimeResourceStatus(char* buffer, std::size_t capacity) {

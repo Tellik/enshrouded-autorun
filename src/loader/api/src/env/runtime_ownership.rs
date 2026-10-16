@@ -274,8 +274,7 @@ fn claim_component(
             .ok_or("claimed component layout is unavailable")?;
         let ty = state
             .type_registry()
-            .iter()
-            .find(|ty| ty.qualified_name == name)
+            .get_by_name(kfc::reflection::LookupKey::Qualified(&name))
             .ok_or("claimed component is absent from active reflection")?;
         if ty.size != component.size {
             return Err("claimed component reflection and live storage disagree".into());

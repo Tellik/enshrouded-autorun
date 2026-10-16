@@ -6,6 +6,7 @@ mod types;
 
 pub use assets::{Content, Resource, value};
 pub(crate) use assets::loaded_index::Indexes as LoadedResourceIndexes;
+pub(crate) use assets::loaded_index::tick as tick_loaded_resource_indexes;
 pub use types::Type;
 
 pub fn create(lua: &mlua::Lua, r#mod: &mod_loader::Mod) -> mlua::Result<mlua::Table> {

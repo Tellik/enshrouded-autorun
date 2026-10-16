@@ -1,5 +1,5 @@
 //! Lua attribute bindings. Resolution lives in runtime_resolution.
-use super::{AppState, loader, registry};
+use super::{AppState, loader, registry, runtime_metrics};
 pub(crate) use crate::runtime_resolution::attributes::Catalog;
 use crate::runtime_resolution::attributes::{read_header, uint};
 use kfc::guid::Guid;
@@ -17,16 +17,7 @@ impl Catalog {
                 .ok_or_else(|| "attribute ID not found".into()),
             LuaValue::String(name) => {
                 let name = name.to_str().map_err(|e| e.to_string())?;
-                let found: Vec<_> = self
-                    .entries
-                    .values()
-                    .filter(|v| v["name"] == name.as_ref())
-                    .collect();
-                match found.as_slice() {
-                    [value] => Ok(value),
-                    [] => Err(format!("attribute not found: {name}")),
-                    _ => Err("Ambiguous attribute name. Use its ID".into()),
-                }
+                self.by_name(name.as_ref())
             }
             _ => Err("expected original attribute name or unsigned attribute ID".into()),
         }
@@ -89,6 +80,7 @@ fn resolve_storage(
     descriptor: &Value,
     mut read: impl FnMut(&Value) -> Option<Vec<u8>>,
 ) -> Result<(Value, Value, Vec<u8>), String> {
+    let _timing = runtime_metrics::span("attributes.resolve_storage");
     let count = catalog.root_entries(uint(&descriptor["root_hash"])?)?.len();
     let mut found = None;
     let mut readable = 0;
@@ -121,13 +113,20 @@ fn entity_storage(
     descriptor: &Value,
     entity: u32,
 ) -> Result<(Value, Value, Vec<u8>), String> {
-    resolve_storage(catalog, descriptor, |component| {
+    let _timing = runtime_metrics::span("attributes.entity_storage");
+    let count = catalog.root_entries(uint(&descriptor["root_hash"])?)?.len();
+    let candidates = catalog.layouts.iter().filter_map(|component| {
+        if component["storage_size"].as_u64() != Some(count as u64 * 4) { return None; }
         let name = component["qualified_name"].as_str()?;
         let layout = loader::runtime_provider::resolve(name)?;
-        if Some(u64::from(layout.size)) != component["size"].as_u64() {
-            return None;
-        }
-        loader::runtime_provider::read(entity, name, layout.size)
+        (Some(u64::from(layout.size)) == component["size"].as_u64())
+            .then(|| (name.to_owned(), layout.size))
+    }).collect::<Vec<_>>();
+    let snapshots = loader::runtime_provider::read_many(entity, &candidates)?;
+    // Every compatible initialized root is still checked. Batching changes
+    // owner-resolution cost, not the existing uniqueness/header contract.
+    resolve_storage(catalog, descriptor, |component| {
+        snapshots.get(component["qualified_name"].as_str()?).cloned()
     })
 }
 
@@ -163,6 +162,7 @@ fn recalculate_bound_component_update(
     mask: &mut [u8],
     calculation_model: &str,
 ) -> Result<Vec<Value>, String> {
+    let _timing = runtime_metrics::span("attributes.recalculate_component");
     if calculation_model != "attribute-command-v1" {
         return Err("attribute calculations are not validated for this executable profile".into());
     }
@@ -285,6 +285,7 @@ pub(crate) fn attach(lua: &Lua, ecs: &Table, r#mod: &Mod) -> mlua::Result<()> {
     ecs.raw_set(
         "evaluate_attributes",
         lua.create_function(|lua, (selector, values): (LuaValue, Table)| {
+            let _timing = runtime_metrics::span("attributes.evaluate_attributes");
             let execute = || -> Result<LuaValue, String> {
                 let state = lua.app_data_ref::<AppState>().unwrap();
                 let catalog = state.attribute_catalog()?;
@@ -329,6 +330,7 @@ pub(crate) fn attach(lua: &Lua, ecs: &Table, r#mod: &Mod) -> mlua::Result<()> {
     for update in [false, true] {
         let r#mod = r#mod.clone();
         ecs.raw_set(if update { "update_attribute" } else { "read_attributes" }, lua.create_function(move |lua, args: mlua::MultiValue| {
+            let _timing = runtime_metrics::span(if update { "attributes.update_attribute" } else { "attributes.read_attributes" });
             let execute = || -> Result<LuaValue, String> {
                 let state = lua.app_data_ref::<AppState>().unwrap();
                 let feature = if update { "runtime.ecs.write" } else { "runtime.ecs.read" };
@@ -404,6 +406,7 @@ pub(crate) fn attach(lua: &Lua, ecs: &Table, r#mod: &Mod) -> mlua::Result<()> {
                 "read_attribute"
             },
             lua.create_function(move |lua, args: mlua::MultiValue| {
+                let _timing = runtime_metrics::span(if write { "attributes.write_attribute_storage" } else { "attributes.read_attribute" });
                 let state = lua.app_data_ref::<AppState>().unwrap();
                 let execute = || -> Result<LuaValue, String> {
                     let feature = if write {
@@ -498,6 +501,7 @@ fn root_result(
     values: &[u32],
     trace: Vec<Value>,
 ) -> Result<Value, String> {
+    let _timing = runtime_metrics::span("attributes.root_result");
     let mut named = serde_json::Map::new();
     for (entry, bits) in entries.iter().zip(values) {
         let value = match scalar {

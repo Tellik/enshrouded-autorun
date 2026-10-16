@@ -1,6 +1,30 @@
 // Exercise the public ECS read API against a private original-owner fixture.
 // All objects belong to this test process. No game, patch or engine call is used.
+#include <windows.h>
+#include <cstdlib>
+namespace {
+unsigned page_query_count{};
+unsigned mutate_on_page_query{};
+void* page_query_mutation{};
+DWORD page_query_protection{};
+bool mutate_before_page_query{};
+SIZE_T WINAPI counted_ecs_virtual_query(LPCVOID address, PMEMORY_BASIC_INFORMATION memory, SIZE_T length) {
+    ++page_query_count;
+    const auto mutate = [&] {
+        DWORD previous{};
+        if (!::VirtualProtect(page_query_mutation, 4096, page_query_protection, &previous)) std::abort();
+        page_query_mutation = nullptr;
+    };
+    const bool inject = page_query_mutation && page_query_count == mutate_on_page_query;
+    if (inject && mutate_before_page_query) mutate();
+    const auto result = ::VirtualQuery(address, memory, length);
+    if (inject && !mutate_before_page_query) mutate();
+    return result;
+}
+}
+#define VirtualQuery counted_ecs_virtual_query
 #include "ecs_runtime.cpp"
+#undef VirtualQuery
 #include <cstdio>
 #include <cstdlib>
 
@@ -50,7 +74,7 @@ struct alignas(8) Execution {
     struct Queue { std::uintptr_t data{}; std::uint64_t count{}, capacity{4}; std::uintptr_t grow{}, allocator{}; };
     struct Tracker { Queue queues[16]; std::uint32_t count_a{}, count_b{}; std::uintptr_t reserved{}, manager{}; } tracker;
 };
-struct FixtureLayout { std::uint64_t bits{1}; std::uint16_t offset{}, stride{8}; };
+struct FixtureLayout { std::uint64_t bits{1}; std::uint16_t offset{}, stride{8}, next_stride{}; };
 struct Component { std::uint32_t first{42}, second{84}; };
 struct Entity {
     unsigned char reserved[16]{};
@@ -214,6 +238,29 @@ int main() {
     check(component_registry_ready && component_registry_world_bound && read_only_binding);
     check(read_only_view.role == EngineContext::EcsRole::ClientReplica);
     check(KfcRuntimeEcsReady() && !KfcRuntimeEcsCanWrite());
+    // The compact report uses the same validated catalog and retains every
+    // matching role instead of choosing one alias and hiding ambiguity.
+    const auto registration_json = [&](const char* selector) {
+        const auto required = KfcRuntimeEcsRegistration(selector, nullptr, 0);
+        check(required > 1 && required < 64 * 1024);
+        std::vector<char> bytes(required);
+        check(KfcRuntimeEcsRegistration(selector, bytes.data(), bytes.size()) == required);
+        return nlohmann::json::parse(bytes.data());
+    };
+    auto compact_registration = registration_json(component_name);
+    check(compact_registration["available"] == true && compact_registration["entries"].size() == 1);
+    check(compact_registration["entries"][0]["runtime_type"]["size"] == sizeof(Component));
+    check(!compact_registration["entries"][0].contains("callbacks"));
+    check(registration_json("keen::ecs::Unregistered")["entries"].empty());
+    check(KfcRuntimeEcsRegistration(nullptr, nullptr, 0) == 0);
+    check(KfcRuntimeEcsRegistration("", nullptr, 0) == 0);
+    auto alias_entry = component_registry.entries.front();
+    alias_entry.index = 1;
+    alias_entry.name = "keen::ecs::FixtureOther";
+    alias_entry.configuration = alias_entry.storage;
+    component_registry.entries.push_back(alias_entry);
+    check(registration_json(component_name)["entries"].size() == 2);
+    component_registry.entries.pop_back();
     check(!GameThreadDispatcher::Ready());
     check(!KfcRuntimeEcsPropQueryReady());
     const auto session = KfcRuntimeWorldSessionId();
@@ -351,10 +398,131 @@ int main() {
     template_uuid = uuid_before;
     check(KfcRuntimeEcsTemplateUuid(handle, observed_uuid.data()) && observed_uuid == template_uuid);
     check(KfcRuntimeEcsRead(handle, component_name, &value, sizeof(value)) && value.first == 42 && value.second == 84);
+    std::array<std::uint8_t, sizeof(Component)> batch_output{};
+    std::array<std::uint8_t, 1> batch_present{};
+    const auto read_batch = [&] {
+        return KfcRuntimeEcsReadMany(handle, names, component_size, 1,
+            batch_output.data(), batch_output.size(), batch_present.data());
+    };
+    check(read_batch() && batch_present[0] == 1);
+    check(std::memcmp(batch_output.data(), &component, sizeof(component)) == 0);
+    // A registered candidate absent from the current archetype is different
+    // from an unreadable or invalid present candidate.
+    types.emplace("keen::ecs::FixtureAbsent", ComponentType{1, sizeof(Component)});
+    const char* batch_names[]{component_name, "keen::ecs::FixtureAbsent"};
+    const std::uint32_t batch_sizes[]{sizeof(Component), sizeof(Component)};
+    std::array<std::uint8_t, 2 * sizeof(Component)> mixed_output;
+    std::array<std::uint8_t, 2> mixed_present{9,9};
+    mixed_output.fill(0x5a);
+    check(KfcRuntimeEcsReadMany(handle, batch_names, batch_sizes, 2,
+        mixed_output.data(), mixed_output.size(), mixed_present.data()));
+    check(mixed_present[0] == 1 && mixed_present[1] == 0);
+    check(std::memcmp(mixed_output.data(), &component, sizeof(component)) == 0);
+    check(std::all_of(mixed_output.begin() + sizeof(Component), mixed_output.end(), [](auto byte) { return byte == 0; }));
+    // Two present candidates share one private memory region. The page check
+    // happens once before the copies and once at the end, rather than 3*N.
+    auto* shared_components = static_cast<Component*>(VirtualAlloc(nullptr, 4096,
+        MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    check(shared_components != nullptr);
+    shared_components[0] = {101, 202};
+    shared_components[1] = {303, 404};
+    const auto previous_storage = entity.storage;
+    entity.storage = reinterpret_cast<std::uintptr_t>(shared_components);
+    layout.bits = 3;
+    layout.next_stride = sizeof(Component);
+    page_query_count = 0;
+    check(KfcRuntimeEcsReadMany(handle, batch_names, batch_sizes, 2,
+        mixed_output.data(), mixed_output.size(), mixed_present.data()));
+    check(page_query_count == 2 && mixed_present[0] == 1 && mixed_present[1] == 1);
+    check(std::memcmp(mixed_output.data(), shared_components, mixed_output.size()) == 0);
+    const auto rejected_region_batch = [&] {
+        mixed_output.fill(0x5a);
+        mixed_present.fill(9);
+        const auto result = KfcRuntimeEcsReadMany(handle, batch_names, batch_sizes, 2,
+            mixed_output.data(), mixed_output.size(), mixed_present.data());
+        return !result && mixed_present[0] == 9 && mixed_present[1] == 9 &&
+            std::all_of(mixed_output.begin(), mixed_output.end(), [](auto byte) { return byte == 0x5a; });
+    };
+    DWORD prior_region_protection{};
+    check(VirtualProtect(shared_components, 4096, PAGE_NOACCESS, &prior_region_protection));
+    page_query_count = 0;
+    check(rejected_region_batch() && page_query_count == 1);
+    check(VirtualProtect(shared_components, 4096, PAGE_READWRITE, &prior_region_protection));
+    check(VirtualProtect(shared_components, 4096, PAGE_READWRITE | PAGE_GUARD, &prior_region_protection));
+    page_query_count = 0;
+    check(rejected_region_batch() && page_query_count == 1);
+    check(VirtualProtect(shared_components, 4096, PAGE_READWRITE, &prior_region_protection));
+    // A changed protection at final validation rejects even a still-readable
+    // region. The cache is not a permission retained across calls.
+    page_query_count = 0;
+    mutate_on_page_query = 2;
+    page_query_mutation = shared_components;
+    page_query_protection = PAGE_READONLY;
+    mutate_before_page_query = true;
+    check(rejected_region_batch() && page_query_count == 2 && !page_query_mutation);
+    check(VirtualProtect(shared_components, 4096, PAGE_READWRITE, &prior_region_protection));
+    page_query_count = 0;
+    page_query_mutation = shared_components;
+    page_query_protection = PAGE_NOACCESS;
+    check(rejected_region_batch() && page_query_count == 2 && !page_query_mutation);
+    check(VirtualProtect(shared_components, 4096, PAGE_READWRITE, &prior_region_protection));
+    // Losing access after the initial observation fails in the actual SEH
+    // payload copy, before any output or final page validation can escape.
+    page_query_count = 0;
+    mutate_on_page_query = 1;
+    page_query_mutation = shared_components;
+    mutate_before_page_query = false;
+    check(rejected_region_batch() && page_query_count == 1 && !page_query_mutation);
+    check(VirtualProtect(shared_components, 4096, PAGE_READWRITE, &prior_region_protection));
+    page_query_count = 0;
+    check(KfcRuntimeEcsReadMany(handle, batch_names, batch_sizes, 2,
+        mixed_output.data(), mixed_output.size(), mixed_present.data()) && page_query_count == 2);
+    entity.storage = previous_storage;
+    layout.next_stride = 0;
+    check(VirtualFree(shared_components, 0, MEM_RELEASE));
+    // A present second candidate with an invalid stride rejects the whole
+    // batch, including the first candidate already copied internally.
+    layout.bits = 3;
+    mixed_output.fill(0x5a);
+    mixed_present.fill(9);
+    check(!KfcRuntimeEcsReadMany(handle, batch_names, batch_sizes, 2,
+        mixed_output.data(), mixed_output.size(), mixed_present.data()));
+    check(std::all_of(mixed_output.begin(), mixed_output.end(), [](auto byte) { return byte == 0x5a; }) &&
+        mixed_present[0] == 9 && mixed_present[1] == 9);
+    layout.bits = 1;
+    types.erase("keen::ecs::FixtureAbsent");
+    layout.bits = 0;
+    check(read_batch() && batch_present[0] == 0);
+    check(std::all_of(batch_output.begin(), batch_output.end(), [](auto byte) { return byte == 0; }));
+    layout.bits = 1;
+    batch_output.fill(0x5a);
+    batch_present[0] = 9;
+    const auto untouched_output = batch_output;
+    auto wrong_size = std::uint32_t{sizeof(Component)-1};
+    check(!KfcRuntimeEcsReadMany(handle, names, &wrong_size, 1,
+        batch_output.data(), sizeof(Component)-1, batch_present.data()));
+    check(batch_output == untouched_output && batch_present[0] == 9);
+    check(!KfcRuntimeEcsReadMany(handle, names, component_size, 0,
+        batch_output.data(), batch_output.size(), batch_present.data()));
+    check(!KfcRuntimeEcsReadMany(handle, names, component_size, 65,
+        batch_output.data(), batch_output.size(), batch_present.data()));
+    check(!KfcRuntimeEcsReadMany(handle, names, component_size, 1,
+        batch_output.data(), batch_output.size()+1, batch_present.data()));
+    check(!KfcRuntimeEcsReadMany(handle, names, component_size, 1,
+        batch_output.data(), EcsRuntime::MaximumReadManyBytes+1, batch_present.data()));
+    check(!KfcRuntimeEcsReadMany(handle, nullptr, component_size, 1,
+        batch_output.data(), batch_output.size(), batch_present.data()));
+    check(!KfcRuntimeEcsReadMany(handle, names, nullptr, 1,
+        batch_output.data(), batch_output.size(), batch_present.data()));
+    check(!KfcRuntimeEcsReadMany(handle, names, component_size, 1,
+        nullptr, batch_output.size(), batch_present.data()));
+    check(!KfcRuntimeEcsReadMany(handle, names, component_size, 1,
+        batch_output.data(), batch_output.size(), nullptr));
     component.first = 123;
     check(KfcRuntimeEcsRead(handle, component_name, &value, sizeof(value)) && value.first == 123);
     check(!KfcRuntimeEcsRead(handle, component_name, &value, sizeof(value) - 1));
     layout.stride = 0;
+    check(!read_batch() && batch_output == untouched_output && batch_present[0] == 9);
     query_cache.clear();
     check(KfcRuntimeEcsQuery(names, 1, &handle, 1) == 1);
     check(!KfcRuntimeEcsRead(handle, component_name, &value, sizeof(value)));
@@ -364,11 +532,13 @@ int main() {
     std::uint8_t mask[sizeof(Component)]{};
     check(!KfcRuntimeEcsWrite(handle, component_name, mask, &value, sizeof(value)));
     table[0] = 0;
+    check(!read_batch());
     check(!KfcRuntimeEcsTemplateUuid(handle, observed_uuid.data()));
     check(!KfcRuntimeEcsRead(handle, component_name, &value, sizeof(value)));
     check(!KfcRuntimeEcsEntityIdentity(handle, &identity));
     table[0] = reinterpret_cast<std::uintptr_t>(&entity);
     ++entity.generation;
+    check(!read_batch());
     check(!KfcRuntimeEcsTemplateUuid(handle, observed_uuid.data()));
     check(!KfcRuntimeEcsRead(handle, component_name, &value, sizeof(value)));
     --entity.generation;
@@ -379,6 +549,7 @@ int main() {
     check(!KfcRuntimeEcsEntityIdentity(handle, &identity));
     check(!KfcRuntimeEcsRead(handle, component_name, &value, sizeof(value)));
     EcsRuntime::Tick();
+    check(!read_batch());
     check(KfcRuntimeEcsReady() && KfcRuntimeWorldSessionId() != session);
     check(!KfcRuntimeEcsRead(handle, component_name, &value, sizeof(value)));
     result = KfcRuntimeEcsQuery(names, 1, &handle, 1);
@@ -519,6 +690,11 @@ int main() {
     const auto original_storage = entity.storage;
     entity.storage = reinterpret_cast<std::uintptr_t>(protected_component);
     DWORD old_protection{};
+    batch_output.fill(0x5a);
+    batch_present[0] = 9;
+    check(VirtualProtect(protected_component,4096,PAGE_NOACCESS,&old_protection) != FALSE);
+    check(!read_batch() && batch_output == untouched_output && batch_present[0] == 9);
+    check(VirtualProtect(protected_component,4096,PAGE_READWRITE,&old_protection) != FALSE);
     check(VirtualProtect(protected_component,4096,PAGE_READONLY,&old_protection) != FALSE);
     check(KfcRuntimeEcsCompareExchange(handle,component_name,&expected,mask,&changed,sizeof(changed))==0);
     check(protected_component->first==expected.first && thread_registry_gate==0 && scene_owner.gate==0);

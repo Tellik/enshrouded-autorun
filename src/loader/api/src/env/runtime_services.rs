@@ -77,7 +77,7 @@ fn get(
             return Err("named service has no reflected inline fields".into());
         }
         for (_, field) in fields {
-            runtime_values::inline_field(types, metadata.index, &field.name)?;
+            state.inline_field(metadata.index, &field.name)?;
         }
         let session = loader::runtime_provider::world_session_id();
         require_session(session)?;
@@ -163,8 +163,7 @@ impl RuntimeService {
             .create_table_with_capacity(0, selected.len())
             .map_err(|e| e.to_string())?;
         for path in selected {
-            let field =
-                runtime_values::inline_field(state.type_registry(), self.service_type, &path)?;
+            let field = state.inline_field(self.service_type, &path)?;
             result
                 .raw_set(path.as_str(), field.read(lua, &bytes)?)
                 .map_err(|e| e.to_string())?;
@@ -187,7 +186,7 @@ impl RuntimeService {
         let state = lua.app_data_ref::<AppState>().unwrap();
         require_access(&state, &self.owner_mod, "runtime.ecs.write")?;
         let before = self.snapshot(&state)?;
-        let field = runtime_values::inline_field(state.type_registry(), self.service_type, &path)?;
+        let field = state.inline_field(self.service_type, &path)?;
         let mut expected = before.clone();
         let mut expected_mask = vec![0; before.len()];
         field.write_into(lua, &args[2], &mut expected, &mut expected_mask)?;

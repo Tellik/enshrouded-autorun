@@ -26,7 +26,7 @@ end
 local function fixture()
     local f = {
         settings={}, session=41, writes=0, players={11}, active_item=0,
-        pitch_mode="YawSpeedPitchTargetAngle", pitch_input=0, pitch_degrees=0,
+        pitch_mode="YawSpeedPitchTargetAngle", pitch_input=0, pitch_degrees=0, delta_seconds=1/60,
         action_sets_gliding=false, action_unsets_gliding=false,
         attributes={[11]={StaminaDepletionMod_Glider=0.35}},
         trackers={},
@@ -161,7 +161,7 @@ local function fixture()
     f.mod.on_load()
     function f:tick()
         if self.cleanup_pending then return self:unload() end
-        self.mod.on_update()
+        self.mod.on_update(self.delta_seconds)
     end
     function f:unload()
         self.cleanup_pending = true
@@ -175,6 +175,50 @@ local function fixture()
         self.cleanup_pending = false
     end
     return f
+end
+
+do
+    local f = fixture()
+    local preparations, resolutions = 0, 0
+    local read = game.assets.get_loaded_resource
+    game.assets.prepare_loaded_index = function(type_name, path)
+        equal(type_name, "keen::ItemInfo")
+        equal(path, "itemId.value")
+        preparations = preparations + 1
+        return false, "queued"
+    end
+    f.mod.on_load()
+    equal(preparations, 1, "preparation is registered before any glider action")
+    game.assets.resolve_loaded_resource = function(registry_name, item_id)
+        equal(registry_name, "g38_items::ItemRegistry")
+        equal(item_id, f.item_id)
+        resolutions = resolutions + 1
+        return read("80c9eaeb-7fa0-480d-a55f-91c2c51b383e", "keen::ItemInfo", 0)
+    end
+    game.assets.get_loaded_resource_by_field = function()
+        error("a supported canonical relation must not scan every ItemInfo")
+    end
+    f.active_item, f.settings.turnSpeed = f.item_id, 200
+    f:tick()
+    equal(f.glider.equipment.gliderConfig.yawAngleSpeed, 110, "first action uses the canonical original relation")
+    f:tick()
+    equal(resolutions, 2, "each canonical lookup rechecks the registry rather than an old GUID hint")
+    f:unload()
+end
+
+do
+    local f = fixture()
+    game.assets.resolve_loaded_resource = function()
+        return nil, "original ItemRegistry is busy, unavailable or changed. Retry later"
+    end
+    game.assets.get_loaded_resource_by_field = function()
+        error("a busy validated relation must not switch to a different selection contract")
+    end
+    f.active_item, f.settings.turnSpeed = f.item_id, 200
+    f:tick()
+    equal(f.writes, 0, "a busy original relation cannot authorize a guessed resource")
+    equal(f.state, "waiting")
+    f:unload()
 end
 
 do
@@ -226,6 +270,64 @@ do
     f.attributes[12] = {StaminaDepletionMod_Glider=0.35}
     f:tick()
     equal(f.glider.equipment.gliderConfig.pitchAngleSpeed, 70, "shared rate steering stops when another player appears")
+    f:unload()
+end
+
+do
+    -- This is the old controller's arithmetic counterexample, not a model of
+    -- the engine's complete glider physics. asin hides crossing the pole.
+    local pitch, delta = -80, 0.65
+    local old_rate = -(pitch + 85) / 0.25
+    local next_pitch = pitch + old_rate * delta
+    assert(next_pitch < -90, "a 650 ms interval exceeds the old fixed 250 ms horizon")
+    local angle = math.rad(next_pitch)
+    local folded = math.deg(math.asin(math.sin(angle)))
+    assert(math.cos(angle) < 0 and folded > -90,
+        "after crossing vertical the folded pitch conceals the reversed horizontal heading")
+
+    local f = fixture()
+    f.settings.unlimitedFlying = true
+    f.active_item, f.pitch_mode, f.pitch_input = f.item_id, "YawSpeedPitchSpeed", -1
+    f.pitch_degrees, f.delta_seconds = pitch, delta
+    f:tick()
+    local rate = f.glider.equipment.gliderConfig.pitchAngleSpeed
+    assert(math.abs(rate + 5 / 1.3) < 0.00001, "measured interval sets a two-interval steering margin")
+    assert(pitch + rate * delta > -85, "the observed 650 ms interval cannot cross the 85 degree margin")
+    f.delta_seconds = 1/60
+    f:tick()
+    equal(f.glider.equipment.gliderConfig.pitchAngleSpeed, rate, "a shorter next interval retains the active flight's peak")
+    f.active_item = 0
+    f:tick()
+    equal(f.glider.equipment.gliderConfig.pitchAngleSpeed, 70, "landing restores the original rate after a slow interval")
+    f.active_item = f.item_id
+    f:tick()
+    equal(f.glider.equipment.gliderConfig.pitchAngleSpeed, -20, "the next flight starts with a fresh interval history")
+    f:unload()
+end
+
+do
+    local f = fixture()
+    f.settings.unlimitedFlying = true
+    f.active_item, f.pitch_mode, f.pitch_input = f.item_id, "YawSpeedPitchSpeed", -1
+    f.pitch_degrees = -100
+    f:tick()
+    equal(f.glider.equipment.gliderConfig.pitchAngleSpeed, 70, "inverted up vector restores the native positive rate instead of using folded pitch")
+    assert(f.detail:find("inverted recovery", 1, true), "recovery is reported")
+    f.pitch_degrees = -80
+    f:tick()
+    equal(f.glider.equipment.gliderConfig.pitchAngleSpeed, 70, "holding climb cannot immediately restart the negative rate after inversion")
+    f.pitch_input = 0
+    f:tick()
+    equal(f.glider.equipment.gliderConfig.pitchAngleSpeed, 0, "releasing climb while upright clears the recovery latch")
+    f.pitch_input = -1
+    f:tick()
+    equal(f.glider.equipment.gliderConfig.pitchAngleSpeed, -20, "a new climb command uses the bounded rate again")
+    f.delta_seconds = 0
+    f:tick()
+    equal(f.glider.equipment.gliderConfig.pitchAngleSpeed, 70, "an invalid measured interval restores rather than retaining a negative rate")
+    f.delta_seconds = 0/0
+    f:tick()
+    equal(f.glider.equipment.gliderConfig.pitchAngleSpeed, 70, "a nonfinite interval cannot authorize steering")
     f:unload()
 end
 

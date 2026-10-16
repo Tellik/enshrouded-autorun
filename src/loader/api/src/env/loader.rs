@@ -2056,8 +2056,7 @@ fn ecs_fields(
         .ok_or_else(|| format!("live ECS component unavailable: {name}"))?;
     let registry = state.type_registry();
     let metadata = registry
-        .iter()
-        .find(|ty| ty.qualified_name == name)
+        .get_by_name(kfc::reflection::LookupKey::Qualified(&name))
         .ok_or_else(|| format!("component type metadata unavailable: {name}"))?;
     if metadata.size != component.size {
         return Err(format!(
@@ -2089,7 +2088,7 @@ fn ecs_fields(
             };
             path.to_str().map_err(|e| e.to_string())?.to_owned()
         };
-        let field = super::runtime_values::inline_field(registry, metadata.index, &path)
+        let field = state.inline_field(metadata.index, &path)
             .map_err(|e| format!("{path}: {e}"))?;
         if fields.insert(path, (field, value)).is_some() {
             return Err("duplicate field path".into());
@@ -2526,11 +2525,24 @@ pub(super) mod runtime_provider {
     type Configure = unsafe extern "C" fn(*const *const c_char, *const u32, usize) -> bool;
     type Describe = unsafe extern "C" fn(*const c_char, *mut u32) -> bool;
     type Registry = unsafe extern "C" fn(*mut c_char, usize) -> usize;
+    type Registration = unsafe extern "C" fn(*const c_char, *mut c_char, usize) -> usize;
     type FunctionCode = unsafe extern "C" fn(u32, *mut u8, usize) -> usize;
     type ResourcesByType =
         unsafe extern "C" fn(u32, *mut RuntimeResourceId, usize, *mut usize) -> bool;
     type ResourceRead =
         unsafe extern "C" fn(*const RuntimeResourceId, u32, *mut u8, usize, *mut usize) -> bool;
+    #[repr(C)]
+    struct ResourceScalarRequest {
+        resource: RuntimeResourceId,
+        static_hash: u32,
+    }
+    type ResourceReadScalarBatch = unsafe extern "C" fn(
+        *const ResourceScalarRequest, usize, u32, usize, usize, u64,
+        *mut u32, usize, *mut usize,
+    ) -> u32;
+    type ResourceResolveItem = unsafe extern "C" fn(
+        u32, u32, usize, usize, usize, u64, *mut RuntimeResourceId,
+    ) -> u32;
     type EntityTemplateUuid = unsafe extern "C" fn(u32, *mut u8) -> bool;
     type ServiceRead = unsafe extern "C" fn(*const c_char, u32, u32, u64, *mut u8, usize) -> bool;
     type ServiceCompareExchange = unsafe extern "C" fn(
@@ -2548,6 +2560,8 @@ pub(super) mod runtime_provider {
     ) -> u32;
     type ResolveType = unsafe extern "C" fn(*const c_char, *mut c_char, usize) -> bool;
     type Query = unsafe extern "C" fn(*const *const c_char, usize, *mut u32, usize) -> usize;
+    type ReadMany = unsafe extern "C" fn(u32, *const *const c_char, *const u32,
+        usize, *mut u8, usize, *mut u8) -> bool;
     type QueryBounds = unsafe extern "C" fn(
         *const *const c_char,
         usize,
@@ -2622,12 +2636,15 @@ pub(super) mod runtime_provider {
         can_write_component: Option<RuntimePatchAvailable>,
         describe: Describe,
         registry: Option<Registry>,
+        registration: Option<Registration>,
         functions: Option<Registry>,
         function_code: Option<FunctionCode>,
         service_read: Option<ServiceRead>,
         service_compare_exchange: Option<ServiceCompareExchange>,
         resources_by_type: Option<ResourcesByType>,
         resource_read: Option<ResourceRead>,
+        resource_read_scalar_batch: Option<ResourceReadScalarBatch>,
+        resource_resolve_item: Option<ResourceResolveItem>,
         resource_can_write: Option<Ready>,
         resource_compare_exchange_scalar_for_session: Option<ResourceCompareExchangeScalarForSession>,
         resource_status: Option<Registry>,
@@ -2637,6 +2654,7 @@ pub(super) mod runtime_provider {
         query_bounds: Option<QueryBounds>,
         resolve_entity: ResolveEntity,
         read: Read,
+        read_many: Option<ReadMany>,
         compare_exchange: Option<CompareExchange>,
         world_operation_available: WorldOperationAvailable,
         world_context_active: WorldContextActive,
@@ -2730,6 +2748,10 @@ pub(super) mod runtime_provider {
                                     std::mem::transmute::<*const c_void, Registry>(pointer)
                                 })
                             },
+                            registration: {
+                                let pointer = GetProcAddress(module, c"KfcRuntimeEcsRegistration".as_ptr());
+                                (!pointer.is_null()).then(|| std::mem::transmute::<*const c_void, Registration>(pointer))
+                            },
                             functions: {
                                 let pointer =
                                     GetProcAddress(module, c"KfcRuntimeFunctions".as_ptr());
@@ -2765,6 +2787,14 @@ pub(super) mod runtime_provider {
                                 (!pointer.is_null()).then(|| {
                                     std::mem::transmute::<*const c_void, ResourceRead>(pointer)
                                 })
+                            },
+                            resource_read_scalar_batch: {
+                                let pointer = GetProcAddress(module, c"KfcRuntimeResourceReadScalarBatch".as_ptr());
+                                (!pointer.is_null()).then(|| std::mem::transmute::<*const c_void, ResourceReadScalarBatch>(pointer))
+                            },
+                            resource_resolve_item: {
+                                let pointer = GetProcAddress(module, c"KfcRuntimeResourceResolveItem".as_ptr());
+                                (!pointer.is_null()).then(|| std::mem::transmute::<*const c_void, ResourceResolveItem>(pointer))
                             },
                             resource_status: {
                                 let pointer =
@@ -2817,6 +2847,10 @@ pub(super) mod runtime_provider {
                             },
                             resolve_entity: symbol!("KfcRuntimeEcsResolve", ResolveEntity),
                             read: symbol!("KfcRuntimeEcsRead", Read),
+                            read_many: {
+                                let pointer = GetProcAddress(module, c"KfcRuntimeEcsReadMany".as_ptr());
+                                (!pointer.is_null()).then(|| std::mem::transmute::<*const c_void, ReadMany>(pointer))
+                            },
                             compare_exchange: {
                                 let pointer = GetProcAddress(
                                     module,
@@ -2989,9 +3023,11 @@ pub(super) mod runtime_provider {
         })
     }
     pub fn can_write() -> bool {
+        let _span = crate::env::runtime_metrics::span("native.ecs.can_write");
         provider().is_some_and(|value| unsafe { (value.can_write)() })
     }
     pub fn can_write_component(name: &str) -> bool {
+        let _span = crate::env::runtime_metrics::span("native.ecs.can_write_component");
         let Some(provider) = provider() else {
             return false;
         };
@@ -3398,6 +3434,7 @@ pub(super) mod runtime_provider {
         serde_json::json!({"available":true,"abi":provider.abi,"initialized":true,"ready":unsafe{(provider.ready)()},"writable":unsafe{(provider.can_write)()},"awaitingWorld":awaiting_world,"detail":detail,"resourceService":resource_status()})
     }
     pub fn resolve(name: &str) -> Option<Component> {
+        let _span = crate::env::runtime_metrics::span("native.ecs.resolve_type");
         let provider = provider()?;
         let name = CString::new(name).ok()?;
         let mut size = 0;
@@ -3414,10 +3451,32 @@ pub(super) mod runtime_provider {
         String::from_utf8(buffer[..length].to_vec()).ok()
     }
     pub fn registry() -> Result<serde_json::Value, String> {
+        let _span = crate::env::runtime_metrics::span("native.ecs.registry_catalog");
         let fetch = provider().and_then(|p| p.registry).ok_or(
             "Native provider lacks the component registry extension. Install the matching provider",
         )?;
         fetch_json(fetch, 8 * 1024 * 1024)
+    }
+    pub fn registration(name: &str) -> Result<serde_json::Value, String> {
+        let _span = crate::env::runtime_metrics::span("native.ecs.registration");
+        let Some(fetch) = provider().and_then(|provider| provider.registration) else {
+            return registry();
+        };
+        let name = CString::new(name).map_err(|_| "invalid registration name")?;
+        let mut size = unsafe { fetch(name.as_ptr(), std::ptr::null_mut(), 0) };
+        for _ in 0..3 {
+            if !(2..=1024 * 1024).contains(&size) {
+                return Err("invalid native registration response size".into());
+            }
+            let mut bytes = vec![0u8; size];
+            let required = unsafe { fetch(name.as_ptr(), bytes.as_mut_ptr().cast(), bytes.len()) };
+            if required > size { size = required; continue; }
+            if required < 2 || bytes[required - 1] != 0 {
+                return Err("invalid native registration response".into());
+            }
+            return serde_json::from_slice(&bytes[..required - 1]).map_err(|e| e.to_string());
+        }
+        Err("native registration changed repeatedly during read".into())
     }
     pub fn functions() -> Result<&'static serde_json::Value, String> {
         static CATALOG: OnceLock<serde_json::Value> = OnceLock::new();
@@ -3442,6 +3501,7 @@ pub(super) mod runtime_provider {
         Some(code)
     }
     pub fn resources_by_type(type_hash: u32) -> Result<Vec<kfc::guid::ResourceId>, String> {
+        let _span = crate::env::runtime_metrics::span("native.assets.list_type");
         use kfc::guid::{Guid, ResourceId};
         let fetch = provider()
             .and_then(|value| value.resources_by_type)
@@ -3474,6 +3534,7 @@ pub(super) mod runtime_provider {
             .collect())
     }
     pub fn resource_exists(resource: &kfc::guid::ResourceId) -> Result<bool, String> {
+        let _span = crate::env::runtime_metrics::span("native.assets.resource_exists");
         use kfc::container::StaticHash;
         let fetch = provider()
             .and_then(|value| value.resource_read)
@@ -3504,28 +3565,177 @@ pub(super) mod runtime_provider {
             Err("live ResourceService resource is unavailable".into())
         }
     }
+    pub fn resource_scalar_batch(
+        ids: &[kfc::guid::ResourceId], type_hash: u32, root_size: usize,
+        offset: usize, session: u64,
+    ) -> Result<Vec<[u8; 4]>, String> {
+        let _span = crate::env::runtime_metrics::span("native.assets.scalar_batch");
+        use kfc::container::StaticHash;
+        if ids.is_empty() || ids.len() > 64 || offset % 4 != 0
+            || offset.checked_add(4).is_none_or(|end| end > root_size)
+            || ids.iter().any(|id| id.type_hash() != type_hash)
+        {
+            return Err("invalid resource scalar batch selection".into());
+        }
+        if world_session_id() != session {
+            return Err("world session changed before resource scalar batch".into());
+        }
+        if let Some(fetch) = provider().and_then(|value| value.resource_read_scalar_batch)
+            .filter(|_| session != 0)
+        {
+            let requests: Vec<_> = ids.iter().map(|id| ResourceScalarRequest {
+                resource: RuntimeResourceId::from(id), static_hash: id.static_hash(),
+            }).collect();
+            let mut bits = vec![0u32; ids.len()];
+            let mut actual = 0usize;
+            let status = unsafe { fetch(requests.as_ptr(), requests.len(), type_hash,
+                root_size, offset, session, bits.as_mut_ptr(), bits.len(), &mut actual) };
+            if world_session_id() != session {
+                return Err("world session changed during resource scalar batch".into());
+            }
+            match status {
+                1 if actual == ids.len() => return Ok(bits.into_iter().map(u32::to_le_bytes).collect()),
+                3 => {}, // Older exact profiles retain the established read contract.
+                4 => return Err("resource scalar batch context changed".into()),
+                5 => return Err("resource scalar batch incomplete: engine busy, unavailable or changed".into()),
+                _ => return Err("resource scalar batch rejected invalid input or response".into()),
+            }
+        }
+        let mut values = Vec::with_capacity(ids.len());
+        for id in ids {
+            let bytes = resource_read(id)?;
+            if bytes.len() < root_size {
+                return Err("resource scalar snapshot is smaller than reflected root".into());
+            }
+            values.push(bytes.get(offset..offset + 4)
+                .ok_or("resource scalar outside current snapshot")?.try_into().unwrap());
+        }
+        if world_session_id() != session {
+            return Err("world session changed during resource scalar fallback".into());
+        }
+        Ok(values)
+    }
+
+    pub fn resource_resolve_item(
+        item_id: u32, type_hash: u32, root_size: usize, item_id_offset: usize,
+        guid_offset: usize, session: u64,
+    ) -> Result<Option<kfc::guid::ResourceId>, String> {
+        let _span = crate::env::runtime_metrics::span("native.assets.resolve_item");
+        let fetch = provider().and_then(|value| value.resource_resolve_item)
+            .ok_or("provider lacks the original ItemRegistry resolver")?;
+        if session == 0 || world_session_id() != session {
+            return Err("original ItemRegistry needs the current authoritative world".into());
+        }
+        let mut id = RuntimeResourceId::default();
+        let status = unsafe { fetch(item_id, type_hash, root_size, item_id_offset,
+            guid_offset, session, &mut id) };
+        if world_session_id() != session {
+            return Err("world changed during original ItemRegistry resolution".into());
+        }
+        match status {
+            1 if id.type_hash == type_hash && id.guid != [0; 16] => Ok(Some(kfc::guid::ResourceId::new(
+                kfc::guid::Guid::new(id.guid), id.type_hash, id.part_index))),
+            6 => Ok(None),
+            3 => Err("original ItemRegistry contract is unavailable for this provider/profile".into()),
+            4 => Err("original ItemRegistry world or owner changed".into()),
+            5 => Err("original ItemRegistry is busy, unavailable or changed. Retry later".into()),
+            _ => Err("original ItemRegistry rejected the reflected key/layout contract".into()),
+        }
+    }
+
+    // The native reader reports the required size on insufficient capacity and
+    // independently validates two full copies before a successful return. Start
+    // with owned bounded storage, avoiding a separate size-only VirtualQuery over
+    // a potentially very large committed engine allocation on every API read.
+    fn read_resource_buffer(mut fetch: impl FnMut(&mut [u8], &mut usize) -> bool) -> Result<Vec<u8>, String> {
+        const LIMIT: usize = 256 * 1024 * 1024;
+        let mut bytes = vec![0u8; 16 * 1024];
+        for attempt in 0..3 {
+            let mut actual = 0;
+            let success = fetch(&mut bytes, &mut actual);
+            if actual > LIMIT {
+                return Err("live ResourceService resource exceeded the 256 MiB safety limit".into());
+            }
+            if success {
+                if actual > bytes.len() {
+                    return Err("native resource read exceeded its output capacity".into());
+                }
+                bytes.truncate(actual);
+                return Ok(bytes);
+            }
+            if actual <= bytes.len() {
+                return Err("live ResourceService resource is unavailable or changed during retrieval".into());
+            }
+            if attempt == 2 { break; }
+            bytes.resize(actual, 0);
+        }
+        Err("live ResourceService resource size kept changing during retrieval".into())
+    }
+
+    #[cfg(test)]
+    mod resource_buffer_tests {
+        use super::read_resource_buffer;
+
+        #[test]
+        fn reads_small_snapshots_without_a_size_only_probe_and_retries_larger_owned_buffers() {
+            let mut calls = 0;
+            let small = read_resource_buffer(|buffer, actual| {
+                calls += 1;
+                assert!(!buffer.is_empty());
+                buffer[..4].copy_from_slice(&[1, 2, 3, 4]);
+                *actual = 4;
+                true
+            }).unwrap();
+            assert_eq!(small, [1, 2, 3, 4]);
+            assert_eq!(calls, 1);
+            calls = 0;
+            let large = read_resource_buffer(|buffer, actual| {
+                calls += 1;
+                *actual = 20 * 1024;
+                if buffer.len() < *actual { return false; }
+                buffer.fill(42);
+                true
+            }).unwrap();
+            assert_eq!(calls, 2);
+            assert_eq!(large, vec![42; 20 * 1024]);
+        }
+
+        #[test]
+        fn never_publishes_failed_or_incomplete_resource_buffers() {
+            assert!(read_resource_buffer(|buffer, actual| {
+                buffer[0] = 99;
+                *actual = 4;
+                false
+            }).is_err());
+            assert!(read_resource_buffer(|buffer, actual| {
+                *actual = buffer.len() + 1;
+                true
+            }).is_err());
+            assert!(read_resource_buffer(|_, actual| {
+                *actual = 256 * 1024 * 1024 + 1;
+                false
+            }).unwrap_err().contains("safety limit"));
+            let mut calls = 0;
+            assert!(read_resource_buffer(|buffer, actual| {
+                calls += 1;
+                *actual = buffer.len() + 1;
+                false
+            }).unwrap_err().contains("kept changing"));
+            assert_eq!(calls, 3);
+        }
+    }
+
     pub fn resource_read(resource: &kfc::guid::ResourceId) -> Result<Vec<u8>, String> {
+        let _span = crate::env::runtime_metrics::span("native.assets.read_resource");
         use kfc::container::StaticHash;
         let fetch = provider()
             .and_then(|value| value.resource_read)
             .ok_or("native provider lacks the ResourceService read extension")?;
         let native = RuntimeResourceId::from(resource);
         let hash = resource.static_hash();
-        let mut size = 0usize;
-        if !unsafe { fetch(&native, hash, std::ptr::null_mut(), 0, &mut size) } {
-            return Err("live ResourceService resource is unavailable".into());
-        }
-        if size > 256 * 1024 * 1024 {
-            return Err("live ResourceService resource exceeded the 256 MiB safety limit".into());
-        }
-        let mut bytes = vec![0u8; size];
-        let mut actual = 0usize;
-        if !unsafe { fetch(&native, hash, bytes.as_mut_ptr(), bytes.len(), &mut actual) }
-            || actual != size
-        {
-            return Err("live ResourceService resource changed during retrieval".into());
-        }
-        Ok(bytes)
+        read_resource_buffer(|bytes, actual| unsafe {
+            fetch(&native, hash, bytes.as_mut_ptr(), bytes.len(), actual)
+        })
     }
     pub fn service_read(key: &str, type_hash: u32, size: u32, session: u64) -> Result<Vec<u8>, String> {
         if size == 0 || size > 256 * 1024 * 1024 {
@@ -3654,6 +3864,7 @@ pub(super) mod runtime_provider {
         Err("component registry changed repeatedly during read".into())
     }
     pub fn query(components: &[String]) -> Result<Vec<u32>, &'static str> {
+        let _span = crate::env::runtime_metrics::span("native.ecs.query");
         let Some(provider) = provider() else {
             return Err("native ECS provider unavailable");
         };
@@ -3734,6 +3945,7 @@ pub(super) mod runtime_provider {
         Ok(entities)
     }
     pub fn read(entity: u32, name: &str, size: u32) -> Option<Vec<u8>> {
+        let _span = crate::env::runtime_metrics::span("native.ecs.read_component");
         let provider = provider()?;
         let name = CString::new(name).ok()?;
         let mut bytes = vec![0; size as usize];
@@ -3746,6 +3958,53 @@ pub(super) mod runtime_provider {
             )
         }
         .then_some(bytes)
+    }
+    pub fn read_many(
+        entity: u32, selections: &[(String, u32)],
+    ) -> Result<std::collections::HashMap<String, Vec<u8>>, String> {
+        let _span = crate::env::runtime_metrics::span("native.ecs.read_many");
+        if selections.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+        let provider = provider().ok_or("native ECS provider unavailable")?;
+        if selections.len() > 64 {
+            return Err("component batch expects 1 to 64 selections".into());
+        }
+        let total = selections.iter().try_fold(0usize, |size, (_, width)| {
+            if *width == 0 { return None; }
+            size.checked_add(*width as usize)
+        }).filter(|total| *total <= 1024 * 1024).ok_or("component batch size exceeds 1 MiB")?;
+        let mut result = std::collections::HashMap::new();
+        if selections.iter().any(|(name, _)| selections.iter().filter(|(other, _)| name == other).count() != 1) {
+            return Err("component batch names must be unique".into());
+        }
+        if let Some(fetch) = provider.read_many {
+            let names = selections.iter().map(|(name, _)| CString::new(name.as_str()))
+                .collect::<Result<Vec<_>, _>>().map_err(|_| "invalid component batch name")?;
+            let pointers: Vec<_> = names.iter().map(|name| name.as_ptr()).collect();
+            let sizes: Vec<_> = selections.iter().map(|(_, size)| *size).collect();
+            let mut buffer = vec![0u8; total];
+            let mut present = vec![0u8; selections.len()];
+            if !unsafe { fetch(entity, pointers.as_ptr(), sizes.as_ptr(), selections.len(),
+                buffer.as_mut_ptr(), buffer.len(), present.as_mut_ptr()) }
+            { return Err("component batch snapshot is unavailable or changed".into()); }
+            let mut start = 0;
+            for ((name, width), flag) in selections.iter().zip(present) {
+                let end = start + *width as usize;
+                match flag {
+                    0 => {},
+                    1 => { result.insert(name.clone(), buffer[start..end].to_vec()); },
+                    _ => return Err("component batch returned an invalid presence marker".into()),
+                }
+                start = end;
+            }
+        } else {
+            // Attribute root selection needs proven absence for every omitted
+            // candidate. Legacy read() cannot distinguish absence from a failed
+            // read, so it cannot safely substitute for this optional extension.
+            return Err("native provider lacks checked component batch reads. Install the matching runtime provider".into());
+        }
+        Ok(result)
     }
     pub fn resolve_entity(entity_id: u32) -> Option<u32> {
         let provider = provider()?;
@@ -3822,6 +4081,16 @@ pub(super) mod runtime_provider {
     }
     pub fn resource_exists(_: &kfc::guid::ResourceId) -> Result<bool, String> {
         Err("live ResourceService access is available on Windows only".into())
+    }
+    pub fn resource_scalar_batch(
+        _: &[kfc::guid::ResourceId], _: u32, _: usize, _: usize, _: u64,
+    ) -> Result<Vec<[u8; 4]>, String> {
+        Err("live ResourceService access is available on Windows only".into())
+    }
+    pub fn resource_resolve_item(
+        _: u32, _: u32, _: usize, _: usize, _: usize, _: u64,
+    ) -> Result<Option<kfc::guid::ResourceId>, String> {
+        Err("original ItemRegistry is available on Windows only".into())
     }
     pub fn resource_read(_: &kfc::guid::ResourceId) -> Result<Vec<u8>, String> {
         Err("live ResourceService access is available on Windows only".into())
@@ -3950,6 +4219,9 @@ pub(super) mod runtime_provider {
     pub fn registry() -> Result<serde_json::Value, String> {
         Err("native component registry is available on Windows only".into())
     }
+    pub fn registration(_: &str) -> Result<serde_json::Value, String> {
+        registry()
+    }
     pub fn functions() -> Result<&'static serde_json::Value, String> {
         Err("native function inventory is available on Windows only".into())
     }
@@ -3970,6 +4242,11 @@ pub(super) mod runtime_provider {
     }
     pub fn read(_: u32, _: &str, _: u32) -> Option<Vec<u8>> {
         None
+    }
+    pub fn read_many(
+        _: u32, _: &[(String, u32)],
+    ) -> Result<std::collections::HashMap<String, Vec<u8>>, String> {
+        Err("native ECS component batches are available on Windows only".into())
     }
     pub fn resolve_entity(_: u32) -> Option<u32> {
         None

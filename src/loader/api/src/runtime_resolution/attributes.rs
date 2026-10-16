@@ -12,12 +12,47 @@ use kfc::{
     resource::value::Value as KfcValue,
 };
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::{cell::OnceCell, collections::BTreeMap};
 
 #[derive(Default)]
 pub(crate) struct Catalog {
     pub entries: BTreeMap<u32, Value>,
     pub layouts: Vec<Value>,
+    // The loaded catalog is immutable. Index IDs rather than cloned descriptors
+    // so every caller still uses the one canonical KFC definition.
+    indexes: OnceCell<CatalogIndexes>,
+}
+
+#[derive(Default)]
+struct CatalogIndexes {
+    // None retains duplicate-name rejection instead of picking the first ID.
+    names: BTreeMap<String, Option<u32>>,
+    // None marks a root whose reflected indices are missing or duplicated.
+    roots: BTreeMap<u32, Option<Vec<u32>>>,
+}
+
+impl CatalogIndexes {
+    fn build(entries: &BTreeMap<u32, Value>) -> Self {
+        let mut names = BTreeMap::new();
+        let mut roots = BTreeMap::<u32, Vec<u32>>::new();
+        for (&id, entry) in entries {
+            if let Some(name) = entry["name"].as_str() {
+                names.entry(name.to_owned())
+                    .and_modify(|existing| *existing = None)
+                    .or_insert(Some(id));
+            }
+            if let Ok(root) = uint(&entry["root_hash"]) {
+                roots.entry(root).or_default().push(id);
+            }
+        }
+        let roots = roots.into_iter().map(|(root, mut ids)| {
+            ids.sort_by_key(|id| entries[id]["index"].as_u64());
+            let complete = ids.iter().enumerate()
+                .all(|(index, id)| entries[id]["index"] == index);
+            (root, complete.then_some(ids))
+        }).collect();
+        Self { names, roots }
+    }
 }
 
 /// Header fields changed from wide KFC3 storage to the compact KFC4 layout.
@@ -221,6 +256,18 @@ fn component_layouts(registry: &TypeRegistry) -> Result<Vec<Value>, String> {
 }
 
 impl Catalog {
+    fn indexes(&self) -> &CatalogIndexes {
+        self.indexes.get_or_init(|| CatalogIndexes::build(&self.entries))
+    }
+
+    pub(crate) fn by_name(&self, name: &str) -> Result<&Value, String> {
+        match self.indexes().names.get(name) {
+            Some(Some(id)) => self.entries.get(id).ok_or_else(|| "attribute ID not found".into()),
+            Some(None) => Err("Ambiguous attribute name. Use its ID".into()),
+            None => Err(format!("attribute not found: {name}")),
+        }
+    }
+
     pub(crate) fn bind_storage(
         &self,
         descriptor: &Value,
@@ -494,16 +541,9 @@ impl Catalog {
     }
 
     pub(crate) fn root_entries(&self, root: u32) -> Result<Vec<&Value>, String> {
-        let mut entries: Vec<_> = self
-            .entries
-            .values()
-            .filter(|e| e["root_hash"] == root)
-            .collect();
-        entries.sort_by_key(|e| e["index"].as_u64());
-        if entries.is_empty() || entries.iter().enumerate().any(|(i, e)| e["index"] != i) {
-            return Err("incomplete attribute root".into());
-        }
-        Ok(entries)
+        let ids = self.indexes().roots.get(&root).and_then(Option::as_ref)
+            .ok_or("incomplete attribute root")?;
+        ids.iter().map(|id| self.entries.get(id).ok_or_else(|| "incomplete attribute root".into())).collect()
     }
 
     /// Engine recompute walks structure from last entry to first. ScaleToNewMax
@@ -692,5 +732,40 @@ pub(crate) mod tests {
                 .unwrap_err()
                 .contains("overlap")
         );
+    }
+
+    #[test]
+    fn lookup_indexes_keep_original_ids_root_order_and_ambiguous_names() {
+        let mut catalog = Catalog::default();
+        // Attribute-ID order deliberately differs from the engine's root order.
+        for (id, name, root, index) in [
+            (30, "Stamina", 30, 0),
+            (10, "Stamina_Max", 30, 2),
+            (20, "Stamina_Min", 30, 1),
+            (40, "Repeated", 40, 0),
+            (50, "Repeated", 50, 0),
+        ] {
+            catalog.entries.insert(id, json!({"name":name,"root_hash":root,"index":index}));
+        }
+        assert!(std::ptr::eq(catalog.by_name("Stamina_Min").unwrap(), &catalog.entries[&20]));
+        assert!(catalog.by_name("Repeated").unwrap_err().contains("Ambiguous"));
+        assert!(catalog.by_name("Missing").unwrap_err().contains("not found"));
+        for _ in 0..3 {
+            let root = catalog.root_entries(30).unwrap();
+            assert_eq!(root.iter().map(|entry| entry["name"].as_str().unwrap()).collect::<Vec<_>>(),
+                ["Stamina", "Stamina_Min", "Stamina_Max"]);
+        }
+        assert!(catalog.root_entries(99).is_err());
+    }
+
+    #[test]
+    fn lookup_indexes_reject_incomplete_and_duplicate_root_positions() {
+        let mut catalog = Catalog::default();
+        for (id, root, index) in [(1, 1, 0), (2, 1, 2), (3, 3, 0), (4, 3, 0)] {
+            catalog.entries.insert(id, json!({"name":format!("Attribute{id}"),"root_hash":root,"index":index}));
+        }
+        for root in [1, 3] {
+            assert_eq!(catalog.root_entries(root).unwrap_err(), "incomplete attribute root");
+        }
     }
 }

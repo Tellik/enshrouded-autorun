@@ -66,9 +66,9 @@ and world actions retain their separate execution requirements.
 
 In the ingame phase, `game.assets.get_loaded_resource(guid, type, part)` reads
 one resource and `game.assets.get_loaded_resources_by_type(type)` lists live
-resources by reflected type. The KFC4 profile currently enables these methods
-only for the exact Enshrouded client image recorded in
-`profiles/enshrouded/client/25966634-resource-read.json`. Other builds keep the
+resources by reflected type. The KFC4 profiles enable these methods only for
+their exact Enshrouded client images, including
+`profiles/enshrouded/client/25966634.json` and `25988036.json`. Other builds keep the
 same API shape but report that the live ResourceService is unavailable.
 
 ```lua
@@ -80,8 +80,9 @@ for _, item in ipairs(items) do
 end
 ```
 
-`Resource.data` is decoded with the active KFC reflection. A returned object is
-a snapshot whose bytes are read when `data` is first accessed. Its `source` is
+`Resource.data` is decoded with the active KFC reflection. A direct GUID lookup
+captures the complete checked snapshot during the lookup. Type listings retain
+lazy payload reads on first `data` access. Its `source` is
 `loaded-runtime`, and `loaded` is true. Assigning `data` is rejected. Existing
 `get_resource` and `get_resources_by_type` continue to use the parser's KFC file
 snapshot and report `source="kfc-file"`.
@@ -92,10 +93,55 @@ one world cannot authorize a write in another. Menu snapshots remain readable,
 but writing requires a fresh resource acquired in the active world.
 
 Keep a returned resource object while reusing its snapshot. Its first `data`
-access copies the payload, then the mapped value and complex field wrappers are
-cached. Request a new resource object to read a new snapshot. A GUID lookup uses
+access decodes the captured bytes, copying a payload first only for lazy listing
+entries. The mapped value and complex field wrappers are cached. Request a new
+resource object to read a new snapshot. A GUID lookup uses
 the original indexed lookup directly. Listings reuse memory-region observations
 only within that call and still exclude each unreadable resource span.
+
+`game.assets.get_loaded_resource_by_field(type, field_path, value)` registers a
+shared background index of a fixed inline aligned 32-bit scalar. Integers,
+finite Float32 values, enums, nested structs, typedefs and static array indices
+use the existing reflected codec. Dynamic container traversal is excluded from
+this fixed-key index. A result requires the complete captured listing and a
+fresh full snapshot confirming the candidate. Missing and duplicate keys return
+`nil, reason`. Float32 matching preserves its exact bits, including signed zero.
+
+The result is `resource, reason, progress`. `progress.phase` is `indexing`,
+`confirming` or `complete`. Its `payload_reads` counts complete confirmation
+snapshots for this lookup. The runtime advances discovery independently of
+further Lua calls or a player's active action. It uses up to 64 projected keys
+per native batch, with checked payload fallback when the optional optimized
+contract is unavailable. All jobs share a cooperative 1 ms budget and at most
+1,024 keys per runtime round. Initial synchronous listing and native overruns
+are measured as part of that work.
+
+Use `game.assets.prepare_loaded_index(type, field_path)` in an ingame mod's
+`on_load` to register the same preparation before a gameplay action needs it.
+It returns `ready, reason, progress`. A missing world owner leaves preparation
+pending. Declarations survive world changes and are removed with their mod.
+Identical type/path requests from different mods share one job. Capacity is
+limited to 16 indexes and a conservative 16 MiB shared index admission estimate.
+New requests exceeding capacity return a reason without evicting active jobs.
+
+Confirmed writes reset only indexes whose type and scalar key range overlap
+the written bytes. Unrelated settings preserve the index. Uncertain writes and
+changed sessions reset conservatively. Read failures discard partial values and
+retry with backoff, so an unreadable late candidate cannot establish uniqueness.
+The completed index represents its captured listing, not an atomic global
+observation of concurrent resource changes. A missing or ambiguous lookup
+requeues preparation after two seconds when requested again.
+
+For an original engine relation, use
+`game.assets.resolve_loaded_resource("g38_items::ItemRegistry", item_id)`.
+The current implementation resolves this validated map directly, without a
+full ItemInfo scan, and checks its selected resource against the ResourceService
+and active reflection. It requires a nonzero unsigned ItemId, active Runtime
+mod, exact supported provider/profile and current nonzero local-authority world.
+Unknown registry names return a reason. It selects the canonical original entry
+and returns a normal immutable Resource snapshot. It does not provide arbitrary
+native registry access or global field uniqueness. Further writes use the
+existing common typed writers, ownership claims and session checks.
 
 `game.assets.write_loaded_field(resource, path, value, expected)` requires both
 `runtime.assets.write` and the original `runtime.ecs.write` authority, an active
@@ -230,6 +276,12 @@ variant and original world session. A view can restore
 its original resource after the creating entity disappears in the same session.
 It cannot follow a later player or world to a different template owner.
 
+The optional compact native registration lookup returns every current row
+matching the requested registration or concrete configuration type. The same
+identity and ambiguity checks apply. This path transfers only relevant metadata
+instead of parsing the full registry and callback code evidence for each scalar
+read. Older providers use the existing full report.
+
 The optional fourth argument `expected_fields` is a nonempty map of at most
 1,024 component-relative field paths and expected values. It uses the same
 scalar codec as reads and writes. Every expectation must match the fresh
@@ -354,6 +406,11 @@ elements. A scalar sibling remains usable when another field in the component
 contains such a descriptor.
 
 Every selected field is decoded or validated by its reflected KFC type.
+The API reuses bounded immutable inline field plans for the active reflection.
+Their offsets and codec rules are cached. Live component values, generation,
+column identity and write permission are validated at each access. Loaded
+resource paths through BlobArray or BlobVariant still inspect current snapshot
+descriptors and spans.
 Writes reject overlapping selections, overlap with any enclosing reflected
 external-storage/reference descriptor, and non-finite float values. The mask
 covers only reflected value leaves. Struct padding, unselected sibling fields
@@ -629,6 +686,16 @@ through engine registrations. The reader accepts exactly one snapshot whose
 `rootId`, storage offset, element count and Initialized bit agree. Missing
 and ambiguous matches return an error. Component names do not establish which
 attribute root their storage contains.
+
+The attribute catalog indexes original names and ordered root entries once.
+Compatible live candidate components can be read through the optional native
+multi-component operation, bounded to 64 selections and 1 MiB of owned payload.
+It shares owner and entity validation, then checks each candidate's bytes and
+current presence. All compatible initialized roots remain part of the normal
+identity and uniqueness checks. These grouped reads do not establish an atomic
+gameplay transaction across components. Providers without the checked batch
+export report the candidate snapshot as unavailable. Lua signatures and guarded
+write calculations are unchanged.
 
 Header fields use their reflected widths. KFC3 uses `storageOffset` and
 `storageSize` as 32-bit values with a 16-bit flags field. KFC4 uses a 16-bit

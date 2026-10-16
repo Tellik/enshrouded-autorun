@@ -2,15 +2,26 @@
 -- The native claims coordinate independent mods by original storage identity.
 return function(runtime, assets)
     local api = runtime.overrides
+    -- Only immutable catalog names are reused. Entity/root snapshots and claims
+    -- are still acquired afresh by their existing checked paths.
+    local attribute_names, attribute_name_count = {}, 0
+    local maximum_attribute_names = 512
     local function scalar(value)
         return type(value) == "boolean" or type(value) == "string"
             or (type(value) == "number" and value == value and math.abs(value) < math.huge)
     end
 
     local function attribute(entity, selector)
-        local descriptor, reason = runtime.ecs.get_attribute(selector)
-        if not descriptor then return nil, reason end
-        local name = descriptor.name
+        local name = attribute_names[selector]
+        if not name then
+            local descriptor, reason = runtime.ecs.get_attribute(selector)
+            if not descriptor then return nil, reason end
+            name = descriptor.name
+            if attribute_name_count < maximum_attribute_names then
+                attribute_names[selector] = name
+                attribute_name_count = attribute_name_count + 1
+            end
+        end
         local initial, why = runtime.ecs.read_attributes(entity, name)
         if not initial then return nil, why end
         local claim, failure = api.get_component_claim(entity, initial.component.qualified_name)

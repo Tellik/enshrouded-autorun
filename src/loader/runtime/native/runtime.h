@@ -82,6 +82,41 @@ KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeResourcesByType(
 KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeResourceRead(
     const KfcRuntimeResourceId* resource, uint32_t static_hash,
     unsigned char* buffer, size_t capacity, size_t* actual);
+/* Optional ABI-12 bounded projection of one fixed inline 32-bit field. The
+   caller resolves root_size/offset through the active reflection. Requests use
+   the parser's canonical static_hash and all must have the selected type_hash.
+   Count is 1..64, capacity >= count, offset is 4-byte aligned and inside root.
+   A nonzero ECS session and the original registered content-worker lifetime
+   contract are required. No Scene mutation or engine function is performed.
+   Output bits correspond exactly to request order. actual is count only on
+   success, zero otherwise. No partial rows are valid after any failure.
+   Each identity/span and key is rechecked within this bounded operation.
+   Success is a sampled projection, not an immutable map generation or an
+   atomic snapshot across resources. Never retain pointers across calls.
+   Result: 1 success, 2 invalid argument, 3 unsupported lifetime contract,
+   4 stale context/session, 5 retry incomplete (busy/unavailable/changed). */
+typedef struct KfcRuntimeResourceScalarRequest {
+    KfcRuntimeResourceId resource;
+    uint32_t static_hash;
+} KfcRuntimeResourceScalarRequest;
+KFC_RUNTIME_API uint32_t KFC_RUNTIME_CALL KfcRuntimeResourceReadScalarBatch(
+    const KfcRuntimeResourceScalarRequest* requests, size_t count, uint32_t type_hash,
+    size_t root_size, size_t offset, uint64_t expected_session,
+    uint32_t* scalar_bits, size_t capacity, size_t* actual);
+/* Optional ABI-12 original ItemRegistry relation. This selects the canonical
+   entry in the validated ResourceService owner's registry, not a globally
+   unique match among every loaded ItemInfo. The exact profile admits the map
+   layout and target identity fields. Host reflection must supply matching
+   type_hash/root_size/item_id_offset/guid_offset. A nonzero LocalAuthority
+   session and original resource-worker lifetime are required. The returned
+   full ResourceId is checked against the very same ResourceService payload.
+   No pointers or engine calls are exposed. Result: 1 found, 2 invalid argument,
+   3 unsupported contract, 4 stale context, 5 retry/incomplete, 6 not found.
+   The output is valid only for result 1. Old exports retain their contracts. */
+KFC_RUNTIME_API uint32_t KFC_RUNTIME_CALL KfcRuntimeResourceResolveItem(
+    uint32_t item_id, uint32_t type_hash, size_t root_size,
+    size_t item_id_offset, size_t guid_offset, uint64_t expected_session,
+    KfcRuntimeResourceId* resource);
 /* Optional ABI-12 scalar data update. Exact-image profile and registered
    content-worker lifetime are required. Only aligned 32-bit values in the
    private resource bulk are supported. Never changes executable pages.
@@ -130,6 +165,11 @@ KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeEcsCanWrite(void);
 KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeEcsCanWriteComponent(const char* name);
 KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeEcsDescribe(
     const char* qualified_name, uint32_t* size);
+/* Optional ABI-12 compact registration metadata. Includes every matching
+   original/runtime/template alias. Callback code bodies use the full registry
+   export. Returns the required JSON buffer bytes including its terminator. */
+KFC_RUNTIME_API size_t KFC_RUNTIME_CALL KfcRuntimeEcsRegistration(
+    const char* qualified_name, char* buffer, size_t capacity);
 KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeEcsEntityIdentity(
     uint32_t entity_handle, uint32_t* entity_id);
 /* Optional ABI-12 entity-template owner link. Copies the original 16-byte GUID
@@ -185,6 +225,13 @@ KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeWorldEntitySetScale(
 KFC_RUNTIME_API uint32_t KFC_RUNTIME_CALL KfcRuntimeEcsResolve(uint32_t entity_id);
 KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeEcsRead(
     uint32_t entity, const char* qualified_name, void* value, size_t size);
+/* Optional ABI-12 extension. One checked owner operation reads 1..64 component
+   candidates into fixed slices in input order. capacity must equal sum(sizes)
+   and be <=1 MiB. present[count] is 0 for absent or 1 for individually verified
+   payloads. Failure publishes no output. Components are not an atomic snapshot. */
+KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeEcsReadMany(
+    uint32_t entity, const char* const* qualified_names, const uint32_t* sizes,
+    size_t count, uint8_t* buffer, size_t capacity, uint8_t* present);
 KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeEcsWrite(
     uint32_t entity, const char* qualified_name, const void* mask,
     const void* value, size_t size);

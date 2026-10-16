@@ -397,7 +397,7 @@ mod tests {
 
     fn inventory() -> Value {
         let profile: Value = serde_json::from_str(include_str!(
-            "../../../runtime/profiles/enshrouded/client/25966634-resource-read.json"
+            "../../../runtime/profiles/enshrouded/client/25966634.json"
         ))
         .unwrap();
         let model = &profile["systemDependencyLayout"];

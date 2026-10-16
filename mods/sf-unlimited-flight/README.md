@@ -13,7 +13,11 @@ lift or descend resistance increases drag.
 Upward steering currently supports `YawSpeedPitchSpeed` controls with one player
 in the authoritative world. Negative input uses a signed native pitch rate,
 neutral input holds and positive input descends. The sampled controller reduces
-its rate near 85 degrees upward. This is not a hard engine limit. A stalled Lua
+its rate near 85 degrees upward using twice the largest update interval observed
+during the current flight, with a minimum horizon of 250 ms. An inverted basis
+starts recovery through the original positive rate and blocks further upward
+acceleration until the input is released and orientation is upright again.
+This is not a hard engine limit. A stalled Lua
 callback can leave the last stored rate active longer than its sampling horizon.
 Target-angle controls and steering several players through one shared ItemInfo
 are unsupported. The original rate is restored on landing or unsupported input.
@@ -27,5 +31,9 @@ cleanup automatically when this mod is disabled, unloaded or its callback fails.
 The native data path has been executed privately through the original game
 instructions. That includes 108 parameter cases, 120 rotation steps, 12
 interpolation cases and 177 frames with the captured player's actual rotation
-template. Live flight behavior and complete gameplay interactions still require
-an in-game test. The runtime status reports observed pitch and current input.
+template. The user confirmed immediate upward flight in the first performance
+build. Its vertical flip was subsequently captured and the sampled guard was
+corrected. The user confirmed the installed R2 build working without problems.
+Its 120-second API measurement had no mod errors. A separate quantitative R2
+near-vertical angle capture was not obtained. The runtime status reports observed
+pitch and current input.

@@ -78,6 +78,52 @@ mod tests {
     use super::{cleanup, create_scoped};
 
     #[test]
+    fn attribute_targets_reuse_names_without_reusing_live_root_snapshots() -> mlua::Result<()> {
+        let lua = mlua::Lua::new();
+        let factory: mlua::Function = lua
+            .load(include_str!("../shroudforge/v1/lua/override_targets.lua"))
+            .eval()?;
+        lua.globals().set("target_factory", factory)?;
+        lua.load(r#"
+            local descriptors, snapshots, acquired, claims = 0, 0, 0, 0
+            local current = 0
+            local runtime = {
+                world={session_id=function() return 1 end},
+                ecs={
+                    get_attribute=function(selector)
+                        descriptors = descriptors + 1
+                        if selector ~= "Stamina_Min" then return nil, "attribute not found" end
+                        return {name=selector}
+                    end,
+                    read_attributes=function()
+                        snapshots = snapshots + 1
+                        return {component={qualified_name="keen::ecs::Stamina"}, values={Stamina_Min=current}}
+                    end,
+                },
+                overrides={get_component_claim=function()
+                    claims = claims + 1
+                    return {acquire=function() acquired = acquired + 1; return true end}
+                end},
+            }
+            local targets = target_factory(runtime, {})
+            for value = 1, 5 do
+                current = value
+                local target = assert(targets.attribute(7, "Stamina_Min"))
+                assert(target.claim:acquire())
+                assert(target.read().value == value)
+            end
+            assert(descriptors == 1, "warm targets reuse only immutable catalog names")
+            assert(snapshots == 10, "constructor and apply reads must remain fresh")
+            assert(acquired == 5 and claims == 5, "every target retains the checked claim path")
+            local other_mod = target_factory(runtime, {})
+            assert(other_mod.attribute(7, "Stamina_Min"))
+            assert(descriptors == 2, "metadata reuse remains scoped to its mod environment")
+            for _ = 1, 2 do assert(not targets.attribute(7, "Missing")) end
+            assert(descriptors == 4, "failed lookups are not cached")
+        "#).exec()
+    }
+
+    #[test]
     fn lifecycle_restores_api_values_without_a_mod_unload_callback() -> mlua::Result<()> {
         let lua = mlua::Lua::new();
         lua.globals()

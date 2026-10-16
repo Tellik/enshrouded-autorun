@@ -31,7 +31,9 @@ pub fn create(lua: &mlua::Lua, r#mod: &mod_loader::Mod) -> mlua::Result<mlua::Ta
         lua_get_resources_by_type,
     )?;
     add_function(lua, &table, "get_loaded_resource", lua_get_loaded_resource)?;
-    add_function(lua, &table, "get_loaded_resource_by_field", loaded_index::get)?;
+    add_function_with_mod(lua, &table, "get_loaded_resource_by_field", r#mod, loaded_index::get)?;
+    add_function_with_mod(lua, &table, "prepare_loaded_index", r#mod, loaded_index::prepare)?;
+    add_function_with_mod(lua, &table, "resolve_loaded_resource", r#mod, lua_resolve_loaded_resource)?;
     add_function(lua, &table, "read_loaded_field", lua_read_loaded_field)?;
     add_function_with_mod(
         lua,
@@ -133,6 +135,53 @@ fn lua_get_resources_by_type(lua: &mlua::Lua, args: FunctionArgs) -> mlua::Resul
     Ok(result)
 }
 
+/// Resolve an explicitly supported original engine relation. Unlike by_field,
+/// this selects the canonical registry entry, not uniqueness over all payloads.
+fn lua_resolve_loaded_resource(
+    lua: &mlua::Lua, args: FunctionArgs, owner: &mod_loader::Mod,
+) -> mlua::Result<(Option<Resource>, Option<String>)> {
+    let state = lua.app_data_ref::<AppState>().unwrap();
+    let resolve = || -> Result<Option<Resource>, String> {
+        if let Some(reason) = crate::env::loader::runtime_denial_reason(&state, owner, "runtime.ecs.read") {
+            return Err(reason);
+        }
+        if args.len() != 2 { return Err("resolve_loaded_resource expects an original registry name and typed key".into()); }
+        let registry_name = args.get::<String>(0).map_err(|e| e.to_string())?;
+        if registry_name != "g38_items::ItemRegistry" {
+            return Err(format!("no validated resource relation for {registry_name}"));
+        }
+        let item_id = args.get::<u32>(1).map_err(|e| e.to_string())?;
+        let registry = state.type_registry();
+        let ty = registry.get_by_name(kfc::reflection::LookupKey::Qualified("keen::ItemInfo"))
+            .ok_or("ItemInfo is absent from active reflection")?;
+        let key = state.inline_field(ty.index, "itemId.value")?;
+        let guid = state.inline_field(ty.index, "objectId")?;
+        let key_range = key.byte_range();
+        let guid_range = guid.byte_range();
+        if key_range.len() != 4 || guid_range.len() != 16
+            || registry.get(guid.type_index()).is_none_or(|field| field.primitive_type != kfc::reflection::PrimitiveType::Guid)
+        { return Err("original ItemRegistry fields do not match the active reflection".into()); }
+        let type_id = kfc_format::resource_id(registry, "keen::ItemInfo", Guid::NONE, 0)
+            .ok_or("ItemInfo resource identity unavailable")?;
+        let session = crate::env::loader::runtime_provider::world_session_id();
+        let Some(id) = crate::env::loader::runtime_provider::resource_resolve_item(item_id,
+            type_id.type_hash(), ty.size as usize, key_range.start, guid_range.start, session)?
+        else { return Ok(None); };
+        let bytes = crate::env::loader::runtime_provider::resource_read(&id)?;
+        if bytes.len() < ty.size as usize
+            || bytes.get(key_range.clone()) != Some(item_id.to_le_bytes().as_slice())
+            || bytes.get(guid_range) != Some(id.guid().data().as_slice())
+            || crate::env::loader::runtime_provider::world_session_id() != session
+        { return Err("original ItemRegistry candidate changed during snapshot read".into()); }
+        Ok(Some(Resource::new(state.get_loaded_resource_info_from_snapshot(&id, session, bytes))))
+    };
+    Ok(match resolve() {
+        Ok(Some(resource)) => (Some(resource), None),
+        Ok(None) => (None, Some("item is not registered in the current original ItemRegistry".into())),
+        Err(reason) => (None, Some(reason)),
+    })
+}
+
 fn lua_get_loaded_resource(lua: &mlua::Lua, args: FunctionArgs) -> mlua::Result<Option<Resource>> {
     let app_state = lua.app_data_ref::<AppState>().unwrap();
     if app_state.phase() != crate::RuntimePhase::Ingame {
@@ -151,12 +200,24 @@ fn lua_get_loaded_resource(lua: &mlua::Lua, args: FunctionArgs) -> mlua::Result<
         part,
     )
     .ok_or_else(|| LuaError::generic(format!("type not found: {}", r#type.qualified_name)))?;
-    let found = crate::env::loader::runtime_provider::resource_exists(&requested)
-        .map_err(LuaError::generic)?;
+    // A GUID lookup returns one confirmed snapshot, instead of first probing
+    // its page region and fetching the same resource again on first data access.
+    let snapshot = match crate::env::loader::runtime_provider::resource_read(&requested) {
+        Ok(bytes) => Some(bytes),
+        Err(reason) => {
+            // Preserve missing-GUID versus unavailable/unstable reader behavior.
+            if crate::env::loader::runtime_provider::resource_exists(&requested)
+                .map_err(LuaError::generic)? {
+                return Err(LuaError::generic(reason));
+            }
+            None
+        }
+    };
     if crate::env::loader::runtime_provider::world_session_id() != session {
         return Err(LuaError::generic("world session changed during loaded resource lookup"));
     }
-    Ok(found.then(|| Resource::new(app_state.get_loaded_resource_info_for_session(&requested, session))))
+    Ok(snapshot.map(|bytes| Resource::new(
+        app_state.get_loaded_resource_info_from_snapshot(&requested, session, bytes))))
 }
 
 fn lua_get_loaded_resources_by_type(lua: &mlua::Lua, args: FunctionArgs) -> mlua::Result<Table> {
@@ -205,7 +266,7 @@ fn lua_read_loaded_field(
         let bytes = resource.info().loaded_snapshot_bytes()?;
         let metadata = kfc_format::type_for_resource(state.type_registry(), &resource.info().resource_id)
             .ok_or("resource type is absent from active reflection")?;
-        let field = crate::env::runtime_values::resource_field(state.type_registry(), metadata.index, &path, bytes)?;
+        let field = crate::env::runtime_values::loaded_field(&state, metadata.index, &path, bytes)?;
         let value = field.read(lua, bytes)?;
         let ty = state.get_type(lua, field.type_index()).map_err(|error| error.to_string())?
             .ok_or("resource field type is unavailable")?;
@@ -249,7 +310,7 @@ fn lua_write_loaded_field(
             .ok_or("resource type is absent from the active reflection")?;
         let before = crate::env::loader::runtime_provider::resource_read(&id)?;
         let field =
-            crate::env::runtime_values::resource_field(registry, metadata.index, &path, &before)?;
+            crate::env::runtime_values::loaded_field(&state, metadata.index, &path, &before)?;
         let range = field.byte_range();
         if args.len() == 4 {
             let expected = args.get::<LuaValue>(3).map_err(|e| e.to_string())?;
@@ -266,8 +327,8 @@ fn lua_write_loaded_field(
             // assignment. Require the full immutable source snapshot unless
             // the caller supplies an explicit expected scalar.
             let source = resource.info().loaded_snapshot_bytes()?;
-            let source_field = crate::env::runtime_values::resource_field(
-                registry, metadata.index, &path, source)?;
+            let source_field = crate::env::runtime_values::loaded_field(
+                &state, metadata.index, &path, source)?;
             if source.as_ref() != before.as_slice() || source_field.byte_range() != range
                 || source_field.type_index() != field.type_index()
                 || source[range.clone()] != before[range.clone()]

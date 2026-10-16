@@ -15,6 +15,7 @@ For player instructions, start with the [English website guide](https://bonsaiba
 | Follow shared log levels and message rules | [Logging rules](logging.md) |
 | Review client, local-host, and dedicated-server behavior | [Multiplayer execution audit](mod-multiplayer.md) |
 | Work on the native runtime or its game profiles | [Native runtime](runtime.md) |
+| Review runtime preparation, shared search scheduling, performance and safety | [Runtime performance implementation, live measurements and plan](runtime-performance-concept.md) |
 | Change how Enshrouded game data is read | [Game data parser](parser.md) |
 | Edit notices or link buttons shown in the Modloader | [Modloader content](modloader-content.md) |
 | Preview Modloader typography at different window widths | [Modloader typography preview](modloader-typography-preview.html) |

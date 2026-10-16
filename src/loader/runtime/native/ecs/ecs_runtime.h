@@ -11,6 +11,8 @@
 #define KFC_EXPORT KFC_RUNTIME_API
 
 namespace EcsRuntime {
+inline constexpr std::size_t MaximumReadManyComponents = 64;
+inline constexpr std::size_t MaximumReadManyBytes = 1u << 20;
 // Pins the existing ECS binding epoch before any original engine gate is
 // acquired. Declare before EcsWriteGuard and destroy after it. The original
 // Scene guard must still validate View() before reading or writing payloads.

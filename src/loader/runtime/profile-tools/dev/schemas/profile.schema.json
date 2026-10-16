@@ -117,6 +117,8 @@
         "resourceReadValidated": {
           "const": true
         },
+        "itemIdMapValidated": {"const": true},
+        "itemIdMapEvidence": {"type": "string", "minLength": 1},
         "resourceAtomicScalarWriteValidated": {
           "const": true
         },
@@ -1672,6 +1674,31 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 268435456
+        },
+        "itemIdMap": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "source", "registry", "targetType", "targetHash", "targetSize", "itemIdOffset", "guidOffset", "mapOffset", "headerSize", "bitsPointerOffset", "capacityOffset", "keysPointerOffset", "valuesPointerOffset", "countOffset", "partIndex", "maximumCapacity", "maximumProbes"],
+          "properties": {
+            "id": {"const": "original-item-id-map-v1"},
+            "source": {"type": "string", "minLength": 1},
+            "registry": {"const": "g38_items::ItemRegistry"},
+            "targetType": {"const": "keen::ItemInfo"},
+            "targetHash": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+            "targetSize": {"type": "integer", "minimum": 20, "maximum": 268435456},
+            "itemIdOffset": {"type": "integer", "minimum": 0, "maximum": 65536},
+            "guidOffset": {"type": "integer", "minimum": 0, "maximum": 65536},
+            "mapOffset": {"type": "integer", "minimum": 0, "maximum": 65536},
+            "headerSize": {"type": "integer", "minimum": 1, "maximum": 4096},
+            "bitsPointerOffset": {"type": "integer", "minimum": 0, "maximum": 4096},
+            "capacityOffset": {"type": "integer", "minimum": 0, "maximum": 4096},
+            "keysPointerOffset": {"type": "integer", "minimum": 0, "maximum": 4096},
+            "valuesPointerOffset": {"type": "integer", "minimum": 0, "maximum": 4096},
+            "countOffset": {"type": "integer", "minimum": 0, "maximum": 4096},
+            "partIndex": {"const": 0},
+            "maximumCapacity": {"type": "integer", "minimum": 1, "maximum": 1048576},
+            "maximumProbes": {"type": "integer", "minimum": 1, "maximum": 4096}
+          }
         }
       }
     },

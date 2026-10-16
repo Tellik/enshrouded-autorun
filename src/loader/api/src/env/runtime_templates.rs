@@ -1,12 +1,12 @@
 //! Checked views into a current entity's shared template configuration.
-use super::{AppState, loader, registry, runtime_values, util::add_function_with_mod};
+use super::{AppState, loader, registry, runtime_metrics, runtime_values, util::add_function_with_mod};
 use crate::{
     alias::MappedValue,
     lua::{FunctionArgs, LuaValue},
 };
 use kfc::{
     guid::ResourceId,
-    reflection::{PrimitiveType, TypeIndex, TypeRegistry},
+    reflection::{LookupKey, PrimitiveType, TypeIndex, TypeRegistry},
 };
 use mlua::{MultiValue, Table, UserData};
 use mod_loader::Mod;
@@ -54,6 +54,7 @@ fn template_registration(
     report: &Value,
     selector: TypeIndex,
 ) -> Result<TypeIndex, String> {
+    let _timing = runtime_metrics::span("templates.validate_registration");
     let requested = registry
         .get(selector)
         .ok_or("unresolved template selector")?;
@@ -83,8 +84,7 @@ fn template_registration(
         .as_str()
         .ok_or("registration has no name")?;
     let owner = registry
-        .iter()
-        .find(|ty| ty.qualified_name == owner_name)
+        .get_by_name(LookupKey::Qualified(owner_name))
         .ok_or("registration owner is absent from reflection")?;
     if row["qualified_hash"].as_u64() != Some(u64::from(owner.qualified_hash))
         || row["index"]
@@ -98,8 +98,7 @@ fn template_registration(
         .as_str()
         .ok_or("registration has no template configuration layout")?;
     let ty = registry
-        .iter()
-        .find(|ty| ty.qualified_name == name)
+        .get_by_name(LookupKey::Qualified(name))
         .ok_or("template layout is absent from reflection")?;
     if ty.primitive_type != PrimitiveType::Struct
         || ty.size == 0
@@ -111,6 +110,15 @@ fn template_registration(
     Ok(ty.index)
 }
 
+/// Ask for the current matching registration rows only. The provider retains
+/// every match, so the same validation and ambiguity rejection still apply.
+/// It may use the complete report for older providers without the extension.
+fn current_registration(registry: &TypeRegistry, selector: TypeIndex) -> Result<Value, String> {
+    let _timing = runtime_metrics::span("templates.registration_lookup");
+    let requested = registry.get(selector).ok_or("unresolved template selector")?;
+    loader::runtime_provider::registration(&requested.qualified_name)
+}
+
 /// Use the production mapper for container and concrete-variant interpretation.
 /// Only the one-based position leaves this function. No Lua type-shape guess or
 /// manually copied variant hash/offset table participates in selection.
@@ -120,6 +128,7 @@ fn select_variant(
     component: TypeIndex,
     bytes: &[u8],
 ) -> Result<usize, String> {
+    let _timing = runtime_metrics::span("templates.select_variant");
     let root = registry
         .get(root)
         .ok_or("unresolved template resource layout")?;
@@ -209,6 +218,7 @@ fn get_component(
     args: FunctionArgs,
     owner_mod: &Mod,
 ) -> mlua::Result<(Option<RuntimeTemplateComponent>, Option<String>)> {
+    let _timing = runtime_metrics::span("templates.get_component");
     let get = || -> Result<RuntimeTemplateComponent, String> {
         let state = lua.app_data_ref::<AppState>().unwrap();
         require_access(&state, owner_mod, "runtime.ecs.read")?;
@@ -221,7 +231,7 @@ fn get_component(
         let types = state.type_registry();
         let selector =
             registry::resolve(types, args.get::<LuaValue>(1).map_err(|e| e.to_string())?)?;
-        let report = loader::runtime_provider::registry()?;
+        let report = current_registration(types, selector)?;
         let component = template_registration(types, &report, selector)?;
         let guid = loader::runtime_provider::entity_template_uuid(entity)
             .ok_or("entity template UUID is unavailable or unstable")?;
@@ -319,10 +329,11 @@ impl RuntimeTemplateComponent {
     }
 
     fn snapshot(&self, state: &AppState) -> Result<(Vec<u8>, usize), String> {
+        let _timing = runtime_metrics::span("templates.snapshot");
         require_access(state, &self.owner_mod, "runtime.ecs.read")?;
         require_session(self.session)?;
         let types = state.type_registry();
-        let report = loader::runtime_provider::registry()?;
+        let report = current_registration(types, self.component_type)?;
         if template_registration(types, &report, self.component_type)? != self.component_type {
             return Err("template registration changed since view creation".into());
         }
@@ -338,6 +349,7 @@ impl RuntimeTemplateComponent {
     }
 
     fn read_fields(&self, lua: &mlua::Lua, args: MultiValue) -> Result<Table, String> {
+        let _timing = runtime_metrics::span("templates.read_fields");
         if args.len() != 1 {
             return Err("read_fields expects one dense array of field paths".into());
         }
@@ -379,6 +391,7 @@ impl RuntimeTemplateComponent {
     }
 
     fn write_field(&self, lua: &mlua::Lua, args: MultiValue) -> Result<(), String> {
+        let _timing = runtime_metrics::span("templates.write_field");
         if let Some(reason) = self.write_fault.borrow().as_ref() {
             return Err(reason.clone());
         }

@@ -48,6 +48,8 @@ pub struct AppState {
 
     type_registry: Rc<TypeRegistry>,
     attribute_catalog: OnceCell<Result<super::runtime_attributes::Catalog, String>>,
+    inline_fields: RefCell<HashMap<(TypeIndex, String), Rc<super::runtime_values::InlineField>>>,
+    inline_field_bytes: Cell<usize>,
 
     ref_file: Rc<KFCFile>,
     reader: RefCell<KFCCursor<KFCReader>>,
@@ -254,6 +256,8 @@ impl AppState {
 
             type_registry,
             attribute_catalog: OnceCell::new(),
+            inline_fields: RefCell::new(HashMap::new()),
+            inline_field_bytes: Cell::new(0),
 
             ref_file,
             reader: RefCell::new(reader),
@@ -308,6 +312,9 @@ impl AppState {
             active_mods.remove(id);
         }
         drop(active_mods);
+        if !active {
+            self.loaded_resource_indexes.borrow_mut().remove_owner(id);
+        }
         if let Some(state) = native_dll_state {
             let detail = match state {
                 "loading" => "native DLL is still loading",
@@ -813,6 +820,33 @@ impl AppState {
         self.loaded_resource_indexes.borrow_mut()
     }
 
+    pub(crate) fn advance_loaded_resource_indexes(&self) {
+        super::game::tick_loaded_resource_indexes(self);
+    }
+
+    /// Plans contain immutable reflection metadata, never live storage or authority.
+    /// The AppState owns exactly one registry, so plans cannot cross registries.
+    pub(crate) fn inline_field(
+        &self,
+        root: TypeIndex,
+        path: &str,
+    ) -> Result<Rc<super::runtime_values::InlineField>, String> {
+        let key = (root, path.to_owned());
+        if let Some(plan) = self.inline_fields.borrow().get(&key) {
+            return Ok(plan.clone());
+        }
+        let plan = Rc::new(super::runtime_values::inline_field(&self.type_registry, root, path)?);
+        let mut fields = self.inline_fields.borrow_mut();
+        // Bound metadata retention. A full cache never discards a live value,
+        // baseline or claim and does not turn a valid field into an error.
+        let retained = plan.retained_bytes().saturating_add(path.len()).saturating_add(128);
+        if fields.len() < 4096 && self.inline_field_bytes.get().saturating_add(retained) <= 16 * 1024 * 1024 {
+            self.inline_field_bytes.set(self.inline_field_bytes.get() + retained);
+            fields.insert(key, plan.clone());
+        }
+        Ok(plan)
+    }
+
     pub(crate) fn invalidate_loaded_resource_indexes(&self) {
         self.loaded_resource_indexes.borrow_mut().invalidate();
     }
@@ -831,7 +865,9 @@ impl AppState {
         let result = super::loader::runtime_provider::resource_compare_exchange_scalar_for_session(
             resource, resource_size, offset, expected, desired, session,
         );
-        if result.is_ok() || result.as_ref().is_err_and(|reason| reason.to_lowercase().contains("uncertain")) {
+        if result.is_ok() {
+            self.loaded_resource_indexes.borrow_mut().invalidate_resource(resource, offset, desired.len());
+        } else if result.as_ref().is_err_and(|reason| reason.to_lowercase().contains("uncertain")) {
             self.invalidate_loaded_resource_indexes();
         }
         result

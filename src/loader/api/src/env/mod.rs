@@ -14,6 +14,7 @@ mod registry;
 mod runtime_attributes;
 mod runtime_building;
 mod runtime_functions;
+pub(crate) mod runtime_metrics;
 mod runtime_networking;
 mod runtime_ownership;
 mod runtime_templates;

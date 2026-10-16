@@ -28,6 +28,7 @@ function AssetManager.get_resources_by_type(type) end
 
 --- Returns one resource from the game's live ResourceService by guid, type, and part.
 --- This function is available in the ingame phase and returns read-only resource data.
+--- The complete checked snapshot is captured by this call. Reading data decodes those same owned bytes.
 --- The returned session_id binds writes to the creation world. Menu snapshots have session_id=0 and cannot be written.
 ---
 --- @param guid Guid -- The unique identifier of the resource.
@@ -45,9 +46,9 @@ function AssetManager.get_loaded_resources_by_type(type) end
 
 ---@class LoadedResourceIndexProgress
 ---@field session_id integer Captured world session, including zero for read-only menu lookup.
----@field scanned integer Payloads indexed so far.
+---@field scanned integer Resource scalar keys indexed so far.
 ---@field total integer ResourceIds in the captured type listing.
----@field payload_reads integer Payloads read this call, including fresh candidate confirmation, at most 64.
+---@field payload_reads integer Full candidate snapshots read by this lookup. Discovery work belongs to the shared queue.
 ---@field complete boolean Whether the whole captured listing has been indexed.
 ---@field phase 'indexing'|'confirming'|'complete' Retry indexing and confirming from a later update.
 
@@ -56,9 +57,14 @@ function AssetManager.get_loaded_resources_by_type(type) end
 --- The field must be fixed inline storage, aligned and exactly 32 bits: integer, finite float or enum.
 --- Nested structs, typedefs and one-based static array elements are supported. Blob/DS traversal and references are rejected.
 --- Values use the existing typed codec, including enum names and exact Float32 bits. Positive and negative zero are distinct.
---- Each call reads at most 64 payloads. No candidate is returned before the entire captured type listing has been indexed.
+--- The first call registers a job. The runtime advances it independently of later Lua calls.
+--- Shared maintenance uses up to 64 scalar keys per native batch, with checked payload fallback where needed.
+--- All jobs share a cooperative 1 ms and 1024-key budget per runtime round. Synchronous listing can overrun it.
+--- No candidate is returned before the entire captured type listing has been indexed.
 --- Retry while progress.phase is indexing or confirming. Complete missing and ambiguous results return nil and a reason.
---- All mods share at most 16 indexes keyed by session, type and path. Successful resource writes invalidate them.
+--- All mods share at most 16 indexes keyed by session, type and path. Confirmed writes invalidate overlapping key fields only.
+--- A conservative 16 MiB admission limit bounds the index jobs. Capacity errors preserve other active jobs.
+--- World changes and uncertain writes invalidate conservatively. Live pointers are never retained by the index.
 --- Missing and ambiguous indexes refresh after two seconds. A changed candidate discards its index immediately.
 --- A successful lookup rereads the candidate and returns a Resource preserving those confirmed bytes and captured session.
 --- Uniqueness refers to the completed index snapshot. Concurrent resource additions or changes elsewhere are not a transaction.
@@ -69,6 +75,30 @@ function AssetManager.get_loaded_resources_by_type(type) end
 ---@return string? reason Pending, missing, ambiguous or unavailable explanation.
 ---@return LoadedResourceIndexProgress? progress Absent when validation or resource access fails.
 function AssetManager.get_loaded_resource_by_field(type, field_path, value) end
+
+---Register a shared field index before an action needs its first lookup.
+---The existing runtime loop advances it without repeated Lua calls, including after a world becomes ready.
+---Registrations belong to the active mod. Matching type/path requests share one bounded job.
+---World changes reset indexed values and retain declarations. Unloading a mod removes only its own registration.
+---A false ready value may mean normal pending preparation. It does not require repeated calls to advance work.
+---Ready describes the captured read snapshot. Session zero never authorizes writes.
+---@param type string|Type
+---@param field_path string Fixed inline aligned 32-bit scalar path.
+---@return boolean ready
+---@return string? reason
+---@return LoadedResourceIndexProgress? progress
+function AssetManager.prepare_loaded_index(type, field_path) end
+
+---Resolve a canonical entry in an independently validated original engine registry.
+---Currently supports g38_items::ItemRegistry with a nonzero unsigned 32-bit ItemId key.
+---This selects the original resource-owner registry entry, not global field uniqueness.
+---Requires the current nonzero authoritative session and an exact validated provider contract.
+---Returns a normal immutable Resource snapshot using the common writers and claims.
+---@param registry_name string
+---@param key integer
+---@return Resource? resource
+---@return string? reason
+function AssetManager.resolve_loaded_resource(registry_name, key) end
 
 ---Read one aligned 32-bit scalar and its reflected type from an immutable loaded resource snapshot.
 ---Uses the exact field codec as write_loaded_field, including owned BlobArray indices and BlobVariant.value.

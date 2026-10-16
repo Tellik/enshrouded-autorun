@@ -756,13 +756,17 @@ impl IngameRuntime {
     }
 
     fn publish_status(&self, running: bool) {
+        let state = self.runner.lua.app_data_ref::<AppState>().unwrap();
+        let mut provider = crate::env::runtime_provider_report();
+        provider["resourceIndexes"] = state.loaded_resource_indexes().diagnostics();
+        provider["apiMetrics"] = crate::env::runtime_metrics::snapshot();
         let value = serde_json::json!({
             "schemaVersion":1,"pid":std::process::id(),"apiVersion":API_VERSION,
             "updatedAt":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs(),
             "running":running,"active":if running {self.active_mod_ids()}else{Vec::new()},
             "loaded":self.loaded,"errors":self.errors,
-            "effects":self.runner.lua.app_data_ref::<AppState>().unwrap().runtime_effects(),
-            "runtimeProvider":crate::env::runtime_provider_report()
+            "effects":state.runtime_effects(),
+            "runtimeProvider":provider
         });
         if let Err(error) = mod_loader::config::write_document(&self.root, "mod-status", &value) {
             tracing::error!(target:"shroudforge::runtime","status publication failed: {error}");
@@ -771,6 +775,8 @@ impl IngameRuntime {
 
     pub fn update(&mut self, delta_seconds: f64) {
         self.diagnostics.tick();
+        crate::env::runtime_metrics::set_enabled(
+            self.diagnostics.enabled("runtime") || self.diagnostics.enabled("mods"));
         self.runner
             .lua
             .app_data_ref::<AppState>()
@@ -870,7 +876,15 @@ impl IngameRuntime {
                         result.is_err(),
                     );
                 }
-                item.next_update = std::time::Instant::now() + item.update_interval;
+                // Advance the planned phase and skip every missed period.
+                // Never replay old callbacks in a burst after a slow operation.
+                let completed = std::time::Instant::now();
+                let periods = completed.saturating_duration_since(item.next_update).as_nanos()
+                    / item.update_interval.as_nanos() + 1;
+                item.next_update = u32::try_from(periods).ok()
+                    .and_then(|periods| item.next_update.checked_add(item.update_interval.saturating_mul(periods)))
+                    .filter(|next| *next > completed)
+                    .unwrap_or(completed + item.update_interval);
                 if let Err(error) = result {
                     tracing::error!(target: "shroudforge::runtime", mod_id = %item.id,
                         "on_update failed: {error}");
@@ -889,6 +903,8 @@ impl IngameRuntime {
                 }
             }
         }
+        let state = self.runner.lua.app_data_ref::<AppState>().unwrap();
+        state.advance_loaded_resource_indexes();
     }
 
     fn process_runtime_reload_request(&mut self) {

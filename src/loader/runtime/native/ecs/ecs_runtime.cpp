@@ -40,6 +40,8 @@ struct OperationCounters {
     std::atomic<std::uint64_t> queries{}, query_successes{}, query_incomplete{}, query_failures{};
     std::atomic<std::uint64_t> resolves{}, resolve_successes{}, resolve_failures{};
     std::atomic<std::uint64_t> reads{}, read_successes{}, read_failures{};
+    std::atomic<std::uint64_t> read_batches{}, read_batch_successes{}, read_batch_failures{};
+    std::atomic<std::uint64_t> read_batch_components{}, read_batch_absent{};
     std::atomic<std::uint64_t> writes{}, write_successes{}, write_failures{};
 };
 OperationCounters operation_counters;
@@ -206,7 +208,56 @@ std::atomic<bool> stop_requested{};
 std::uintptr_t image_base{};
 std::size_t image_size{};
 
-bool readable(std::uintptr_t address, std::size_t size) {
+// Read batches reuse page observations only inside this one owner operation.
+// SEH still protects every actual payload copy. Each observed region must be
+// queried again with identical properties before any output is published.
+struct ReadRegionCache {
+    struct Region {
+        MEMORY_BASIC_INFORMATION memory{};
+        std::uintptr_t begin{}, end{};
+    };
+    std::array<Region, 64> regions{};
+    std::size_t count{};
+
+    static bool covers(const MEMORY_BASIC_INFORMATION& memory, std::uintptr_t address, std::size_t size) {
+        const auto base = reinterpret_cast<std::uintptr_t>(memory.BaseAddress);
+        return memory.State == MEM_COMMIT && !(memory.Protect & (PAGE_GUARD | PAGE_NOACCESS)) &&
+            memory.RegionSize <= UINTPTR_MAX - base && address >= base &&
+            address - base <= memory.RegionSize && size <= memory.RegionSize - (address - base);
+    }
+    bool check(std::uintptr_t address, std::size_t size) {
+        if (!address || !size || address > UINTPTR_MAX - size) return false;
+        for (std::size_t index = 0; index < count; ++index) {
+            auto& region = regions[index];
+            if (!covers(region.memory, address, size)) continue;
+            region.begin = (std::min)(region.begin, address);
+            region.end = (std::max)(region.end, address + size);
+            return true;
+        }
+        MEMORY_BASIC_INFORMATION memory{};
+        if (!VirtualQuery(reinterpret_cast<const void*>(address), &memory, sizeof(memory)) ||
+            !covers(memory, address, size) || count == regions.size()) return false;
+        regions[count++] = {memory, address, address + size};
+        return true;
+    }
+    bool revalidate() const {
+        for (std::size_t index = 0; index < count; ++index) {
+            const auto& region = regions[index];
+            MEMORY_BASIC_INFORMATION memory{};
+            if (!VirtualQuery(reinterpret_cast<const void*>(region.begin), &memory, sizeof(memory)) ||
+                !covers(memory, region.begin, region.end - region.begin) ||
+                memory.BaseAddress != region.memory.BaseAddress ||
+                memory.AllocationBase != region.memory.AllocationBase ||
+                memory.AllocationProtect != region.memory.AllocationProtect ||
+                memory.RegionSize != region.memory.RegionSize || memory.State != region.memory.State ||
+                memory.Protect != region.memory.Protect || memory.Type != region.memory.Type) return false;
+        }
+        return true;
+    }
+};
+
+bool readable(std::uintptr_t address, std::size_t size, ReadRegionCache* regions = nullptr) {
+    if (regions) return regions->check(address, size);
     if (!address || !size || address > UINTPTR_MAX - size) return false;
     MEMORY_BASIC_INFORMATION memory{};
     if (!VirtualQuery(reinterpret_cast<const void*>(address), &memory, sizeof(memory))) return false;
@@ -327,14 +378,21 @@ bool entity_view(std::uintptr_t pointer, const ResolvedLayout& layout, EntityVie
     read(pointer + layout.entity_definition, entity.definition);
     return entity_registered(entity, layout);
 }
-bool component_present(const EntityView& entity, const ResolvedLayout& layout, const ComponentType& component) {
+bool component_presence(const EntityView& entity, const ResolvedLayout& layout,
+                        const ComponentType& component, bool& present) {
     std::uint64_t bits{};
-    return component.index < max_components &&
-        read(entity.layout + layout.component_bits + (component.index / 64) * 8, bits) &&
-        (bits & (std::uint64_t{1} << (component.index % 64))) != 0;
+    if (component.index >= max_components ||
+        !read(entity.layout + layout.component_bits + (component.index / 64) * 8, bits)) return false;
+    present = (bits & (std::uint64_t{1} << (component.index % 64))) != 0;
+    return true;
+}
+bool component_present(const EntityView& entity, const ResolvedLayout& layout, const ComponentType& component) {
+    bool present{};
+    return component_presence(entity, layout, component, present) && present;
 }
 bool component_address(const EntityView& entity, const ResolvedLayout& layout,
-                       const ComponentType& component, std::uintptr_t& address, bool check_page = true) {
+                       const ComponentType& component, std::uintptr_t& address, bool check_page = true,
+                       ReadRegionCache* regions = nullptr) {
     std::uint16_t offset{}, stride{};
     if (!component_present(entity, layout, component) ||
         !read(entity.layout + layout.component_offsets + component.index * 2, offset) ||
@@ -345,7 +403,7 @@ bool component_address(const EntityView& entity, const ResolvedLayout& layout,
     // Read-only scan callers immediately copy through guarded_copy (SEH).
     // Re-querying the page for every component doubles kernel transitions for
     // every prop in the world; writes and address-only queries keep the check.
-    return !check_page || readable(address, component.size);
+    return !check_page || readable(address, component.size, regions);
 }
 bool resolve_component(const char* name, ComponentType& component) {
     if (!name) return false;
@@ -893,6 +951,69 @@ void read_on_game_thread(void* opaque) {
         component_address(current, layout, component, current_address) && current_address == address;
 }
 
+struct ReadManyOperation {
+    std::uint32_t handle{};
+    std::vector<std::string> names;
+    std::vector<std::uint32_t> sizes;
+    std::vector<ComponentType> components;
+    std::vector<std::uintptr_t> addresses;
+    std::vector<std::uint8_t> output, present, verification;
+    ReadRegionCache regions;
+    bool result{};
+};
+void read_many_on_game_thread(void* opaque) {
+    std::scoped_lock operation_lock(operation_mutex);
+    auto& operation = *static_cast<ReadManyOperation*>(opaque);
+    operation.regions = {};
+    ResolvedLayout layout{};
+    EntityView entity{};
+    if (!layout_snapshot(layout) || !entity_for_handle(operation.handle, layout, entity)) return;
+    for (std::size_t index = 0; index < operation.names.size(); ++index) {
+        auto& component = operation.components[index];
+        if (!resolve_component(operation.names[index].c_str(), component) ||
+            component.size != operation.sizes[index]) return;
+    }
+    std::size_t offset{};
+    for (std::size_t index = 0; index < operation.names.size(); ++index) {
+        const auto& component = operation.components[index];
+        const auto size = operation.sizes[index];
+        bool present{};
+        // An unreadable presence mask cannot be reported as a missing
+        // component: that might conceal another initialized attribute root.
+        if (!component_presence(entity, layout, component, present)) return;
+        if (present) {
+            auto& address = operation.addresses[index];
+            auto* output = operation.output.data() + offset;
+            EntityView current{};
+            std::uintptr_t current_address{};
+            if (!component_address(entity, layout, component, address, true, &operation.regions) ||
+                !read_bytes(address, output, size) ||
+                !read_bytes(address, operation.verification.data(), size) ||
+                std::memcmp(output, operation.verification.data(), size) != 0 ||
+                !entity_for_handle(operation.handle, layout, current) || current != entity ||
+                !component_address(current, layout, component, current_address, true, &operation.regions) || current_address != address) return;
+            operation.present[index] = 1;
+        }
+        offset += size;
+    }
+    EntityView current{};
+    if (!entity_for_handle(operation.handle, layout, current) || current != entity) return;
+    // Preserve absence and address identity for every candidate through the
+    // end of this owner operation. Individual equal copies do not establish
+    // simultaneous values across different engine components.
+    for (std::size_t index = 0; index < operation.names.size(); ++index) {
+        bool present{};
+        if (!component_presence(current, layout, operation.components[index], present) ||
+            present != (operation.present[index] == 1)) return;
+        if (present) {
+            std::uintptr_t address{};
+            if (!component_address(current, layout, operation.components[index], address, true, &operation.regions) ||
+                address != operation.addresses[index]) return;
+        }
+    }
+    operation.result = operation.regions.revalidate();
+}
+
 struct TemplateUuidOperation {
     std::uint32_t handle{};
     std::array<std::uint8_t, 16> uuid{};
@@ -1171,6 +1292,12 @@ void publish_discovered_component_indices() {
     types = std::move(discovered);
 }
 
+nlohmann::json registration_type_json(const ComponentRegistry::Type& type) {
+    if (type.name.empty()) return nullptr;
+    return {{"qualified_name",type.name},{"qualified_hash",type.hash},
+        {"size",type.size},{"metadata_rva",type.metadata_rva}};
+}
+
 void read_component_registry(std::uintptr_t manager) {
     const auto now = GetTickCount64();
     if (!manager) {
@@ -1230,11 +1357,6 @@ void read_component_registry(std::uintptr_t manager) {
     }
     std::unordered_map<std::string, ComponentType> resolved;
     nlohmann::json entries = nlohmann::json::array();
-    auto type_json = [](const ComponentRegistry::Type& type) -> nlohmann::json {
-        if (type.name.empty()) return nullptr;
-        return {{"qualified_name",type.name},{"qualified_hash",type.hash},
-            {"size",type.size},{"metadata_rva",type.metadata_rva}};
-    };
     if (valid) valid = validate_contract(snapshot, error);
     if (valid) for (const auto& entry : snapshot.entries) {
         if (!entry.storage.name.empty())
@@ -1257,8 +1379,8 @@ void read_component_registry(std::uintptr_t manager) {
                 {"callable",false},{"reason","native callback ABI and effects are not resolved"}});
         }
         entries.push_back({{"index",entry.index},{"qualified_name",entry.name},
-            {"qualified_hash",entry.hash},{"runtime_type",type_json(entry.storage)},
-            {"template_type",type_json(entry.configuration)}, {"runtime_size",entry.size},
+            {"qualified_hash",entry.hash},{"runtime_type",registration_type_json(entry.storage)},
+            {"template_type",registration_type_json(entry.configuration)}, {"runtime_size",entry.size},
             {"flags_bits",entry.flags},{"storage_flags_bits",entry.storage_flags},
             {"storage",entry.storage.name.empty() ? "template-only" : "entity"},
             {"callbacks",std::move(callbacks)}});
@@ -1690,6 +1812,11 @@ std::string Diagnostics() {
             {"reads", operation_counters.reads.load()},
             {"readSuccesses", operation_counters.read_successes.load()},
             {"readFailures", operation_counters.read_failures.load()},
+            {"readBatches", operation_counters.read_batches.load()},
+            {"readBatchSuccesses", operation_counters.read_batch_successes.load()},
+            {"readBatchFailures", operation_counters.read_batch_failures.load()},
+            {"readBatchComponents", operation_counters.read_batch_components.load()},
+            {"readBatchAbsent", operation_counters.read_batch_absent.load()},
             {"writes", operation_counters.writes.load()},
             {"writeSuccesses", operation_counters.write_successes.load()},
             {"writeFailures", operation_counters.write_failures.load()},
@@ -1836,6 +1963,38 @@ extern "C" std::size_t __cdecl KfcRuntimeEcsRegistry(char* buffer, std::size_t c
     const auto required = json.size() + 1;
     if (buffer && capacity >= required) std::memcpy(buffer, json.c_str(), required);
     return required;
+    } catch (...) { return 0; }
+}
+
+extern "C" std::size_t __cdecl KfcRuntimeEcsRegistration(const char* name, char* buffer, std::size_t capacity) {
+    if (!name || !*name || strnlen_s(name, 512) == 512) return 0;
+    try {
+        std::scoped_lock lock(state_mutex);
+        nlohmann::json report;
+        if (!component_registry_ready) {
+            report = {{"schema_version",1},{"available",false},{"reason",component_registry_error},
+                {"entries",nlohmann::json::array()}};
+        } else {
+            auto entries = nlohmann::json::array();
+            for (const auto& entry : component_registry.entries) {
+                if (entry.name != name && entry.storage.name != name && entry.configuration.name != name) continue;
+                entries.push_back({{"index",entry.index},{"qualified_name",entry.name},
+                    {"qualified_hash",entry.hash},{"runtime_type",registration_type_json(entry.storage)},
+                    {"template_type",registration_type_json(entry.configuration)},{"runtime_size",entry.size},
+                    {"flags_bits",entry.flags},{"storage_flags_bits",entry.storage_flags},
+                    {"storage",entry.storage.name.empty() ? "template-only" : "entity"}});
+            }
+            report = {{"schema_version",1},{"layout_version",1},{"layout_epoch",layout_epoch},
+                {"available",true},{"source","live-engine-registration"},{"count",entries.size()},
+                {"total_count",component_registry.entries.size()},
+                {"discovery",component_registry_world_bound ? "active-world-manager" : "resident-private-memory"},
+                {"manager_bound",component_registry_world_bound},{"runtime_type_count",types.size()},
+                {"entries",std::move(entries)}};
+        }
+        const auto serialized = report.dump();
+        const auto required = serialized.size() + 1;
+        if (buffer && capacity >= required) std::memcpy(buffer, serialized.c_str(), required);
+        return required;
     } catch (...) { return 0; }
 }
 
@@ -2168,6 +2327,50 @@ extern "C" bool __cdecl KfcRuntimeEcsRead(std::uint32_t handle, const char* name
     std::memcpy(value, operation->output.data(), size);
     operation_counters.read_successes.fetch_add(1, std::memory_order_relaxed);
     return true;
+}
+extern "C" bool __cdecl KfcRuntimeEcsReadMany(std::uint32_t handle, const char* const* names,
+    const std::uint32_t* sizes, std::size_t count, std::uint8_t* buffer,
+    std::size_t capacity, std::uint8_t* present) {
+    operation_counters.read_batches.fetch_add(1, std::memory_order_relaxed);
+    const auto fail = [] {
+        operation_counters.read_batch_failures.fetch_add(1, std::memory_order_relaxed);
+        return false;
+    };
+    try {
+        if (!handle || !names || !sizes || !buffer || !present || !count ||
+            count > EcsRuntime::MaximumReadManyComponents || !capacity ||
+            capacity > EcsRuntime::MaximumReadManyBytes || !KfcRuntimeEcsReady()) return fail();
+        auto operation = std::make_shared<ReadManyOperation>();
+        operation->handle = handle;
+        operation->names.reserve(count);
+        operation->sizes.assign(sizes, sizes + count);
+        std::size_t total{}, maximum_size{};
+        for (std::size_t index = 0; index < count; ++index) {
+            const auto size = operation->sizes[index];
+            if (!names[index] || !size || size > EcsRuntime::MaximumReadManyBytes - total) return fail();
+            const auto length = strnlen_s(names[index], 512);
+            if (!length || length == 512) return fail();
+            operation->names.emplace_back(names[index], length);
+            total += size;
+            maximum_size = (std::max)(maximum_size, static_cast<std::size_t>(size));
+        }
+        if (total != capacity) return fail();
+        // No caller-owned pointers enter the dispatcher. A timed-out queued
+        // operation can finish against its own names and buffers safely.
+        operation->components.resize(count);
+        operation->addresses.resize(count);
+        operation->output.resize(total);
+        operation->present.resize(count);
+        operation->verification.resize(maximum_size);
+        if (!invoke_read_operation(read_many_on_game_thread, operation) || !operation->result) return fail();
+        std::memcpy(buffer, operation->output.data(), total);
+        std::memcpy(present, operation->present.data(), count);
+        const auto copied = std::count(operation->present.begin(), operation->present.end(), std::uint8_t{1});
+        operation_counters.read_batch_successes.fetch_add(1, std::memory_order_relaxed);
+        operation_counters.read_batch_components.fetch_add(static_cast<std::uint64_t>(copied), std::memory_order_relaxed);
+        operation_counters.read_batch_absent.fetch_add(count - copied, std::memory_order_relaxed);
+        return true;
+    } catch (...) { return fail(); }
 }
 extern "C" bool __cdecl KfcRuntimeEcsTemplateUuid(std::uint32_t handle, std::uint8_t* uuid) {
     if (!handle || !uuid || !KfcRuntimeEcsReady()) return false;

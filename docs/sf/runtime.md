@@ -28,8 +28,9 @@ returns an error and loaded values are excluded from file asset commits.
 zero and remain readable, but cannot authorize later writes. A resource acquired
 in one world cannot authorize mutations in another world.
 
-The native reader is enabled only by the exact-image KFC4 profile
-`enshrouded-client-25966634-resource-read`. It validates the client owner chain,
+The native reader requires an exact-image KFC4 profile, including
+`enshrouded-client-25966634` and the hotfix profile `enshrouded-client-25988036`.
+It validates the client owner chain,
 ItemRegistry handle, ResourceService index, key, chunk and byte span on each
 read. Rust supplies the canonical `ResourceId::static_hash()` from the KFC
 parser, so mods do not duplicate hash calculations. The reader copies bytes
@@ -37,9 +38,10 @@ with bounded process-memory reads. It makes no engine calls, writes no game
 memory and installs no hooks. The new functions are optional ABI-12 exports, so
 older runtime DLLs still load and report the live resource API as unavailable.
 
-Each call that lists resources reads the current index. A returned Resource
-object decodes and caches its bytes the first time `data` is read, so that
-object is a snapshot. Request a new Resource object to obtain another snapshot.
+Each call that lists resources reads the current index. A direct GUID lookup
+captures its checked owned bytes immediately. Listing entries copy their payload
+on first `data` access. Decoding and field wrappers are cached, so the Resource
+object remains a snapshot. Request a new Resource object to obtain another snapshot.
 The profile proves this path for the exact current client image. It does not
 establish resource ownership across other builds or gameplay effects from
 changing a value.
@@ -52,26 +54,67 @@ elements, and rejects pointer and blob-container traversal. Values use the
 existing parser codec, including enum names. Float32 matching compares exact
 encoded bits, so positive and negative zero are distinct.
 
-The function returns `resource, reason, progress`. Call it again from a later
-update while `progress.phase` is `indexing` or `confirming`. Each call reads at
-most 64 resource payloads, including the final candidate confirmation. The
-initial resource identity listing still uses the existing synchronous native
-listing. No candidate escapes before the full captured listing is indexed.
+The function returns `resource, reason, progress`. Its first call registers a
+shared index job. The existing runtime loop advances that job even if the mod
+does not call again or the player stops the triggering action. A later call
+retrieves its result while `progress.phase` is `indexing` or `confirming`.
+Discovery uses native batches of up to 64 scalar keys. These are batches per
+queue step, not a requirement for 64 payload reads or repeated Lua calls.
+No candidate escapes before the full captured listing is indexed.
 Duplicate scalar values return an explicit ambiguity, and a missing value is
 reported only after completion. `progress` includes `session_id`, `scanned`,
-`total`, `payload_reads`, `complete` and `phase`.
+`total`, `payload_reads`, `complete` and `phase`. `payload_reads` counts complete
+candidate snapshots read by that lookup, separately from background key batches.
+
+`game.assets.prepare_loaded_index(type, field_path)` registers the same job
+without a search value and returns `ready, reason, progress`. Call it from
+`on_load` to start preparation before an action needs the result. Registration
+can precede world availability. It remains associated with the active mod and
+automatically restarts for a changed world session. Disabling the mod removes
+its registration while retaining other mods' interest in the same index.
+
+All admitted jobs share one cooperative 1 ms maintenance budget after the
+current round's Lua callbacks, with at most 1,024 keys per round. The initial
+type listing still uses one synchronous native operation and counts against
+that budget. A native operation or OS scheduling can exceed the time target.
+Diagnostics report actual duration and overruns. Older providers and supported
+read contexts without the scalar-batch contract retain checked payload reads.
 
 All mods in the Lua state share at most 16 indexes keyed by the captured world
-session, resource type and field path. They retain ResourceIds and scalar bits,
-never process pointers or resource payloads. Menu session zero remains readable.
-A world transition or successful Lua resource write invalidates the indexes,
-including writes through template views. Missing and ambiguous results refresh
-their listings after two seconds so later loaded resources can appear. A match
+session, resource type and field path, with a conservative 16 MiB shared index
+admission estimate. Reaching capacity returns a reason and preserves existing
+jobs. They retain ResourceIds and scalar bits, never process pointers or resource
+payloads. Menu session zero remains readable. A world transition resets indexed
+values while preserving declarations. Confirmed Lua resource writes invalidate
+only indexes of the same type with overlapping key bytes, including writes
+through template views. Changing glider pitch therefore preserves an Item-ID
+index. Uncertain writes invalidate conservatively and retain the existing write
+fault. Missing and ambiguous results requeue their listings after two seconds
+when queried again, so later loaded resources can appear. A match
 is reread, its scalar checked again, and its fresh bytes preserved in the returned
 Resource. A changed or unreadable candidate discards its index. Uniqueness is
 relative to the completed index snapshot, not an atomic observation of concurrent
 changes to every resource. Callers must still validate the reflected resource
 category they intend to use.
+
+`game.assets.resolve_loaded_resource("g38_items::ItemRegistry", item_id)` uses
+the separately validated original ItemRegistry map to select its canonical
+`ItemInfo`. It returns `resource, reason`, including a fresh confirmed snapshot.
+This direct relation needs no full ItemInfo scan. It currently accepts this one
+original registry name and a nonzero unsigned ItemId, an active ingame Runtime
+mod, the matching exact profile contract and the current nonzero local-authority
+world session. An unknown relation or unavailable contract returns a reason.
+It selects the original registry entry rather than proving uniqueness across
+all loaded resource payloads. Its returned Resource uses the same public
+writers, claims and session checks as other loaded snapshots. Flight requests
+this original relation first and prepares its generic field-search fallback in
+`on_load`.
+
+The common API caches immutable reflection field plans and the attribute
+catalog's name/root ordering. Current entity values, initialized roots,
+world identity and write authority are checked afresh. Fixed inline resource
+fields reuse these plans. BlobArray and BlobVariant traversal still checks
+the actual descriptors in each resource snapshot.
 
 `runtime.overrides.new()` registers a reversible scope with the loader.
 `runtime.overrides.attribute`, `.component`, `.resource`, `.template` and
@@ -189,6 +232,19 @@ checks a nonempty map of at most 1,024 other component-relative expected scalars
 against the fresh snapshot before the full native resource comparison. A write
 derived from both fall start and lethal distance can therefore require that both
 observed inputs still agree. Every entity using the template shares its changes.
+Its internal registration lookup transfers only the current matching rows,
+including every alias match needed to reject ambiguity. Callback disassembly
+and unrelated registrations remain available through inspection APIs and are
+excluded from this small lookup. Providers without the optional compact export
+use the existing full registration report.
+
+Named attribute reads can use the optional native multi-component snapshot
+operation to inspect all compatible root candidates together. It amortizes
+owner and entity validation while retaining initialized-header checks and
+rejection of multiple matches. This does not promise an atomic snapshot of
+unrelated gameplay values. The public Lua call signatures stay the same.
+Providers without this checked batch export report the candidate snapshot as
+unavailable instead of inferring a unique root from incomplete reads.
 
 `runtime.services.get(original_name)` uses separately validated original named
 DI service bindings. The resulting reflected plain-data view exposes the shared
