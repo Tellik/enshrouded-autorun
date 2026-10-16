@@ -253,7 +253,7 @@ mod windows {
             include_str!("../ui/styles.css")
         );
         let icon = base64::engine::general_purpose::STANDARD
-            .encode(include_bytes!("../../../../../mods/world-editor/icon.svg"));
+            .encode(include_bytes!("../assets/icon.svg"));
         let html = include_str!("../ui/index.html")
             .replace("__SHROUDFORGE_STYLES__", &styles)
             .replace(
