@@ -133,23 +133,13 @@ function App(){
     items.push(...data.notices.map(item=>{
       if(!item.kind)return {...item,title:personalize(item.title),message:personalize(item.message)}
       const values={...(item.values||{}),username}
-      if(item.kind.startsWith('notice.')||item.kind.startsWith('log.'))return {...item,title:t(`news.${item.kind}.title` as TranslationKey,values),message:t(`news.${item.kind}.message` as TranslationKey,values)}
+      if(item.kind.startsWith('notice.'))return {...item,title:t(`news.${item.kind}.title` as TranslationKey,values),message:t(`news.${item.kind}.message` as TranslationKey,values)}
       if(item.kind==='mod.install.success')return {...item,title:t('news.mod.install.success.title',values),message:t('news.mod.install.success.message',values),changelog:item.changelog}
       if(item.kind==='mod.update.success')return {...item,title:t('news.mod.update.success.title',values),message:t('news.mod.update.success.message',values),changelog:item.changelog}
       if(item.kind==='mod.remove.success')return {...item,title:t('news.mod.remove.success.title',values),message:t('news.mod.remove.success.message',values),changelog:item.changelog}
       if(data.newsTemplates?.[item.kind])return {...item,...configured(item.kind,values as Record<string,string>)}
       return {...item}
     }))
-    for(const [modId,status] of Object.entries(data.configuration?.modStates||{})){
-      if(!['failed','blocked','restart-required','not-running','no-target'].includes(status.state))continue
-      const mod=data.mods.find(item=>item.id===modId)
-      const kind=status.state==='failed'?'failed':status.state==='blocked'?'blocked':status.state==='restart-required'?'restart':status.state==='no-target'?'noTarget':'notRunning'
-      items.push({id:`mod-status-${modId}-${kind}`,modId,level:status.state==='failed'?'error':'warning',title:t(`news.modStatus.${kind}.title` as TranslationKey,{name:mod?.name||modId}),message:t(`news.modStatus.${kind}.message` as TranslationKey,{detail:status.detail||''}),actions:[{id:'open-mod',kind:'open-mod',target:modId}],updatedAt:0})
-    }
-    for(const check of data.configuration?.checks||[]){
-      if(check.state!=='warning')continue
-      items.push({id:`check-${check.id}`,level:'warning',title:t('news.check.warning.title' as TranslationKey,{check:t(`news.check.group.${check.group}` as TranslationKey)}),message:t('news.check.warning.message' as TranslationKey,{detail:check.detail}),actions:[{id:'open-debug-console',kind:'open-debug-console'}],updatedAt:0})
-    }
     return items.map(item=>({...item,ecosystem:item.ecosystem||data.mods.find(mod=>mod.id===item.modId)?.ecosystem})).sort((a,b)=>b.updatedAt-a.updatedAt)
   },[data,t,settings.messageNameFallback])
   const unread=news.filter(item=>!read.includes(item.id))
