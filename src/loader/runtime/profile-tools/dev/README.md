@@ -82,22 +82,53 @@ build\native-runtime\tools\kfc-runtime-dev.exe scan-functions $exe `
 Function ranges and byte matches do not infer source names or prove call
 semantics. A developer must review the actual functions and calling conventions.
 
-Start the same game executable, load into a world, then capture the live ECS
-registry and join it against `kfc-parser`'s `reflection_data.json`:
+Start the same game executable and capture the live ECS registry together with
+that executable's reflection. Load a world for entity/archetype evidence. Registry
+registration and a coherent world snapshot are separate observations:
 
 ```powershell
 $game = Get-Process enshrouded | Select-Object -First 1
-$reflection = '<path to kfc-parser reflection_data.json>'
-build\native-runtime\tools\kfc-runtime-capture-ecs.exe $game.Id 2>&1 | Tee-Object "$capture\ecs-capture.log"
-build\native-runtime\tools\kfc-runtime-dev.exe import-ecs-capture "$capture\ecs-capture.log" `
-  --image-report "$capture\image-report.json" --reflection $reflection `
-  --id enshrouded-client-new-build --out "$capture\components-live.json"
+$python = 'target/runtime-discovery-venv/Scripts/python.exe'
+$tools = 'src/loader/runtime/profile-tools/dev/tools/enshrouded'
+& $python "$tools/discover-runtime.py" $exe --pid $game.Id --functions `
+  --out "$capture/live-discovery"
+& $python "$tools/discover-components.py" $exe --capture "$capture/live-discovery" `
+  --export-only --id enshrouded-client-new-build --catalog-out "$capture/components-live.json"
 ```
 
-The importer reads the parser's native `version`/`types` format (`qualifiedName`
-and `size`) and also accepts the normalized `entries` format. Parser `version`
-identifies KFC data, not the game executable build. pass `--id` to name the game
-build. Any unresolved name/size joins block profile approval.
+Set up the Python environment as described in [Runtime discovery](DISCOVERY.md).
+The export checks exact executable identity and the captured `runtimeType`
+descriptor index/size. A registration can name a template whose dynamic runtime
+type has a different name and size. The catalog keeps these descriptors separate,
+uses the runtime descriptor name for entity components, and retains template-only
+registrations as evidence. It does not turn them into entity storage.
+
+The legacy `import-ecs-capture` command accepts tab-separated name/index/size
+captures. Those rows lack runtime/template descriptor references and cannot
+reconstruct dynamic type mappings. Use the full registry export for new profiles.
+KFC `version` identifies game data separately from executable identity. Pass `--id`
+to name the executable build. Any unresolved registration joins block approval.
+
+Compare an existing full old-build capture with the new one to collect operation
+candidates and current function-entry signatures:
+
+```powershell
+& $python "$tools/inspect-runtime.py" compare '<old-capture-directory>' "$capture/live-discovery" `
+  --source-profile src/loader/runtime/profiles/enshrouded/client/1076226.json `
+  --target-executable $exe --out "$capture/cross-build.json"
+```
+
+The comparison considers hooks, patches, and world operations. Relocated code,
+matching unwind fragments, relative call/jump structure, reflection references,
+execution descriptors, and uniquely mapped call neighbors provide separate
+evidence. Optional `--source-components` and `--target-components` add stable
+component callback owner/slot evidence from matching captures. A leaf function
+without unwind coverage can retain a byte-site candidate only when its source
+profile guard exactly matches the target scan pattern and original bytes.
+A unique current byte signature does not validate an
+operation's ABI or effects. Patch positions need their own review when code
+changed. Review the candidate evidence before updating and scanning the development
+function catalog used by `generate-profile`.
 
 Generate and validate a draft entirely under `src/loader/runtime/profile-tools/devdata/`:
 

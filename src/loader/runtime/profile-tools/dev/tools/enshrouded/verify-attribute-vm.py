@@ -17,11 +17,41 @@ from unicorn.x86_const import (UC_X86_REG_RCX, UC_X86_REG_RDX, UC_X86_REG_R8,
 
 BUILDS = {
     'af2f5a1227911d8aa06b3908d6bd0211838211cae14ea91099cb57d0df990781':
-        {'sint32': 0x1e1b00, 'uint32': 0x214090, 'float32': 0x1f3040},
+        {'interpreters': {'sint32': 0x1e1b00, 'uint32': 0x214090, 'float32': 0x1f3040},
+         'resultValueOffset': 4},
     '001c1b40ed091d8c1aee583adde3800d7c858ae2c7f4dff54fca2938b2be1637':
-        {'sint32': 0x2c310, 'uint32': 0x4e1c0, 'float32': 0x3d4f0},
+        {'interpreters': {'sint32': 0x2c310, 'uint32': 0x4e1c0, 'float32': 0x3d4f0},
+         'resultValueOffset': 4},
+    # Current KFC4 client. Each unwind-bounded interpreter writes success at +0,
+    # auxiliary metadata at +4 and the actual scalar result at +8.
+    '4d6d43ea4a91e71c82d60b045dde932179c99e32e40657efe374688b2933589a':
+        {'interpreters': {'sint32': 0x21c510, 'uint32': 0x24d6d0, 'float32': 0x2316c0},
+         'resultValueOffset': 8},
 }
 SCALARS = {2556031774: 'sint32', 848563180: 'uint32', 3902764048: 'float32'}
+INTEGER_EDGES = (0, 1, 2, 3, 0x7f, 0xffff, 0x10000, 0xffffff, 0x1000000,
+                 0x1000001, 0x7ffffffe, 0x7fffffff, 0x80000000, 0x80000001,
+                 0xfeffffff, 0xff000000, 0xff000001, 0xfffffffd, 0xfffffffe, 0xffffffff)
+# Keep products finite. Rejecting nonfinite results is an intentional safety
+# restriction of the owned model, not an assertion about the native VM.
+FLOAT_EDGES = tuple(struct.unpack('<I', struct.pack('<f', x))[0] for x in
+                    (0.0, -0.0, 1e-20, -1e-20, 0.1, -0.1, 1.0, -1.0,
+                     16777215.0, 16777216.0, 16777218.0, -16777216.0, 1e18, -1e18))
+
+
+def sample_values(rng, kind, count, sample, edge=False):
+    if edge:
+        choices = FLOAT_EDGES if kind == 'float32' else INTEGER_EDGES
+        return [rng.choice(choices) for _ in range(count)]
+    if sample < 3:
+        value = ([0, 1, 0x7fffffff][sample] if kind != 'float32' else
+                 struct.unpack('<I', struct.pack('<f', float(sample)))[0])
+        return [value] * count
+    if kind == 'float32':
+        return [struct.unpack('<I', struct.pack('<f', rng.uniform(-100, 100)))[0]
+                for _ in range(count)]
+    return [rng.randint(-10000 if kind == 'sint32' else 0, 10000) & 0xffffffff
+            for _ in range(count)]
 
 
 class Oracle:
@@ -31,7 +61,9 @@ class Oracle:
 
     def __init__(self, pe):
         self.pe = pe
-        self.roots = BUILDS[pe.sha256]
+        build = BUILDS[pe.sha256]
+        self.roots = build['interpreters']
+        self.result_value_offset = build['resultValueOffset']
         self.uc = Uc(UC_ARCH_X86, UC_MODE_64)
         self.uc.mem_map(pe.base, (pe.image_size + 4095) & ~4095, UC_PROT_READ | UC_PROT_EXEC)
         self.uc.mem_write(pe.base, pe.data[:pe.headers_size])
@@ -60,7 +92,8 @@ class Oracle:
         u.emu_start(self.pe.base + self.roots[kind], self.STOP, timeout=100000, count=100000)
         if u.reg_read(UC_X86_REG_RIP) != self.STOP:
             raise ValueError('interpreter exceeded execution budget')
-        status, result = struct.unpack('<B3xI', u.mem_read(self.SCRATCH, 8))
+        status = u.mem_read(self.SCRATCH, 1)[0]
+        result = struct.unpack('<I', u.mem_read(self.SCRATCH + self.result_value_offset, 4))[0]
         after = list(struct.unpack('<' + 'I' * len(values), u.mem_read(self.SCRATCH + 0x1000, len(values) * 4)))
         return dict(status=status, result=result, after=after)
 
@@ -71,7 +104,16 @@ def main():
     parser.add_argument('--resources', required=True)
     parser.add_argument('--out', required=True)
     parser.add_argument('--samples', type=int, default=32)
+    parser.add_argument('--edge-samples', type=int, default=0,
+                        help='additional finite boundary vectors for each nonempty program')
+    parser.add_argument('--scale-samples', type=int, default=0,
+                        help='additional integer boundary vectors for LoadRef/ScaleToNewMax programs')
+    parser.add_argument('--root-samples', type=int, default=0,
+                        help='complete descending root recomputations using original program results')
     args = parser.parse_args()
+    if any(not 0 <= n <= 4096 for n in
+           (args.samples, args.edge_samples, args.scale_samples, args.root_samples)):
+        parser.error('sample counts must be in 0..4096')
     pe = PE(args.exe)
     oracle = Oracle(pe)
     resources = json.loads(Path(args.resources).read_text())
@@ -79,27 +121,55 @@ def main():
                  if r['qualifiedType'] == 'keen::AttributeContainerResource')
     rng = random.Random(20261009)
     vectors = []
+    coverage = []
     for root in roots:
         kind = SCALARS[root['type']['value']]
         count = len(root['ids'])
+        root_id = root['ids'][0]['value']
+        coverage.append(dict(rootId=root_id, kind=kind, definitions=count,
+                             programs=sum(bool(row['calculation']) for row in root['structure'])))
         for i, row in enumerate(root['structure']):
             words = row['calculation']
             if not words:
                 continue
-            for sample in range(args.samples):
-                if kind == 'float32':
-                    values = [struct.unpack('<I', struct.pack('<f', rng.uniform(-100, 100)))[0] for _ in range(count)]
-                else:
-                    values = [rng.randint(-10000 if kind == 'sint32' else 0, 10000) & 0xffffffff for _ in range(count)]
-                if sample < 3:
-                    values = [[0, 1, 0x7fffffff][sample]] * count if kind != 'float32' else [struct.unpack('<I', struct.pack('<f', float(sample)))[0]] * count
+            scale = any(word >> 16 == 13 for word in words)
+            total = args.samples + args.edge_samples + (args.scale_samples if scale else 0)
+            for sample in range(total):
+                values = sample_values(rng, kind, count, sample, edge=sample >= args.samples)
                 native = oracle.execute(kind, values, words)
-                vectors.append(dict(name=root['debugNames'][i], kind=kind, values=values, words=words, **native))
+                vectors.append(dict(name=root['debugNames'][i], kind=kind, values=values,
+                                    words=words, rootId=root_id, slot=i,
+                                    case='edge' if sample >= args.samples else 'sample', **native))
+        # The original signed adder starts at root.count-1, skips empty programs,
+        # writes the returned scalar at that slot, then decrements the row index.
+        # Each captured nonempty step is checked by the existing Rust oracle test.
+        for sample in range(args.root_samples):
+            values = sample_values(rng, kind, count, sample, edge=sample >= 3)
+            for i in range(count - 1, -1, -1):
+                words = root['structure'][i]['calculation']
+                if not words:
+                    continue
+                before = list(values)
+                native = oracle.execute(kind, before, words)
+                vectors.append(dict(name=root['debugNames'][i], kind=kind, values=before,
+                                    words=words, rootId=root_id, slot=i, case='root-walk',
+                                    rootSample=sample, **native))
+                if native['status']:
+                    raise ValueError(f'original root recomputation failed: {root_id:#x}, slot {i}')
+                values = list(native['after'])
+                values[i] = native['result']
     output = Path(args.out)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(dict(executableSha256=pe.sha256, interpreters=oracle.roots,
+        resultValueOffset=oracle.result_value_offset,
+        coverage=dict(roots=coverage, definitions=sum(r['definitions'] for r in coverage),
+                      programs=sum(r['programs'] for r in coverage),
+                      rootSamples=args.root_samples,
+                      rootWalkOrder='descending; empty programs leave the stored slot unchanged'),
         environment='Unicorn x86_64; isolated read-only PE; no host native execution', vectors=vectors)))
-    print(json.dumps(dict(executableSha256=pe.sha256, programs=len(vectors) // args.samples,
+    print(json.dumps(dict(executableSha256=pe.sha256, roots=len(coverage),
+                          definitions=sum(r['definitions'] for r in coverage),
+                          programs=sum(r['programs'] for r in coverage),
                           samples=len(vectors), nativeStatuses=sorted(set(v['status'] for v in vectors)))))
 
 

@@ -11,6 +11,8 @@ sys.path.insert(0, str(TOOLS))
 from discovery.pe import PE
 from discovery.reflection import extract, fnv
 from discovery.functions import discover, mask_rip_displacement
+from discovery.systems import discover as discover_systems
+from discovery.matching import trace_anchors
 
 
 def fixture():
@@ -84,6 +86,24 @@ class DiscoveryTest(unittest.TestCase):
     def test_hash_is_fnv1a_not_python_hash(self):
         self.assertEqual(fnv(''), 0x811c9dc5)
         self.assertEqual(fnv('hello'), 0x4f9f2cab)
+
+    def test_system_descriptor_keeps_sixth_span_without_inventing_access_roles(self):
+        data = fixture()
+        name = b'fixture_system'
+        dependency = b'InertialFrame'
+        data[0x900:0x900 + len(name)] = name
+        data[0x940:0x940 + len(dependency)] = dependency
+        struct.pack_into('<QQQ', data, 0x700, 0x140001700, len(name), 0x140002000)
+        struct.pack_into('<QQ', data, 0x700 + 104, 0x140001780, 1)
+        struct.pack_into('<QQ', data, 0x980, 0x140001740, len(dependency))
+        functions = dict(functionGroups=[dict(beginRva=0x2000)],
+                         codePointers=[dict(targetRva=0x2000, slotRva=0x1510)])
+        systems = discover_systems(self.load(data), functions)
+        self.assertEqual(len(systems), 1)
+        slots = systems[0]['dependencySlots']
+        self.assertEqual([slot['offset'] for slot in slots], [24, 40, 56, 72, 88, 104])
+        self.assertEqual(slots[5]['entries'], ['InertialFrame'])
+        self.assertNotIn('access_mode', slots[5])
 
     @unittest.skipUnless(importlib.util.find_spec('capstone') and importlib.util.find_spec('numpy'), 'optional disassembler dependencies')
     def test_instruction_xrefs_and_address_normalization(self):
@@ -162,6 +182,83 @@ class DiscoveryTest(unittest.TestCase):
         (directory / 'functions.json').write_text(json.dumps(dict(image={'sha256': 'wrong'})))
         with self.assertRaisesRegex(ValueError, 'mixes executable identities'):
             inspect.checked_reports(directory)
+
+    def anchor_fixture(self):
+        data = fixture()
+        data.extend(b'\0' * 0x200)
+        struct.pack_into('<H', data, 0x86, 2)
+        struct.pack_into('<I', data, 0x98 + 56, 0x3000)
+        struct.pack_into('<8sIIIIIIHHI', data, 0x98 + 280, b'.text', 0x200, 0x2000,
+                         0x200, 0x1200, 0, 0, 0, 0, 0x60000020)
+        struct.pack_into('<II', data, 0x98 + 136, 0x1380, 48)
+        for ordinal, (begin, end, unwind) in enumerate(((0x2000, 0x2004, 0x13c0),
+                (0x2004, 0x2020, 0x13d0), (0x2020, 0x2030, 0x13e0), (0x2030, 0x2040, 0x13f0))):
+            struct.pack_into('<III', data, 0x580 + ordinal * 12, begin, end, unwind)
+            data[unwind - 0xe00] = 1
+        data[0x5d0] = 0x21
+        struct.pack_into('<III', data, 0x5d4, 0x2000, 0x2004, 0x13c0)
+        data[0x1200:0x1240] = b'\x90' * 0x40
+        for offset in (0x1204, 0x1230):
+            data[offset:offset + 7] = bytes.fromhex('b8 10 20 30 40 90 c3')
+        data[0x1220:0x1226] = b'\xe8' + struct.pack('<i', 0x2004 - 0x2025) + b'\xc3'
+        pe = self.load(data)
+        reflection = dict(image=pe.identity(), **extract(pe))
+        functions = dict(image=pe.identity(), **discover(pe, reflection, progress=lambda _: None))
+        group = next(g for g in functions['functionGroups'] if g['beginRva'] == 0x2020)
+        group['engineDescriptors'] = [dict(name='fixture_caller', dependencySlots=[dict(offset=56, entries=['uint32'])])]
+        return pe, reflection, functions
+
+    @unittest.skipUnless(importlib.util.find_spec('capstone') and importlib.util.find_spec('numpy'), 'optional disassembler dependencies')
+    def test_anchor_trace_rescans_retains_ambiguity_fragments_and_exact_call_edges(self):
+        pe, reflection, functions = self.anchor_fixture()
+        scan = dict(image=pe.identity(), features=[dict(name='effect', signature='B8 10 20 30 40 90 C3', matches=[1])])
+        result = trace_anchors(pe, reflection, functions, scan, dict(entries=[dict(name='data handler')]))
+        row = result['anchors'][0]
+        self.assertEqual(row['matches'], [0x2004, 0x2030])
+        self.assertEqual(row['status'], 'ambiguous-byte-matches')
+        self.assertFalse(row['reportedMatchesAgree'])
+        self.assertEqual(len(result['procedures'][str(0x2000)]['ranges']), 2)
+        named = row['sites'][0]['callerTrace']['nearestNamedCallers'][0]
+        self.assertEqual(named['names'], ['fixture_caller'])
+        self.assertEqual(named['oneShortestCallPath'][0]['instructionRva'], 0x2020)
+        self.assertEqual(named['oneShortestCallPath'][0]['targetRva'], 0x2004)
+        self.assertEqual(result['callerFunctions'][str(0x2020)]['descriptorTypeReferences'][0]['reflectionCandidates'], [1])
+        self.assertEqual([t['index'] for t in result['reflectedTypes']], [1])
+        self.assertEqual(result['anchors'][1]['status'], 'unresolved-data-mechanism')
+        self.assertFalse(result['nativeAbiProven'])
+
+    @unittest.skipUnless(importlib.util.find_spec('capstone') and importlib.util.find_spec('numpy'), 'optional disassembler dependencies')
+    def test_anchor_trace_rejects_cross_image_and_excessive_depth(self):
+        pe, reflection, functions = self.anchor_fixture()
+        scan = dict(image=dict(pe.identity(), sha256='another image'), features=[])
+        with self.assertRaisesRegex(ValueError, 'exact executable image'):
+            trace_anchors(pe, reflection, functions, scan)
+        with self.assertRaisesRegex(ValueError, 'zero and six'):
+            trace_anchors(pe, reflection, functions, dict(image=pe.identity(), features=[]), maximum_depth=7)
+
+    @unittest.skipUnless(importlib.util.find_spec('capstone') and importlib.util.find_spec('numpy'), 'optional disassembler dependencies')
+    def test_anchor_trace_marks_interior_byte_hits_and_invalid_signatures(self):
+        pe, reflection, functions = self.anchor_fixture()
+        scan = dict(image=pe.identity(), features=[dict(name='interior', signature='10 20 30 40'),
+                                                  dict(name='invalid', signature='GG 00 11 22')])
+        result = trace_anchors(pe, reflection, functions, scan,
+                              dict(entries=[dict(name='interior', siteOffset=-1)]))
+        self.assertTrue(result['anchors'][0]['sites'])
+        self.assertTrue(all(not s['instructionBoundaryVerified'] for s in result['anchors'][0]['sites']))
+        self.assertTrue(all(s['catalogSite']['instructionBoundaryVerified'] for s in result['anchors'][0]['sites']))
+        self.assertEqual(result['anchors'][1]['status'], 'unresolved-invalid-signature')
+
+    @unittest.skipUnless(importlib.util.find_spec('capstone') and importlib.util.find_spec('numpy'), 'optional disassembler dependencies')
+    def test_anchor_trace_simple_patch_uses_captured_offset_instead_of_status(self):
+        pe, reflection, functions = self.anchor_fixture()
+        scan = dict(image=pe.identity(), features=[dict(name='simple', signature='B8 10 20 30 40 90 C3')])
+        catalog = dict(entries=[dict(name='simple', kind20=0, value10=5000, siteOffset130=5,
+                                     siteOffset178=0, replacementBytes=[0x90])])
+        result = trace_anchors(pe, reflection, functions, scan, catalog)
+        sites = result['anchors'][0]['sites']
+        self.assertEqual([s['catalogSite']['rva'] for s in sites], [0x2009, 0x2035])
+        self.assertTrue(all(s['catalogSite']['instructionBoundaryVerified'] for s in sites))
+        self.assertEqual(result['anchors'][0]['catalogMetadata']['replacementBytes'], [0x90])
 
 
 if __name__ == '__main__':

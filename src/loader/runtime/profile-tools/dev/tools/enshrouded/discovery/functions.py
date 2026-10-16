@@ -17,6 +17,183 @@ def mask_rip_displacement(code, instruction, begin, displacement):
     code[offset:offset + 4] = b'\0' * 4
 
 
+def generate_signature(pe, rva, min_bytes=16, max_bytes=96):
+    """Find the shortest unique instruction-aligned AOB within one native range.
+
+    ``unique`` proves only a byte match in this image. It never verifies a hook,
+    calling convention, patch offset, or the semantics of a candidate function.
+    Functions without a containing PE RUNTIME_FUNCTION range are left unresolved.
+    Invalid arguments raise ValueError. Missing dependencies, undecodable bytes,
+    short ranges and ambiguous patterns instead return an explicit ``reason``.
+    """
+    if (not isinstance(rva, int) or isinstance(rva, bool) or rva < 0 or
+            not isinstance(min_bytes, int) or isinstance(min_bytes, bool) or
+            not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or
+            not 1 <= min_bytes <= max_bytes):
+        raise ValueError('expected a nonnegative integer RVA and 1 <= min_bytes <= max_bytes')
+    result = dict(rva=rva, signature=None, originalBytes=[], length=0,
+                  matchCount=0, matches=[], unique=False, callable=False,
+                  semanticStatus='unverified', reason=None, minBytes=min_bytes,
+                  maxBytes=max_bytes, instructionAlignmentVerified=False,
+                  maskRanges=[], maskedByteCount=0)
+    index = pe.containing_function(rva)
+    if index is None:
+        result['reason'] = 'no-containing-function'
+        return result
+    native = pe.functions[index]
+    begin, end = native['beginRva'], native['endRva']
+    result['functionRange'] = dict(beginRva=begin, endRva=end)
+    if not pe.executable(rva):
+        result['reason'] = 'non-executable-rva'
+        return result
+    try:
+        code = pe.read(begin, end - begin)
+    except ValueError as error:
+        result.update(reason='function-bytes-unavailable', detail=str(error))
+        return result
+    try:
+        import capstone as cs
+        from capstone.x86 import X86_OP_IMM, X86_OP_MEM, X86_REG_RIP
+    except ImportError:
+        result.update(reason='disassembler-unavailable', dependency='capstone')
+        return result
+
+    engine = cs.Cs(cs.CS_ARCH_X86, cs.CS_MODE_64)
+    engine.detail = True
+    normalized = bytearray(code)
+    masked, mask_ranges = set(), []
+    executable_sections = None
+    length = 0
+
+    def snapshot():
+        nonlocal executable_sections
+        if not length:
+            return
+        original = code[rva - begin:rva - begin + length]
+        tokens = ['??' if i in masked else f'{value:02X}' for i, value in enumerate(original)]
+        result.update(signature=' '.join(tokens), originalBytes=list(original), length=length,
+                      maskRanges=[row for row in mask_ranges if row['offset'] + row['size'] <= length],
+                      maskedByteCount=sum(i < length for i in masked))
+        if executable_sections is None:
+            # Read every executable section. Omitting an unreadable section could
+            # turn an ambiguous signature into a false unique match.
+            executable_sections = [(section['rva'], pe.read(section['rva'], section['rawSize']))
+                                   for section in pe.sections if section['flags'] & 0x20000000]
+        needle = b''.join(b'.' if token == '??' else re.escape(bytes([value]))
+                          for token, value in zip(tokens, original))
+        regex = re.compile(b'(?=(' + needle + b'))', re.DOTALL)
+        matches = sorted({section_rva + match.start() for section_rva, data in executable_sections
+                          for match in regex.finditer(data)})
+        result.update(matches=matches, matchCount=len(matches))
+
+    def record_mask(instruction, offset, size, kind, target_rva):
+        relative = instruction.address - rva + offset
+        row = dict(instructionRva=instruction.address, offset=relative, size=size,
+                   kind=kind, targetRva=target_rva)
+        if row not in mask_ranges:
+            mask_ranges.append(row)
+        masked.update(range(relative, relative + size))
+
+    def mask_encoding(instruction, offset, size, value, kind, target_rva):
+        if offset < 0 or size <= 0 or offset + size > instruction.size:
+            raise ValueError(f'invalid {kind} encoding at RVA 0x{instruction.address:x}')
+        position = instruction.address - begin + offset
+        encoded = int.from_bytes(code[position:position + size], 'little')
+        if encoded != (value & ((1 << (size * 8)) - 1)):
+            raise ValueError(f'inconsistent {kind} decoding at RVA 0x{instruction.address:x}')
+        normalized[position:position + size] = b'\0' * size
+        record_mask(instruction, offset, size, kind, target_rva)
+
+    def image_address(value):
+        # Operand bytes and a mapped preferred-image address are both required.
+        # Numeric equality to an image address still does not prove semantics.
+        address = value & ((1 << 64) - 1)
+        target = address - pe.base
+        if not 0 <= target < pe.image_size:
+            return None
+        if target < pe.headers_size or any(section['rva'] <= target < section['rva'] +
+                                          max(section['size'], section['rawSize'])
+                                          for section in pe.sections):
+            return target
+        return None
+
+    cursor, stop_reason = begin, None
+    for instruction in engine.disasm(code, begin):
+        instruction_end = instruction.address + instruction.size
+        if instruction.address < rva:
+            if instruction_end > rva:
+                result['reason'] = 'not-instruction-boundary'
+                return result
+            cursor = instruction_end
+            continue
+        result['instructionAlignmentVerified'] = True
+        if instruction_end - rva > max_bytes:
+            stop_reason = 'max-bytes-reached'
+            break
+        try:
+            for operand in instruction.operands:
+                if operand.type == X86_OP_MEM and operand.mem.base == X86_REG_RIP:
+                    # Reuse the disp32 validation, including Capstone's known
+                    # incorrect disp_size for operand-size-prefixed instructions.
+                    if instruction.disp_offset < 0:
+                        raise ValueError(f'invalid RIP displacement offset at RVA 0x{instruction.address:x}')
+                    if instruction.address - rva + instruction.disp_offset not in masked:
+                        mask_rip_displacement(normalized, instruction, begin, operand.mem.disp)
+                    record_mask(instruction, instruction.disp_offset, 4, 'rip-relative-displacement',
+                                instruction_end + operand.mem.disp)
+                elif operand.type == X86_OP_IMM:
+                    if (instruction.group(cs.CS_GRP_BRANCH_RELATIVE) or
+                            instruction.group(cs.CS_GRP_JUMP) or instruction.group(cs.CS_GRP_CALL)):
+                        offset, size = instruction.imm_offset, instruction.imm_size
+                        position = instruction.address - begin + offset
+                        if offset < 0 or size not in (1, 2, 4) or offset + size > instruction.size:
+                            raise ValueError(f'unsupported relative branch encoding at RVA 0x{instruction.address:x}')
+                        displacement = int.from_bytes(code[position:position + size], 'little', signed=True)
+                        if ((instruction_end + displacement) & ((1 << 64) - 1)) != (operand.imm & ((1 << 64) - 1)):
+                            raise ValueError(f'inconsistent relative branch decoding at RVA 0x{instruction.address:x}')
+                        mask_encoding(instruction, offset, size, displacement,
+                                      'relative-branch-immediate', operand.imm)
+                    else:
+                        target = image_address(operand.imm)
+                        if target is not None:
+                            mask_encoding(instruction, instruction.imm_offset, instruction.imm_size,
+                                          operand.imm, 'absolute-image-immediate', target)
+                elif (operand.type == X86_OP_MEM and not operand.mem.base and not operand.mem.index
+                      and not operand.mem.segment):
+                    target = image_address(operand.mem.disp)
+                    if target is not None:
+                        mask_encoding(instruction, instruction.disp_offset, instruction.disp_size,
+                                      operand.mem.disp, 'absolute-image-displacement', target)
+        except ValueError as error:
+            snapshot()
+            result.update(reason='inconsistent-instruction-encoding', detail=str(error))
+            return result
+        cursor = instruction_end
+        length = cursor - rva
+        if length >= min_bytes:
+            snapshot()
+            if result['matches'] == [rva]:
+                result.update(unique=True, reason='unique-byte-match')
+                return result
+        if length == max_bytes:
+            stop_reason = 'max-bytes-reached'
+            break
+    if cursor < rva:
+        result.update(reason='undecoded-before-rva', undecodedRva=cursor)
+        return result
+    if stop_reason is None:
+        stop_reason = 'function-range-end' if cursor == end else 'undecoded-instructions'
+    snapshot()
+    result['stopReason'] = stop_reason
+    if stop_reason == 'undecoded-instructions':
+        result.update(reason='undecoded-instructions', undecodedRva=cursor)
+    elif length < min_bytes:
+        result['reason'] = 'insufficient-bytes'
+    else:
+        result['reason'] = 'ambiguous-signature'
+    return result
+
+
 def group_functions(pe, functions):
     """Join UNW_FLAG_CHAININFO fragments before comparing whole native procedures.
 

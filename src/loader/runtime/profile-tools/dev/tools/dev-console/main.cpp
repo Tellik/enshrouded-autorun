@@ -873,6 +873,10 @@ int generate_command(int argc, char** argv) {
         profile["kfcFormat"] = kfc_format_text == "3" ? 3 : 4;
         // A relocated signature does not prove calculation semantics in a new build.
         profile.erase("attributeCalculationModel");
+        // Native ownership and write gates are exact-build contracts too.
+        // A new image's signature scan cannot transfer their authorization.
+        profile.erase("ecsWriteLayout");
+        profile.erase("resourceWriteLayout");
         const auto image = json::parse(std::ifstream(image_path));
         const auto scan = json::parse(std::ifstream(scan_path));
         const auto observed_components = json::parse(std::ifstream(*components_path));

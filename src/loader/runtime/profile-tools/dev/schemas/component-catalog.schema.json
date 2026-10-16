@@ -18,6 +18,41 @@
         "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
       }
     },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method": { "type": "string" },
+        "liveCapture": { "type": "string" },
+        "reflection": { "type": "string" }
+      }
+    },
+    "unresolved": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["reason"],
+        "properties": { "reason": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "registrationMappings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["index", "registrationName", "qualifiedHash", "runtimeType", "templateType", "storage", "status"],
+        "properties": {
+          "index": { "type": "integer", "minimum": 0, "maximum": 1023 },
+          "registrationName": { "type": "string", "pattern": "^keen::ecs::" },
+          "qualifiedHash": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+          "runtimeType": { "$ref": "#/$defs/descriptor" },
+          "templateType": { "$ref": "#/$defs/descriptor" },
+          "storage": { "enum": ["entity", "template-only"] },
+          "status": { "enum": ["resolved", "template-only", "unresolved"] },
+          "reason": { "type": "string" }
+        }
+      }
+    },
     "components": {
       "type": "array",
       "minItems": 2,
@@ -30,6 +65,20 @@
           "index": { "type": "integer", "minimum": 0, "maximum": 1023 },
           "size": { "type": "integer", "minimum": 1, "maximum": 65535 }
         }
+      }
+    }
+  },
+  "$defs": {
+    "descriptor": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["index", "qualifiedName", "qualifiedHash", "size", "metadataRva"],
+      "properties": {
+        "index": { "type": "integer", "minimum": 0 },
+        "qualifiedName": { "type": "string", "minLength": 1 },
+        "qualifiedHash": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "size": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "metadataRva": { "type": "integer", "minimum": 0 }
       }
     }
   }

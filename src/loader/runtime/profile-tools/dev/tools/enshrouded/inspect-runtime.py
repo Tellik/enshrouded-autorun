@@ -4,7 +4,8 @@ import argparse
 import json
 from pathlib import Path
 import sys
-from collections import Counter
+
+from discovery.matching import compare_functions, trace_anchors
 
 
 def read(directory, name, optional=False):
@@ -60,9 +61,44 @@ def layout(ty, types):
                 enums=ty['enumFields'])
 
 
-def compare(source, target):
+def compare(source, target, source_profile=None, target_scan=None, target_executable=None,
+            source_components=None, target_components=None):
     left, lf, _, audit = checked_reports(source)
-    right, rf, _, _ = checked_reports(target)
+    right, rf, _, right_audit = checked_reports(target)
+    profile = None
+    if source_profile:
+        profile = json.loads(source_profile.read_text(encoding='utf-8-sig'))
+        identity = left['image']
+        image = profile['image']
+        if (profile['target'].lower() != identity['target'].lower() or
+                image['timestamp'] != identity['timestamp'] or image['size'] != identity['size'] or
+                (image.get('sha256') and image['sha256'] != identity['sha256'])):
+            raise ValueError('source profile belongs to another captured executable')
+    scan = None
+    if target_scan:
+        scan = json.loads(target_scan.read_text(encoding='utf-8-sig'))
+        identity = right['image']
+        if (scan.get('timestamp') != identity['timestamp'] or scan.get('imageSize') != identity['size'] or
+                scan.get('sha256') != identity['sha256']):
+            raise ValueError('target function scan belongs to another captured executable')
+    pe = None
+    if target_executable:
+        from discovery.pe import PE
+        pe = PE(target_executable)
+        if pe.identity() != right['image']:
+            raise ValueError('target executable belongs to another captured image')
+
+    def components(directory, explicit, identity):
+        path = explicit if explicit is not None else directory / 'components.json'
+        if explicit is None and not path.is_file():
+            return None
+        report = json.loads(path.read_text(encoding='utf-8-sig'))
+        if report['image'] != identity:
+            raise ValueError('component callback capture belongs to another executable image')
+        return report
+
+    left_components = components(source, source_components, left['image'])
+    right_components = components(target, target_components, right['image'])
     a = {t['qualifiedName']: t for t in left['types']}
     b = {t['qualifiedName']: t for t in right['types']}
     common = sorted(a.keys() & b.keys())
@@ -71,55 +107,52 @@ def compare(source, target):
     result = dict(source=left['image'], target=right['image'],
                   addedTypes=sorted(b.keys() - a.keys()), removedTypes=sorted(a.keys() - b.keys()),
                   changedLayouts=changed, unchangedLayouts=len(common) - len(changed), operationCandidates=[])
-    if lf and rf and audit and audit['audit']:
-        fingerprints = {}
-        for fn in rf.get('functionGroups', []):
-            digest = fn.get('relocatedCodeSha256')
-            if digest:
-                fingerprints.setdefault(digest, []).append(fn['beginRva'])
-        source_functions = {f['beginRva']: f for f in lf.get('functionGroups', [])}
-        target_functions = {f['beginRva']: f for f in rf.get('functionGroups', [])}
-        left_ranges = {f['beginRva']: f for f in lf['functions']}
-        right_ranges = {f['beginRva']: f for f in rf['functions']}
+    result.update(compare_functions(left, lf, audit, right, rf, right_audit, profile, scan,
+                                    left_components, right_components))
+    if pe:
+        from discovery.functions import generate_signature
+        signatures = {}
+        for operation in result['operationCandidates']:
+            for candidate in operation.get('rankedCandidates', [])[:5]:
+                rva = candidate['targetRva']
+                if rva not in signatures:
+                    signatures[rva] = generate_signature(pe, rva)
+                candidate['entryPointSignature'] = dict(signatures[rva],
+                    purpose='current-procedure-entry-only', hookOrPatchSite=False)
+    return result
 
-        def callees(group, ranges):
-            return {ranges.get(branch['targetRva'], {}).get('primaryBeginRva', branch['targetRva'])
-                    for rva in group['ranges'] for branch in ranges[rva]['directBranches'] if branch['kind'] == 'call'}
 
-        called_by = {}
-        for fn in target_functions.values():
-            for callee in callees(fn, right_ranges):
-                called_by.setdefault(callee, set()).add(fn['beginRva'])
-        for operation in audit['audit']['operations']:
-            rva = operation.get('functionRva')
-            fn = source_functions.get(rva)
-            if not fn:
-                continue
-            matches = fingerprints.get(fn.get('relocatedCodeSha256'), []) if fn['codeBytes'] >= 32 else []
-            topology = []
-            if not matches:
-                translated = set()
-                for callee in callees(fn, left_ranges):
-                    callee_fn = source_functions.get(callee)
-                    if callee_fn and callee_fn['codeBytes'] >= 32:
-                        targets = fingerprints.get(callee_fn.get('relocatedCodeSha256'), [])
-                        if len(targets) == 1:
-                            translated.add(targets[0])
-                votes = Counter(caller for callee in translated for caller in called_by.get(callee, []))
-                ranked = sorted(votes, key=lambda candidate: (-votes[candidate],
-                    abs(target_functions[candidate]['codeBytes'] - fn['codeBytes']), candidate))
-                for candidate in ranked[:10]:
-                    if votes[candidate] < 2:
-                        continue
-                    topology.append(dict(targetRva=candidate, matchedCallees=votes[candidate],
-                                         translatableCallees=len(translated),
-                                         codeBytes=target_functions[candidate]['codeBytes'],
-                                         method='shared-unique-callee-fingerprints', semanticStatus='unverified'))
-            result['operationCandidates'].append(dict(id=operation['id'], sourceRva=rva, targetRvas=matches,
-                                                       sourceCodeBytes=fn['codeBytes'], sourceRanges=fn['ranges'],
-                                                       method='chained-unwind-group-bytes-with-address-operands-masked',
-                                                       callGraphCandidates=topology,
-                                                       semanticStatus='unverified', callable=False))
+def trace(scan_path, executable, catalog_path=None, capture_out=None, maximum_depth=6):
+    from discovery.pe import PE
+    from discovery.reflection import extract
+    from discovery.functions import discover
+    from discovery.systems import discover as discover_systems
+
+    scan = json.loads(scan_path.read_text(encoding='utf-8-sig'))
+    catalog = json.loads(catalog_path.read_text(encoding='utf-8-sig')) if catalog_path else None
+    pe = PE(executable)
+    identity = pe.identity()
+    if scan.get('image') != identity:
+        raise ValueError('anchor scan belongs to another executable image')
+    if capture_out:
+        previous = capture_out / 'reflection.json'
+        if previous.is_file() and json.loads(previous.read_text(encoding='utf-8'))['image'] != identity:
+            raise ValueError('capture output directory belongs to another executable image')
+    reflection = dict(image=identity, **extract(pe))
+    functions = dict(image=identity, **discover(pe, reflection, progress=lambda message: print(message, file=sys.stderr, flush=True)))
+    groups = {group['beginRva']: group for group in functions['functionGroups']}
+    descriptors = discover_systems(pe, functions)
+    for descriptor in descriptors:
+        groups[descriptor['functionRva']].setdefault('engineDescriptors', []).append(descriptor)
+    functions['engineDescriptorCount'] = len(descriptors)
+    result = trace_anchors(pe, reflection, functions, scan, catalog, maximum_depth)
+    if capture_out:
+        capture_out.mkdir(parents=True, exist_ok=True)
+        for name, value in (('reflection', reflection), ('functions', functions)):
+            (capture_out / (name + '.json')).write_text(json.dumps(value, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+    result['sources'] = dict(scan=str(scan_path), executable=str(pe.path), catalog=str(catalog_path) if catalog_path else None,
+                             capture=str(capture_out) if capture_out else None,
+                             discovery='fresh reflection and compiler-range disassembly from exact executable')
     return result
 
 
@@ -133,10 +166,27 @@ def main():
     diff = sub.add_parser('compare')
     diff.add_argument('source', type=Path)
     diff.add_argument('target', type=Path)
-    for command in (query, diff):
+    diff.add_argument('--source-profile', type=Path, help='exact source build profile with current operation anchors')
+    diff.add_argument('--target-scan', type=Path, help='native function-scan JSON for the exact target image')
+    diff.add_argument('--target-executable', type=Path, help='exact target EXE to generate candidate entry-point signatures')
+    diff.add_argument('--source-components', type=Path, help='exact source image live component callback capture')
+    diff.add_argument('--target-components', type=Path, help='exact target image live component callback capture')
+    anchors = sub.add_parser('trace-anchors', help='fresh exact-image trace from known byte signatures to original procedures and callers')
+    anchors.add_argument('scan', type=Path, help='exact-image JSON with features name/signature/matches')
+    anchors.add_argument('--executable', type=Path, required=True)
+    anchors.add_argument('--catalog', type=Path, help='optional registration entries, retaining signatureless data mechanisms')
+    anchors.add_argument('--capture-out', type=Path, help='save fresh reflection.json and functions.json for reuse')
+    anchors.add_argument('--max-caller-depth', type=int, choices=range(7), default=6)
+    for command in (query, diff, anchors):
         command.add_argument('--out', type=Path)
     args = parser.parse_args()
-    result = lookup(args.capture, args.query, args.hash_kind) if args.command == 'lookup' else compare(args.source, args.target)
+    if args.command == 'lookup':
+        result = lookup(args.capture, args.query, args.hash_kind)
+    elif args.command == 'trace-anchors':
+        result = trace(args.scan, args.executable, args.catalog, args.capture_out, args.max_caller_depth)
+    else:
+        result = compare(args.source, args.target, args.source_profile, args.target_scan, args.target_executable,
+                         args.source_components, args.target_components)
     text = json.dumps(result, indent=2, ensure_ascii=False) + '\n'
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -149,6 +199,6 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except (ValueError, OSError) as error:
+    except (ValueError, OSError, ImportError) as error:
         print(f'inspection failed: {error}', file=sys.stderr)
         sys.exit(2)

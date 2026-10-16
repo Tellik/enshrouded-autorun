@@ -23,7 +23,7 @@ def discover(pe, functions):
             if not re.fullmatch(r'[a-z][a-z0-9_]{2,95}', name):
                 continue
             arrays = []
-            for offset in (24, 40, 56, 72, 88):
+            for offset in (24, 40, 56, 72, 88, 104):
                 data, count = pe.u('<QQ', slot - 16 + offset)
                 if count > 256 or bool(data) != bool(count):
                     raise ValueError('invalid descriptor array')

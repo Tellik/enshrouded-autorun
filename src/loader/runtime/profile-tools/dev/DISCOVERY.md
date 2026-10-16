@@ -96,7 +96,13 @@ Empty slots, absent types, and conflicting observations must not be invented.
 Matching relocated procedure fingerprints masks only instruction address
 operands, retaining other code bytes and immediate constants. All chained
 fragments must match. Callee-graph candidates are weaker evidence and are listed
-separately. Neither method proves the target's context lifetime, thread,
+separately. The comparison also ranks caller links, named engine descriptors,
+reflected metadata references, and noncolliding type-hash immediates. It includes
+hooks and patches as well as world operations. Individual matching unwind
+fragments and relative direct CALL/JMP structures provide additional partial
+evidence. Multiple code matches retain their individual evidence and unresolved
+conflicts. These methods do not prove
+the target's context lifetime, thread,
 argument types, function effects, or callees' semantics. Candidates cannot be
 called through Lua and are never promoted to production profiles automatically.
 
@@ -117,13 +123,86 @@ reported. Thus a list of all exception ranges is not a list of all engine APIs.
   --hash-kind qualifiedHash --out target/type-evidence.json
 
 & $python src/loader/runtime/profile-tools/dev/tools/enshrouded/inspect-runtime.py `
-  compare <old-capture-directory> <new-capture-directory> --out target/build-diff.json
+  compare <old-capture-directory> <new-capture-directory> `
+  --source-profile src/loader/runtime/profiles/enshrouded/client/1076226.json `
+  --target-executable $executable --out target/build-diff.json
 ```
 
 The lookup retains **all** matching types, their live table slots, and relevant
 code/hash evidence. The comparison rejects reports with mixed EXE identities.
 Field comparisons resolve referenced types to names instead of comparing
 build-dependent reflection indices.
+
+`--source-profile` adds operation anchors introduced after the old capture and
+checks that the profile belongs to the old executable identity. Optional
+`--target-scan <native-function-scan.json>` adds current byte-pattern matches as
+weak evidence after checking the new executable SHA-256. `functionMatching`
+reports reciprocal unique anchors. Each operation retains ranked candidates,
+evidence, ambiguity, and `callable: false`. Unsupported data-only operations are
+reported explicitly without inventing a function counterpart.
+
+Optional `--source-components` and `--target-components` accept separate live
+registration captures for the exact old/new images. Otherwise `components.json`
+is read from each capture directory when present. Stable callback ownership
+uses registration names, callback origin/slot, layout version and stride. A
+callback pointing inside a procedure is not treated as its entry point.
+A leaf function without unwind coverage can retain an explicit byte-site
+candidate only when the exact source profile guard agrees with the target scan
+signature and original bytes. Its native ABI and procedure extent remain unproven.
+
+With `--target-executable`, up to five candidates per operation receive an
+`entryPointSignature`. The tool disassembles at instruction boundaries, masks
+address operands, and scans all executable sections for uniqueness. It checks
+the current EXE identity and bounds each pattern to its compiler-described
+range. These signatures identify current procedure entries. They do not relocate
+an old patch instruction or prove an operation's arguments and effects.
+
+Export a profile-generator component catalog directly from a full live capture:
+
+```powershell
+& $python src/loader/runtime/profile-tools/dev/tools/enshrouded/discover-components.py `
+  $executable --capture <capture-directory> --export-only `
+  --id enshrouded-client-new-build --catalog-out target/components-live.json
+```
+
+The exporter follows the captured runtime/template descriptor indices and
+requires exact EXE/reflection/capture identity. Dynamic runtime types can have
+different names and sizes from their configuration types. `components` uses
+runtime descriptor names, while `registrationMappings` preserves both layouts
+and template-only registrations. Real conflicts remain under `unresolved`.
+`consistentSnapshot: false` on manager evidence means the running process was
+not captured atomically. It does not establish whether a world was loaded.
+
+## Trace known working byte anchors into original code
+
+`trace-anchors` starts with an exact-image scan JSON containing `image` and a
+`features` array of `name`, `signature` and previously observed `matches`.
+It verifies the EXE SHA-256, extracts fresh reflection and disassembles all
+compiler ranges. It then rescans every supplied signature in executable sections.
+
+```powershell
+& $python src/loader/runtime/profile-tools/dev/tools/enshrouded/inspect-runtime.py `
+  trace-anchors <exact-image-signature-scan.json> --executable $executable `
+  --catalog <optional-registration-catalog.json> `
+  --capture-out target/anchor-trace-capture --out target/anchor-trace.json
+```
+
+Every match is retained, including ambiguous and non-instruction-boundary hits.
+`procedures` contains full primary unwind groups, original bytes, instructions,
+engine descriptors, metadata references and all candidate hash interpretations.
+Caller traces follow original direct CALL instructions for at most six edges.
+They stop at the nearest named engine procedure on each searched branch and
+retain alternative shortest edges in the caller graph. The saved capture can
+be reused by `lookup` and `compare`.
+
+Optional catalog `entries` add missing registrations. Entries without a byte
+signature are explicitly `unresolved-data-mechanism`. Their metadata is retained.
+When a catalog supplies `siteOffset`, or its captured Toolkit field `siteOffset130`
+for a simple patch or `siteOffset178` for a cave,
+`catalogSite` independently checks the resulting instruction boundary. Signature
+start and declared intervention site remain separate evidence. A named caller or matching
+type hash does not prove native arguments, entity scope, a writable field or a
+gameplay effect. The output never authorizes engine calls or installs patches.
 
 ## Lua interface
 
@@ -268,7 +347,7 @@ The Python environment requires the pinned Unicorn package in
 `requirements-discovery.txt`. It emulates the original signed, unsigned and
 float interpreter code with read-only image memory, bounded steps and private
 scratch pages; it never opens a game process. Current output is 65 nonempty KFC
-programs × 32 inputs = 2,080 vectors per executable, all matching the Rust model.
+programs Ã— 32 inputs = 2,080 vectors per executable, all matching the Rust model.
 
 Shipped profiles now select `componentResolution: live-registration`; component
 captures stay in diagnostics rather than being copied into the runtime profile.
@@ -276,3 +355,78 @@ captures stay in diagnostics rather than being copied into the runtime profile.
 profile generator deliberately removes it; relocating a code signature does
 not establish VM equivalence in a new build. The public API and its remaining
 limits are maintained in [runtime-registry.md](../../../../../docs/sf/runtime-registry.md).
+
+### Resolve every system dependency through the production resolver
+
+The read-only inspector below uses the same `runtime_resolution/functions.rs`
+as the Lua function catalog. It joins every captured engine system descriptor
+to freshly extracted parser types and the captured runtime/template roles.
+It does not restrict discovery to the operations listed in an execution profile.
+
+```powershell
+cargo run -p shroudforge-api --release --example inspect_runtime_functions --offline -- `
+  $exe "$capture/provider-verification.json.functions.json" `
+  "$capture/provider-verification.json" "$capture/resolved-system-dependencies.json" `
+  --registry-format provider-verification
+```
+
+The explicit `provider-verification` adapter supports the older external capture
+format. Its template identity comes from the freshly parsed executable because
+that capture did not record independent live template hashes and sizes. Use the
+default `native` format for a production `registry()` capture. The inspector
+reports which image identity checks were possible. Empty SHA256 fields are not
+treated as exact identity proof.
+
+The corrected KFC4 client inventory contains 722 system descriptors, 2,904
+dependency references and 586 distinct dependency types. All names join to fresh
+parser types and the captured registration roles. Both native and Python readers
+preserve all six spans through descriptor offset `0x68`. The previous five-span
+reader omitted 100 references, including the whole `copy_parent_level` descriptor.
+Exact-image `systemDependencyLayout` evidence exposes template configuration reads
+and runtime read/write roles in the same function catalog. Optionality, native
+calling signatures and gameplay effects remain independently unresolved.
+
+The standalone native verifier contains an experimental `--discover` mode for
+observing resident private pages. It skips nonresident pages and reports that
+limited scope. It is not automatic production discovery and does not establish
+an active world, a loaded resource owner or an engine execution phase. Catalog
+agreement only describes the allocations observed by that diagnostic run.
+Production entity reads require a manager-bound registry and a freshly validated
+original owner chain. This read-only path does not require a dispatcher hook.
+Writes still require a verified execution phase. Scheduler access metadata does
+not grant permission to submit arbitrary mutations into the original frame.
+
+### Recover calculations and the actual engine data path
+
+For a native modification, trace the original instructions after locating its
+site. A UI label or a unique AOB does not establish the value's meaning.
+
+1. Record the exact image hash and containing unwind procedure, including its
+   chained fragments and direct helper calls.
+2. Decode the original memory reads and arithmetic. Trace base-register writes,
+   lookup return values, time conversion, limits and vector operations.
+3. Compare the observed accesses with complete reflected containment paths.
+   Keep Blob and DS layouts separate even when their internal hashes agree.
+4. Prove relative descriptor bases against the existing parser codec. A component
+   stored in `TemplateResource.components` is serialized template data. It is not
+   evidence for an entity's live component column.
+5. When a pure helper can run without engine services, bounded private emulation
+   can check a reconstructed equation without loading a foreign DLL or changing
+   the game. Keep special floating-point cases and gameplay effects explicit.
+6. Trace resource identity to its loaded owner and the exact object consumed by
+   the engine. Establish lifetime, update phase and dependent copies before
+   implementing a live binding. `game.assets.Resource.data` currently operates
+   on KFC file copies, not on loaded engine resources. A matching field layout
+   does not close that gap.
+
+For example, the KFC4 glider layout distinguishes `accelerationForward`, the
+three directional air-resistance coefficients, and yaw/pitch/roll angle speeds.
+A speed-labelled slider can scale an air-resistance input. A fixed angle limit
+in executable code is a different contract from an angle-speed resource field.
+Never substitute one merely because both affect flight.
+
+The requested runtime must resolve gameplay access dynamically without modifying
+executable game code. Neither the current hook-driven dispatcher nor the
+toolkit's caves meet that requirement. The toolkit proves that particular
+patched paths work for its implementation. It does not prove that a patch-free
+engine path is impossible or that ShroudForge has already found one.

@@ -20,16 +20,16 @@ def build_version(pe):
     # KFC data version is separate from executable identity; the EXE has no such string.
     path = pe.path.with_suffix('.kfc')
     if not path.is_file():
-        return None
+        return None, None
     with path.open('rb') as stream:
         header = stream.read(24)
-        if len(header) != 24 or header[:4] != b'KFC3':
+        if len(header) != 24 or header[:4] not in (b'KFC3', b'KFC4'):
             raise ValueError('invalid adjacent KFC header')
         offset, count = struct.unpack_from('<II', header, 16)
         if not 1 <= count <= 4096 or 16 + offset + count > path.stat().st_size:
             raise ValueError('invalid KFC version location')
         stream.seek(16 + offset)
-        return stream.read(count).decode('utf-8')
+        return stream.read(count).decode('utf-8'), int(header[3:4])
 
 
 def main():
@@ -42,7 +42,7 @@ def main():
     args = parser.parse_args()
     pe = PE(args.executable)
     reflection = extract(pe)
-    version = build_version(pe)
+    version, kfc_format = build_version(pe)
     profile = json.loads(args.profile.read_text(encoding='utf-8-sig')) if args.profile else None
     identity = pe.identity()
     existing = args.out / 'reflection.json'
@@ -51,7 +51,8 @@ def main():
     print(f'{identity["target"]}: {version or "unknown build string"}, {reflection["count"]} reflected types', flush=True)
     args.out.mkdir(parents=True, exist_ok=True)
     # Each report carries identity. Never infer target/build from the selected profile's filename.
-    common = dict(schemaVersion=1, image=identity, version=version, versionSource='adjacent-kfc-data',
+    common = dict(schemaVersion=1, image=identity, version=version, kfcFormat=kfc_format,
+                  versionSource='adjacent-kfc-data' if version else 'unavailable',
                   capturedAt=datetime.now(timezone.utc).isoformat())
     write(args.out / 'reflection.json', dict(common, **reflection))
     audit = profile_audit(pe, profile)

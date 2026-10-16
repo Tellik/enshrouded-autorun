@@ -2,15 +2,26 @@
 #include <windows.h>
 #include <tlhelp32.h>
 #include "../../../../../native/ecs/component_registry.h"
+#include "../../../../../native/ecs/registry_discovery.h"
 #include "../../../../../native/provider/function_inventory.h"
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <iostream>
+#include <unordered_map>
 
 int main(int argc, char** argv) try {
-    if (argc != 4 && argc != 5) { std::cerr << "usage: verify-component-registry PID manager-hex output.json [matching-profile.json]\n"; return 2; }
-    const auto pid = static_cast<DWORD>(std::stoul(argv[1]));
-    const auto manager = static_cast<std::uintptr_t>(std::stoull(argv[2], nullptr, 16));
+    const bool discover = argc > 1 && std::string(argv[1]) == "--discover";
+    const bool owner_only = argc > 1 && std::string(argv[1]) == "--owner";
+    if ((!discover && !owner_only && argc != 4 && argc != 5) || ((discover || owner_only) && argc != 5)) {
+        std::cerr << "usage: verify-component-registry PID manager-hex output.json [matching-profile.json]\n"
+                     "       verify-component-registry --discover PID reflection.json output.json\n"
+                     "       verify-component-registry --owner PID owner-hex output.json\n";
+        return 2;
+    }
+    const auto pid = static_cast<DWORD>(std::stoul(argv[discover || owner_only ? 2 : 1]));
+    const auto manager = discover || owner_only ? std::uintptr_t{} : static_cast<std::uintptr_t>(std::stoull(argv[2], nullptr, 16));
+    const auto owner = owner_only ? static_cast<std::uintptr_t>(std::stoull(argv[3], nullptr, 16)) : std::uintptr_t{};
+    const auto output_path = argv[discover || owner_only ? 4 : 3];
     const auto process = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
     if (!process) return 3;
     const auto modules = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pid);
@@ -23,12 +34,108 @@ int main(int argc, char** argv) try {
     };
     ComponentRegistry::Snapshot snapshot;
     std::string error;
-    if (!ComponentRegistry::Read(manager, reinterpret_cast<std::uintptr_t>(module.modBaseAddr),
-        module.modBaseSize, read, snapshot, error)) {
+    nlohmann::json discovery_report;
+    bool registry_valid{};
+    if (discover) {
+        const auto reflection = nlohmann::json::parse(std::ifstream(argv[3]));
+        std::uint8_t header[4096]{};
+        if (!read(reinterpret_cast<std::uintptr_t>(module.modBaseAddr), header, sizeof(header))) return 7;
+        const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(header);
+        if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew <= 0 ||
+            static_cast<std::size_t>(dos->e_lfanew) > sizeof(header) - sizeof(IMAGE_NT_HEADERS64)) return 7;
+        const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(header + dos->e_lfanew);
+        if (nt->Signature != IMAGE_NT_SIGNATURE || reflection.at("image").at("size") != module.modBaseSize ||
+            reflection.at("image").at("timestamp") != nt->FileHeader.TimeDateStamp) return 10;
+        std::unordered_map<std::string, std::uint32_t> contract;
+        for (const auto& type : reflection.at("types")) {
+            const auto name = type.at("qualifiedName").get<std::string>();
+            const auto size = type.at("size").get<std::uint32_t>();
+            if (name.starts_with("keen::ecs::") && size) contract.emplace(name, size);
+        }
+        const ComponentRegistry::Discovery::Validator validate = [&](const ComponentRegistry::Snapshot& registry, std::string& reason) {
+            for (const auto& entry : registry.entries) for (const auto* type : {&entry.storage, &entry.configuration}) {
+                if (type->name.empty()) continue;
+                const auto found = contract.find(type->name);
+                if (found == contract.end() || found->second != type->size) {
+                    reason = "engine registration disagrees with parser contract: " + type->name;
+                    return false;
+                }
+            }
+            return true;
+        };
+        ComponentRegistry::Discovery discovery;
+        const auto started = GetTickCount64();
+        auto last_progress = started;
+        // The scan observes resident private pages. Its catalog agreement is
+        // scoped to observed owners and never authorizes entity access.
+        while (GetTickCount64() - started < 600000) {
+            registry_valid = discovery.Tick(reinterpret_cast<std::uintptr_t>(module.modBaseAddr), module.modBaseSize,
+                read, validate, snapshot, [&](std::uintptr_t address, MEMORY_BASIC_INFORMATION& memory) {
+                    return VirtualQueryEx(process, reinterpret_cast<const void*>(address), &memory, sizeof(memory)) == sizeof(memory);
+                }, std::chrono::milliseconds(250), [&](PSAPI_WORKING_SET_EX_INFORMATION* pages, std::size_t count) {
+                    return count <= MAXDWORD / sizeof(*pages) &&
+                        K32QueryWorkingSetEx(process, pages, static_cast<DWORD>(count * sizeof(*pages)));
+                });
+            const auto& progress = discovery.Status();
+            if (registry_valid || (!progress.scanning && !progress.available)) break;
+            if (GetTickCount64() - last_progress >= 10000) {
+                std::cerr << "registry discovery: " << progress.scanned_bytes / (1024 * 1024)
+                    << " MiB scanned, " << progress.completed_passes << " complete passes, "
+                    << progress.reason << '\n';
+                last_progress = GetTickCount64();
+            }
+            Sleep(1);
+        }
+        const auto& progress = discovery.Status();
+        const bool timed_out = !registry_valid && progress.scanning && GetTickCount64() - started >= 600000;
+        nlohmann::json candidates = nlohmann::json::array();
+        const auto type_json = [](const ComponentRegistry::Type& type) {
+            return nlohmann::json{{"qualified_name",type.name},{"qualified_hash",type.hash},
+                {"size",type.size},{"metadata_rva",type.metadata_rva}};
+        };
+        for (const auto& candidate : discovery.CandidateSnapshots()) {
+            nlohmann::json entries = nlohmann::json::array();
+            for (const auto& entry : candidate.entries) {
+                nlohmann::json callbacks = nlohmann::json::array();
+                for (const auto& callback : entry.callbacks)
+                    callbacks.push_back({{"slot_offset",callback.slot_offset},{"function_rva",callback.function_rva},
+                        {"in_record",callback.in_record}});
+                entries.push_back({{"index",entry.index},{"qualified_name",entry.name},{"qualified_hash",entry.hash},
+                    {"runtime_size",entry.size},{"flags",entry.flags},{"storage_flags",entry.storage_flags},
+                    {"runtime_type",type_json(entry.storage)},{"template_type",type_json(entry.configuration)},
+                    {"callbacks",callbacks}});
+            }
+            candidates.push_back({{"owner",candidate.owner},{"records",candidate.records},{"entries",entries}});
+        }
+        discovery_report = {{"source","production-resident-private-memory-registry-discovery"},
+            {"scope","resident-private-memory"},{"skippedNonresidentBytes",progress.skipped_nonresident_bytes},
+            {"scannedBytes",progress.scanned_bytes},{"validationBytes",progress.validation_bytes},
+            {"completedPasses",progress.completed_passes},{"distinctRegistries",progress.distinct_registries},
+            {"distinctCatalogs",progress.distinct_catalogs},{"catalogCandidates",candidates},
+            {"timedOut",timed_out},
+            {"budgetLimitedSteps",progress.budget_limited_steps},{"durationMs",GetTickCount64() - started},
+            {"reason",progress.reason},{"parserContractTypes",contract.size()},
+            {"imageIdentityCheck","timestamp-and-image-size-only"},
+            {"entityAccessAuthorized",false}};
+        error = timed_out ? "external inspection time limit reached before a complete registry scan" : progress.reason;
+    } else if (owner_only) {
+        registry_valid = ComponentRegistry::ReadOwner(owner, reinterpret_cast<std::uintptr_t>(module.modBaseAddr),
+            module.modBaseSize, read, snapshot, error);
+    } else {
+        registry_valid = ComponentRegistry::Read(manager, reinterpret_cast<std::uintptr_t>(module.modBaseAddr),
+            module.modBaseSize, read, snapshot, error);
+    }
+    if (!registry_valid) {
+        if (discover) std::ofstream(output_path) << nlohmann::json({{"available",false},{"discovery",discovery_report}}).dump(2) << '\n';
         std::cerr << error << '\n'; CloseHandle(process); return 5;
     }
     nlohmann::json rows = nlohmann::json::array();
     std::size_t runtime{}, template_only{}, callback_count{};
+    const auto type_json = [](const ComponentRegistry::Type& type) -> nlohmann::json {
+        if (type.name.empty()) return nullptr;
+        return {{"qualified_name",type.name},{"qualified_hash",type.hash},
+            {"size",type.size},{"metadata_rva",type.metadata_rva}};
+    };
     for (const auto& entry : snapshot.entries) {
         runtime += !entry.storage.name.empty();
         template_only += entry.storage.name.empty();
@@ -47,15 +154,18 @@ int main(int argc, char** argv) try {
         rows.push_back({{"index",entry.index},{"name",entry.name},{"hash",entry.hash},
             {"qualified_name",entry.name},{"qualified_hash",entry.hash},{"callbacks",callbacks},
             {"runtimeType",entry.storage.name},{"templateType",entry.configuration.name},
+            {"runtime_type",type_json(entry.storage)},{"template_type",type_json(entry.configuration)},
+            {"runtime_size",entry.size},
             {"size",entry.size}});
     }
-    std::ofstream output(argv[3]);
+    std::ofstream output(output_path);
     output << nlohmann::json({{"available",true},{"pid",pid},{"runtime",runtime},{"templateOnly",template_only},
-        {"callbackPointers",callback_count},{"entries",rows}}).dump(2) << '\n';
+        {"callbackPointers",callback_count},{"entries",rows},{"discovery",discovery_report},
+        {"entityAccessAuthorized",false}}).dump(2) << '\n';
     std::cout << "Validated with the production registry reader: " << rows.size() << " registrations, "
         << runtime << " storage layouts, " << template_only << " template-only, " << callback_count << " callback pointers\n";
     // Fault injection affects local copies only. The game is opened VM_READ.
-    for (unsigned mode = 0; mode < 3; ++mode) {
+    if (!discover && !owner_only) for (unsigned mode = 0; mode < 3; ++mode) {
         unsigned record_reads{};
         const auto corrupt = [&](std::uintptr_t address, void* destination, std::size_t size) {
             if (!read(address, destination, size)) return false;
@@ -77,7 +187,7 @@ int main(int argc, char** argv) try {
             std::cerr << "Fault injection accepted: " << mode << '\n'; CloseHandle(process); return 9;
         }
     }
-    std::cout << "Production reader rejected oversized counts, mismatched hashes, and changing readbacks\n";
+    if (!discover && !owner_only) std::cout << "Production reader rejected oversized counts, mismatched hashes, and changing readbacks\n";
     // Exercise the actual provider's unwind reader on a read-only image snapshot.
     std::vector<std::uint8_t> image(module.modBaseSize);
     const auto base = reinterpret_cast<std::uintptr_t>(module.modBaseAddr);
@@ -96,7 +206,7 @@ int main(int argc, char** argv) try {
     }
     KfcRuntimeCompatibility::EnshroudedClient::image_size = module.modBaseSize;
     KfcRuntimeCompatibility::EnshroudedClient::image_timestamp = nt->FileHeader.TimeDateStamp;
-    if (argc == 5) {
+    if (!discover && !owner_only && argc == 5) {
         using namespace KfcRuntimeCompatibility::EnshroudedClient;
         const auto profile = nlohmann::json::parse(std::ifstream(argv[4]));
         if (profile.at("image").at("size") != image_size || profile.at("image").at("timestamp") != image_timestamp) return 10;
@@ -129,7 +239,7 @@ int main(int argc, char** argv) try {
         }
     }
     const auto functions = nlohmann::json::parse(FunctionInventory::Build(image.data(), base));
-    std::ofstream function_output(std::string(argv[3]) + ".functions.json");
+    std::ofstream function_output(std::string(output_path) + ".functions.json");
     function_output << functions.dump() << '\n';
     std::cout << "Production function reader: " << functions.at("count") << " candidates, " << functions.at("unwind_count")
         << " unwind groups, " << functions.at("pointer_target_count") << " pointer targets, " << functions.at("range_count") << " ranges\n";

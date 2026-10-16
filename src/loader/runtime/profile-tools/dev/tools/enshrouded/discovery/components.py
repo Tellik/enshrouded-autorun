@@ -38,7 +38,6 @@ def read_registry(process, pe, reflection, owner):
             n != count for n in (sizes_count, types_count, callbacks_count)):
         raise ValueError('component registry v1 array headers mismatch')
     descriptors = {process.base + t['metadataRva']: t for t in reflection['types']}
-    by_name = {t['qualifiedName']: t for t in reflection['types']}
     raw = process.read(records, count * 256)
     storage_sizes = struct.unpack('<' + 'H' * count, process.read(sizes, count * 2))
     storage_types = struct.unpack('<' + 'Q' * count, process.read(types, count * 8))
@@ -51,8 +50,10 @@ def read_registry(process, pe, reflection, owner):
             raise ValueError('invalid registration name length')
         # Names are EXE-backed; the record spans include a trailing zero.
         name = pe.read(name - process.base, length).rstrip(b'\0').decode('utf-8')
-        identity = by_name.get(name)
         rt, config = descriptors.get(runtime), descriptors.get(template)
+        # The registration name identifies configuration when there is one.
+        # Its runtime descriptor can instead be a separate Dynamic* layout.
+        identity = config or rt
         if (not name.startswith('keen::ecs::') or not identity or qhash != identity['qualifiedHash']
                 or name in seen or (runtime and not rt) or (template and not config)
                 or not (rt or config) or (config or rt)['qualifiedName'] != name
@@ -99,6 +100,94 @@ def read_registry(process, pe, reflection, owner):
                 templateOnly=sum(row['storage'] == 'template-only' for row in rows))
 
 
+def export_catalog(report, reflection, profile_id):
+    """Export exact runtime descriptor names, retaining registration evidence.
+
+    This converts a validated capture, not an arbitrary name/size TSV. In
+    particular, configuration identity never substitutes for runtime identity.
+    """
+    image = report.get('image', {})
+    sha256 = image.get('sha256', '')
+    if (not isinstance(sha256, str) or len(sha256) != 64
+            or any(c not in '0123456789abcdef' for c in sha256)
+            or image != reflection.get('image')):
+        raise ValueError('component and reflection captures require the same executable SHA-256 identity')
+    if (image.get('target') not in ('enshrouded.exe', 'enshrouded_server.exe')
+            or any(type(image.get(k)) is not int or image[k] <= 0 for k in ('timestamp', 'size'))):
+        raise ValueError('invalid captured executable identity')
+    if not isinstance(profile_id, str) or not profile_id:
+        raise ValueError('component catalog requires an explicit profile id')
+    if report.get('schemaVersion') != 1 or report.get('profileIndependent') is not True:
+        raise ValueError('component catalog requires a profile-independent registration capture')
+    registries = report.get('registries', [])
+    if len(registries) != 1:
+        raise ValueError(f'expected one validated component registry, found {len(registries)}')
+    registry = registries[0]
+    rows = registry.get('rows', [])
+    if (registry.get('layoutVersion') != 1 or registry.get('recordStride') != 256
+            or registry.get('stableReadback') is not True
+            or type(registry.get('count')) is not int or not 16 <= registry['count'] <= 1024
+            or registry['count'] != len(rows) or any(not isinstance(r, dict) for r in rows)):
+        raise ValueError('component registry layout/count/readback evidence is invalid')
+    types = {}
+    for descriptor in reflection['types']:
+        index = descriptor.get('index')
+        if type(index) is not int or index < 0 or index in types:
+            raise ValueError('reflection contains an invalid or duplicate descriptor index')
+        types[index] = descriptor
+    indices = Counter(r.get('index') for r in rows if type(r.get('index')) is int)
+    names = Counter(r.get('qualifiedName') for r in rows if isinstance(r.get('qualifiedName'), str))
+    runtime_indices = Counter(r.get('runtimeType') for r in rows if type(r.get('runtimeType')) is int)
+    runtime_names = Counter(types[r['runtimeType']]['qualifiedName'] for r in rows
+                            if type(r.get('runtimeType')) is int and r['runtimeType'] in types)
+    components, unresolved, mappings = [], [], []
+
+    def descriptor_for(value):
+        return types.get(value) if type(value) is int and value >= 0 else None
+
+    def evidence(descriptor):
+        if descriptor is None:
+            return None
+        return {k: descriptor[k] for k in ('index', 'qualifiedName', 'qualifiedHash', 'size', 'metadataRva')}
+
+    for position, row in enumerate(rows):
+        index, name, size = row.get('index'), row.get('qualifiedName'), row.get('runtimeSize')
+        runtime, template = descriptor_for(row.get('runtimeType')), descriptor_for(row.get('templateType'))
+        identity = template or runtime
+        reason = None
+        if type(index) is not int or not 0 <= index < 1024 or index != position or indices[index] != 1:
+            reason = 'invalid-or-duplicate-registration-index'
+        elif not isinstance(name, str) or not name.startswith('keen::ecs::') or names[name] != 1:
+            reason = 'invalid-or-duplicate-registration-name'
+        elif ('runtimeType' not in row or 'templateType' not in row
+              or (row['runtimeType'] is not None and runtime is None)
+              or (row['templateType'] is not None and template is None) or identity is None):
+            reason = 'missing-or-invalid-reflection-descriptor'
+        elif name != identity['qualifiedName'] or row.get('qualifiedHash') != identity['qualifiedHash']:
+            reason = 'registration-reflection-identity-mismatch'
+        elif type(size) is not int or not 0 <= size <= 65535 or size != (runtime['size'] if runtime else 0):
+            reason = 'runtime-reflection-size-mismatch'
+        elif row.get('storage') != ('entity' if runtime else 'template-only'):
+            reason = 'runtime-storage-kind-mismatch'
+        elif runtime and (not runtime['qualifiedName'].startswith('keen::ecs::') or not size
+                          or runtime_indices[runtime['index']] != 1
+                          or runtime_names[runtime['qualifiedName']] != 1):
+            reason = 'invalid-or-duplicate-runtime-layout'
+        mapping = dict(index=index, registrationName=name, qualifiedHash=row.get('qualifiedHash'),
+                       runtimeType=evidence(runtime), templateType=evidence(template), storage=row.get('storage'),
+                       status='unresolved' if reason else 'resolved' if runtime else 'template-only')
+        if reason:
+            mapping['reason'] = reason
+            unresolved.append(dict(index=index, name=name, reason=reason))
+        elif runtime:
+            components.append(dict(name=runtime['qualifiedName'], index=index, size=size))
+        mappings.append(mapping)
+    return dict(schemaVersion=1, id=profile_id, target=image['target'],
+                image={k: image[k] for k in ('timestamp', 'size', 'sha256')},
+                components=components, unresolved=unresolved,
+                source=dict(method='validated-live-registration'), registrationMappings=mappings)
+
+
 def validate_manager(process, manager, registry, limit=4096):
     """Independently connect the registration index to live archetype strides."""
     def u64(address):
@@ -133,7 +222,8 @@ def validate_manager(process, manager, registry, limit=4096):
         raise ValueError('insufficient independent entity/archetype evidence')
     return dict(address=hex(manager), sampledTableSlots=len(pointers),
                 distinctLayouts=len(layouts), confirmedComponentIndices=sorted(slots),
-                method='entity-layout-bits-and-strides', consistentSnapshot=False)
+                method='entity-layout-bits-and-strides', consistentSnapshot=False,
+                consistencyReason='running-process-not-an-atomic-snapshot')
 
 
 def discover(process, pe, reflection, live, progress=print):
