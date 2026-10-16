@@ -99,10 +99,6 @@
       "title": "ShroudForge {version} is available",
       "message": "There is a new ShroudForge version ready. You can review what changed, then prepare the update here. The verified installer waits until Enshrouded is closed before replacing the loader files."
     },
-    "system.error": {
-      "title": "Update check failed",
-      "message": "I could not reach the update service, so I could not check for a newer version. Your installed ShroudForge files are unchanged. Check your connection and try again when you are ready."
-    },
     "system.staged": {
       "title": "System update queued",
       "message": "The update was downloaded and verified, and is waiting for Enshrouded to close. Once the game exits, the updater can finish replacing the ShroudForge files."

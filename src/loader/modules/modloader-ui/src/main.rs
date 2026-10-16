@@ -899,6 +899,12 @@ mod windows {
 
         let mut shown = arguments.desktop;
         let mut previous_configuration_errors = std::collections::HashSet::<String>::new();
+        let mut previous_configuration_checks =
+            std::collections::BTreeMap::<String, (String, String)>::new();
+        let mut previous_asset_status =
+            std::collections::BTreeMap::<String, (String, String)>::new();
+        let mut previous_mod_statuses =
+            std::collections::BTreeMap::<String, (String, String)>::new();
         let initial_window_state = shroudforge_package::config::window_state(&arguments.root);
         let mut visibility_request_id = initial_window_state["modloaderUi"]["requestId"]
             .as_u64()
@@ -1034,6 +1040,14 @@ mod windows {
                                     ) {
                                         Some(command) => {
                                             if control_sender.send(command).is_err() {
+                                                write_activity(
+                                                    &arguments.root,
+                                                    "Modloader UI",
+                                                    "Dispatch command",
+                                                    "Failed",
+                                                    Some("Modloader command dispatcher is unavailable"),
+                                                    "error",
+                                                );
                                                 mark_control_action(
                                                     &arguments.root,
                                                     &request_id,
@@ -1042,12 +1056,22 @@ mod windows {
                                                 );
                                             }
                                         }
-                                        None => mark_control_action(
-                                            &arguments.root,
-                                            &request_id,
-                                            "failed",
-                                            "Invalid or unsupported Modloader UI command payload",
-                                        ),
+                                        None => {
+                                            write_activity(
+                                                &arguments.root,
+                                                "Modloader UI",
+                                                "Dispatch command",
+                                                "Failed",
+                                                Some("Invalid or unsupported Modloader UI command payload"),
+                                                "error",
+                                            );
+                                            mark_control_action(
+                                                &arguments.root,
+                                                &request_id,
+                                                "failed",
+                                                "Invalid or unsupported Modloader UI command payload",
+                                            );
+                                        }
                                     }
                                 }
                             }
@@ -1124,6 +1148,27 @@ mod windows {
                                 let result = fs::read_to_string(
                                     shroudforge_package::paths::current_log(&arguments.root),
                                 );
+                                match &result {
+                                    Ok(_) => write_activity(
+                                        &arguments.root,
+                                        "ShroudForge Log",
+                                        "Copy current log",
+                                        "Succeeded",
+                                        None,
+                                        "success",
+                                    ),
+                                    Err(error) => {
+                                        let detail = error.to_string();
+                                        write_activity(
+                                            &arguments.root,
+                                            "ShroudForge Log",
+                                            "Copy current log",
+                                            "Failed",
+                                            Some(&detail),
+                                            "error",
+                                        );
+                                    }
+                                }
                                 let payload = match result {
                                     Ok(text) => serde_json::json!({
                                         "requestId": request_id,
@@ -1899,6 +1944,13 @@ mod windows {
                             });
                         let snapshot =
                             snapshot(&arguments, &active_provider, &release_state, &catalog_state);
+                        log_configuration_check_transitions(
+                            &arguments.root,
+                            &snapshot.configuration,
+                            &mut previous_configuration_checks,
+                            &mut previous_asset_status,
+                            &mut previous_mod_statuses,
+                        );
                         let current_errors: std::collections::HashSet<String> = snapshot
                             .configuration
                             .get("errors")
@@ -2151,10 +2203,6 @@ mod windows {
     fn read_central_config(root: &Path) -> serde_json::Value {
         shroudforge_package::config::read_loader(root).unwrap_or_else(|error| {
             eprintln!("loader configuration: {error}");
-            let _ = shroudforge_package::logging::append(
-                root, 'W', "modloader-ui",
-                &format!("Could not read Modloader configuration, using fallback settings. {error}"),
-            );
             serde_json::json!({"configurationError": error})
         })
     }
@@ -2792,9 +2840,160 @@ mod windows {
         let mut message = format!("{action}: {result}");
         if let Some(details) = details {
             message.push_str(" — ");
-            message.push_str(&details.chars().take(500).collect::<String>());
+            message.push_str(details);
         }
         let _ = shroudforge_package::logging::append(root, severity, source, &message);
+    }
+
+    // Log check state transitions once instead of repeating the same status on every refresh.
+    fn log_configuration_check_transitions(
+        root: &Path,
+        configuration: &serde_json::Value,
+        previous: &mut std::collections::BTreeMap<String, (String, String)>,
+        previous_assets: &mut std::collections::BTreeMap<String, (String, String)>,
+        previous_mods: &mut std::collections::BTreeMap<String, (String, String)>,
+    ) {
+        let checks = configuration
+            .get("checks")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|check| {
+                let state = check.get("state")?.as_str()?;
+                let id = check.get("id")?.as_str()?.to_owned();
+                let group = check
+                    .get("group")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("unknown");
+                let detail = check
+                    .get("detail")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("No detail provided.");
+                Some((
+                    id,
+                    (state.to_owned(), format!("group={group} detail={detail}")),
+                ))
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
+        log_status_issues(
+            root,
+            "compatibility-check",
+            "check",
+            checks,
+            previous,
+            |state| match state {
+                "error" => Some('E'),
+                "warning" => Some('W'),
+                _ => None,
+            },
+            |state| state == "ok",
+        );
+
+        let assets = configuration
+            .get("assets")
+            .and_then(serde_json::Value::as_object)
+            .and_then(|assets| {
+                Some((
+                    "startup-preparation".to_owned(),
+                    (
+                        assets.get("state")?.as_str()?.to_owned(),
+                        assets
+                            .get("detail")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("No detail provided.")
+                            .to_owned(),
+                    ),
+                ))
+            })
+            .into_iter()
+            .collect();
+        log_status_issues(
+            root,
+            "asset-status",
+            "asset",
+            assets,
+            previous_assets,
+            |state| match state {
+                "failed" => Some('E'),
+                "prepare-required" | "partial" => Some('W'),
+                _ => None,
+            },
+            |state| matches!(state, "applied" | "not-required"),
+        );
+
+        let mods = configuration
+            .get("modStates")
+            .and_then(serde_json::Value::as_object)
+            .into_iter()
+            .flat_map(|mods| mods.iter())
+            .filter_map(|(id, value)| {
+                Some((
+                    id.clone(),
+                    (
+                        value.get("state")?.as_str()?.to_owned(),
+                        value
+                            .get("detail")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("No detail provided.")
+                            .to_owned(),
+                    ),
+                ))
+            })
+            .collect();
+        log_status_issues(
+            root,
+            "mod-status",
+            "mod",
+            mods,
+            previous_mods,
+            |state| match state {
+                "failed" => Some('E'),
+                "blocked" | "restart-required" | "not-running" | "no-target" => Some('W'),
+                _ => None,
+            },
+            |_| true,
+        );
+    }
+
+    fn log_status_issues<F, R>(
+        root: &Path,
+        source: &str,
+        label: &str,
+        current: std::collections::BTreeMap<String, (String, String)>,
+        previous: &mut std::collections::BTreeMap<String, (String, String)>,
+        issue_level: F,
+        is_resolved: R,
+    ) where
+        F: Fn(&str) -> Option<char>,
+        R: Fn(&str) -> bool,
+    {
+        for (id, (state, detail)) in &current {
+            if let Some(level) = issue_level(state) {
+                if !previous
+                    .get(id)
+                    .is_some_and(|(previous_state, _)| previous_state == state)
+                {
+                    let _ = shroudforge_package::logging::append(
+                        root,
+                        level,
+                        source,
+                        &format!("{label}={id} state={state} detail={detail}"),
+                    );
+                }
+                previous.insert(id.clone(), (state.clone(), detail.clone()));
+            } else if is_resolved(state)
+                && let Some((previous_state, previous_detail)) = previous.remove(id)
+            {
+                let _ = shroudforge_package::logging::append(
+                    root,
+                    'I',
+                    source,
+                    &format!(
+                        "{label}={id} state=resolved previous_state={previous_state} current_state={state} previous_detail={previous_detail} detail={detail}"
+                    ),
+                );
+            }
+        }
     }
 
     fn read_notifications(root: &Path, mods: &[ModInfo]) -> Vec<Notice> {
@@ -2939,10 +3138,6 @@ mod windows {
     fn read_news_state(root: &Path) -> Vec<String> {
         shroudforge_package::news::read_ids(root).unwrap_or_else(|error| {
             eprintln!("news state: {error}");
-            let _ = shroudforge_package::logging::append(
-                root, 'W', "modloader-ui",
-                &format!("Could not read the news read-state, showing notices as unread. {error}"),
-            );
             Vec::new()
         })
     }
@@ -4318,24 +4513,6 @@ mod windows {
             &title,
             serde_json::to_value(provider).unwrap_or_default(),
         );
-        match &result {
-            Ok(()) => write_activity(
-                &root,
-                "ShroudEdit",
-                "Queue mod install",
-                "Queued for independent updater",
-                Some(&project_id),
-                "info",
-            ),
-            Err(error) => write_activity(
-                &root,
-                "ShroudEdit",
-                "Queue mod install",
-                "Failed",
-                Some(error),
-                "error",
-            ),
-        }
         let _ = results.send(AsyncUiResult {
             request_id,
             source: "ShroudEdit".into(),
@@ -4375,24 +4552,6 @@ mod windows {
             .map(|()| format!("Update queued for {mod_id}.")),
             None => Err("This mod is not registered as a ShroudEdit installation.".into()),
         };
-        match &result {
-            Ok(detail) => write_activity(
-                &root,
-                &mod_id,
-                "Queue mod update",
-                "Queued",
-                Some(detail),
-                "info",
-            ),
-            Err(error) => write_activity(
-                &root,
-                &mod_id,
-                "Queue mod update",
-                "Failed",
-                Some(error),
-                "error",
-            ),
-        }
         let _ = results.send(AsyncUiResult {
             request_id,
             source: mod_id,
@@ -5181,12 +5340,16 @@ mod windows {
                     success_message: success_message.into(),
                     result: outcome,
                 });
-            } else if let Err(error) = outcome {
+            } else {
+                let (level, message) = match outcome {
+                    Ok(detail) => ('I', format!("Automatic update check completed: {detail}")),
+                    Err(error) => ('E', format!("Automatic update check failed: {error}")),
+                };
                 let _ = shroudforge_package::logging::append(
                     &root,
-                    'W',
+                    level,
                     "updates",
-                    &format!("Automatic update check failed: {error}"),
+                    &message,
                 );
             }
         });

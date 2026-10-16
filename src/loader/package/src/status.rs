@@ -31,14 +31,18 @@ pub fn configuration(root: &Path, server: bool, api: &str) -> Value {
             value["runtimeProvider"]["available"] == true
                 && value["runtimeProvider"]["awaitingWorld"] == true
         });
-    if let Ok(events) = crate::config::read_document(root, "events-state") {
-        if let Some(events) = events.as_object() {
-            for (id, value) in events {
-                if let Err(error) = crate::news::validate_event(root, value) {
-                    errors.push(format!("event {id}: {error}"));
+    match crate::config::read_document(root, "events-state") {
+        Ok(events) => {
+            if let Some(events) = events.as_object() {
+                for (id, value) in events {
+                    if let Err(error) = crate::news::validate_event(root, value) {
+                        errors.push(format!("event {id}: {error}"));
+                    }
                 }
             }
         }
+        Err(error) if error.contains("has no events state") => {}
+        Err(error) => errors.push(format!("Could not read news events: {error}")),
     }
     for result in [
         crate::config::read_loader(root).map(|_| ()),

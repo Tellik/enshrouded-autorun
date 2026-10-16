@@ -123,12 +123,11 @@ function App(){
       return {title:render(template.title),message:render(template.message)}
     }
     if(data.release.updateAvailable)items.push({id:`system-${data.release.latestVersion}`,level:'update',title:t('news.system.update.title',{version:data.release.latestVersion||''}),message:data.release.message||t('news.system.update.message'),actionUrl:data.release.releaseUrl,actions:[{id:'queue-system-update',kind:'queue-system-update'}],updatedAt:0})
-    if(data.release.state==='error')items.push({id:'system-update-error',level:'error',title:t('news.system.error.title'),message:data.release.message||t('news.system.error.message'),actions:[{id:'check-updates',kind:'check-updates'}],updatedAt:0})
     if(data.release.staged)items.push({id:`system-staged-${data.release.latestVersion}`,level:'success',title:t('news.system.staged.title'),message:t('news.system.staged.message'),updatedAt:0})
     for(const item of items){
-      const kind=item.id.startsWith('system-staged-')?'system.staged':item.id==='system-update-error'?'system.error':'system.update'
+      const kind=item.id.startsWith('system-staged-')?'system.staged':'system.update'
       item.title=t(`news.${kind}.title` as TranslationKey,{version:data.release.latestVersion||''})
-      item.message=data.release.message&&kind==='system.error'?data.release.message:t(`news.${kind}.message` as TranslationKey,{version:data.release.latestVersion||''})
+      item.message=t(`news.${kind}.message` as TranslationKey,{version:data.release.latestVersion||''})
     }
     items.push(...data.notices.map(item=>{
       if(!item.kind)return {...item,title:personalize(item.title),message:personalize(item.message)}
@@ -394,8 +393,8 @@ function Compatibility({data,news,openNews,selectMod,openLog}:{data:Snapshot;new
   ]
   const assets=data.configuration?.assets
   if(assets){
-    const assetStatus:CompatibilityStatus=assets.state==='applied'||assets.state==='not-required'?'ok':assets.state==='prepare-required'||assets.state==='partial'?'warning':'neutral'
-    gameRows.push({id:'assets',title:t('compatibility.row.assets'),status:assetStatus,detail:t(assets.state==='applied'?'compatibility.detail.assets.applied':assets.state==='partial'?'compatibility.detail.assets.partial':assets.state==='not-required'?'compatibility.detail.assets.notRequired':assets.state==='prepare-required'?'compatibility.detail.assets.required':'compatibility.detail.assets.unknown'),technicalDetail:assets.detail})
+    const assetStatus:CompatibilityStatus=assets.state==='failed'?'error':assets.state==='applied'||assets.state==='not-required'?'ok':assets.state==='prepare-required'||assets.state==='partial'?'warning':'neutral'
+    gameRows.push({id:'assets',title:t('compatibility.row.assets'),status:assetStatus,detail:t(assets.state==='applied'?'compatibility.detail.assets.applied':assets.state==='partial'?'compatibility.detail.assets.partial':assets.state==='not-required'?'compatibility.detail.assets.notRequired':assets.state==='prepare-required'?'compatibility.detail.assets.required':assets.state==='failed'?'compatibility.detail.assets.failed':'compatibility.detail.assets.unknown'),technicalDetail:assets.detail})
   }
   for(const [index,error] of (data.configuration?.errors||[]).entries())gameRows.push({id:`config-error-${index}`,title:t('compatibility.row.configuration'),status:'error',detail:t('compatibility.detail.configuration.error'),technicalDetail:error,action:{label:t('compatibility.action.openLog'),run:openLog}})
   const apiRows:CompatibilityRowData[]=[{id:'api',title:t('compatibility.row.api'),status:statusOf(apiCheck),detail:t(apiCheck?.state==='ok'?'compatibility.detail.api.ok':apiCheck?.state==='warning'?'compatibility.detail.api.warning':'compatibility.detail.api.pending'),technicalDetail:apiCheck?.detail,action:apiCheck?.state==='warning'?{label:t('compatibility.action.openLog'),run:openLog}:undefined}]
