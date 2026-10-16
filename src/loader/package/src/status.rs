@@ -99,10 +99,22 @@ pub fn configuration(root: &Path, server: bool, api: &str) -> Value {
                 .ok()
                 .is_some_and(|fingerprint| crate::prepared::matches(root, &fingerprint));
             let preparation = crate::config::read_document(root, "applied").ok();
-            let preparation_error = preparation.as_ref().filter(|value| {
-                value["status"] == "failed"
-                    && value["target"] == if server { "enshrouded_server" } else { "enshrouded" }
-            }).map(|value| value["error"].as_str().unwrap_or("Asset preparation failed. Inspect the startup log."));
+            let preparation_error = preparation
+                .as_ref()
+                .filter(|value| {
+                    value["status"] == "failed"
+                        && value["target"]
+                            == if server {
+                                "enshrouded_server"
+                            } else {
+                                "enshrouded"
+                            }
+                })
+                .map(|value| {
+                    value["error"]
+                        .as_str()
+                        .unwrap_or("Asset preparation failed. Inspect the startup log.")
+                });
             for item in env.mod_registry().values() {
                 let manifest = item.info();
                 let fingerprint =
@@ -240,20 +252,22 @@ pub fn configuration(root: &Path, server: bool, api: &str) -> Value {
             if needs_prepare || existing {
                 assets = if let Some(error) = preparation_error {
                     json!({"state":"failed","code":"asset-preparation-failed","detail":error})
-                } else { match crate::prepared::fingerprint(&env, server, api) {
-                    Ok(fingerprint) => {
-                        if crate::prepared::matches(root, &fingerprint) {
-                            if blocked_pregame > 0 {
-                                json!({"state":"partial","detail":format!("Preparation matches the runnable mods. {blocked_pregame} startup mod(s) were skipped because of compatibility or dependency issues.")})
+                } else {
+                    match crate::prepared::fingerprint(&env, server, api) {
+                        Ok(fingerprint) => {
+                            if crate::prepared::matches(root, &fingerprint) {
+                                if blocked_pregame > 0 {
+                                    json!({"state":"partial","detail":format!("Preparation matches the runnable mods. {blocked_pregame} startup mod(s) were skipped because of compatibility or dependency issues.")})
+                                } else {
+                                    json!({"state":"applied","detail":"Preparation record matches the game and current mod configuration."})
+                                }
                             } else {
-                                json!({"state":"applied","detail":"Preparation record matches the game and current mod configuration."})
+                                json!({"state":"prepare-required","detail":"The startup preparation pass will apply this configuration on the next game start. Use `shroudforge launch` if the game has already passed its early loading window."})
                             }
-                        } else {
-                            json!({"state":"prepare-required","detail":"The startup preparation pass will apply this configuration on the next game start. Use `shroudforge launch` if the game has already passed its early loading window."})
                         }
+                        Err(error) => json!({"state":"unknown","detail":error}),
                     }
-                    Err(error) => json!({"state":"unknown","detail":error}),
-                } };
+                };
             } else if blocked_pregame > 0 {
                 assets = json!({"state":"partial","detail":format!("{blocked_pregame} startup mod(s) were skipped because of compatibility or dependency issues.")});
             } else {
@@ -290,7 +304,8 @@ pub fn configuration(root: &Path, server: bool, api: &str) -> Value {
     let (parser_state, parser_detail) = match parser {
         Some(_) if !parser_current => (
             "neutral",
-            "Parser result belongs to an older game binary. Prepare or launch will refresh it.".into(),
+            "Parser result belongs to an older game binary. Prepare or launch will refresh it."
+                .into(),
         ),
         Some(value) if value["status"] == "parsed" => (
             "ok",
@@ -380,15 +395,29 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let package = root.path().join("mods/asset-test");
         fs::create_dir_all(package.join("src")).unwrap();
-        fs::write(package.join("mod.json"), serde_json::to_vec(&json!({
-            "id":"asset-test","name":"Asset test","version":"1.0.0","capabilities":["patch"]
-        })).unwrap()).unwrap();
-        fs::write(package.join("extended.mod.json"), r#"{"schemaVersion":1,"enabled":true}"#).unwrap();
+        fs::write(
+            package.join("mod.json"),
+            serde_json::to_vec(&json!({
+                "id":"asset-test","name":"Asset test","version":"1.0.0","capabilities":["patch"]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            package.join("extended.mod.json"),
+            r#"{"schemaVersion":1,"enabled":true}"#,
+        )
+        .unwrap();
         fs::write(package.join("src/mod.lua"), "return {}").unwrap();
-        crate::config::write_document(root.path(), "applied", &json!({
-            "schemaVersion":1,"status":"failed","target":"enshrouded","phase":"startup",
-            "completedAt":1,"error":"runtime.lifecycle unavailable in world-editor"
-        })).unwrap();
+        crate::config::write_document(
+            root.path(),
+            "applied",
+            &json!({
+                "schemaVersion":1,"status":"failed","target":"enshrouded","phase":"startup",
+                "completedAt":1,"error":"runtime.lifecycle unavailable in world-editor"
+            }),
+        )
+        .unwrap();
         let status = configuration(root.path(), false, "1.0.0");
         let encoded = serde_json::to_string(&status).unwrap();
         assert!(encoded.contains("asset-preparation-failed"), "{encoded}");
@@ -468,6 +497,10 @@ mod tests {
             crate::config::read_document(root.path(), "state").expect("stored update state"),
             update
         );
-        assert!(crate::config::window_state(root.path()).get("debugConsole").is_some());
+        assert!(
+            crate::config::window_state(root.path())
+                .get("debugConsole")
+                .is_some()
+        );
     }
 }

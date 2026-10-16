@@ -184,7 +184,12 @@ pub fn request_window_visibility(root: &Path, module: &str, visible: bool) -> Re
         let mut window = current.as_object().cloned().unwrap_or_default();
         window.insert(
             "visible".into(),
-            json!(current.get("visible").and_then(Value::as_bool).unwrap_or(false)),
+            json!(
+                current
+                    .get("visible")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+            ),
         );
         window.insert("requestedVisible".into(), json!(visible));
         window.insert("requestId".into(), json!(request_id));
@@ -196,7 +201,10 @@ pub fn request_window_visibility(root: &Path, module: &str, visible: bool) -> Re
 pub fn request_world_editor_module_settings(root: &Path) -> Result<(), String> {
     update_state_section(root, "windows", |existing| {
         let mut state = existing.cloned().unwrap_or_else(|| json!({}));
-        let current = state.get("modloaderUi").cloned().unwrap_or_else(|| json!({}));
+        let current = state
+            .get("modloaderUi")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
         let mut window = current.as_object().cloned().unwrap_or_default();
         let request_id = current
             .get("requestId")
@@ -210,7 +218,12 @@ pub fn request_world_editor_module_settings(root: &Path) -> Result<(), String> {
             .saturating_add(1);
         window.insert(
             "visible".into(),
-            json!(current.get("visible").and_then(Value::as_bool).unwrap_or(false)),
+            json!(
+                current
+                    .get("visible")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+            ),
         );
         window.insert("requestedVisible".into(), json!(true));
         window.insert("requestId".into(), json!(request_id));
@@ -232,14 +245,21 @@ pub fn publish_window_visibility(root: &Path, module: &str, visible: bool) -> Re
         window.insert("visible".into(), json!(visible));
         window.insert(
             "requestedVisible".into(),
-            json!(current
-                .get("requestedVisible")
-                .and_then(Value::as_bool)
-                .unwrap_or(visible)),
+            json!(
+                current
+                    .get("requestedVisible")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(visible)
+            ),
         );
         window.insert(
             "requestId".into(),
-            json!(current.get("requestId").and_then(Value::as_u64).unwrap_or(0)),
+            json!(
+                current
+                    .get("requestId")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0)
+            ),
         );
         state[module] = Value::Object(window);
         Ok(state)

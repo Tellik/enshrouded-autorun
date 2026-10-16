@@ -40,7 +40,11 @@ impl ModPlanIssue {
         } else {
             "conflict-or-plan-error"
         };
-        Self { mod_id: mod_id.into(), code: code.into(), detail }
+        Self {
+            mod_id: mod_id.into(),
+            code: code.into(),
+            detail,
+        }
     }
 }
 
@@ -127,7 +131,10 @@ impl ModEnvironment {
         api_version: &str,
     ) -> (Vec<&crate::Mod>, Vec<String>) {
         let (plan, issues) = self.plan_report_detailed(is_server, api_version);
-        (plan, issues.into_iter().map(|issue| issue.to_string()).collect())
+        (
+            plan,
+            issues.into_iter().map(|issue| issue.to_string()).collect(),
+        )
     }
 
     /// Return the executable plan and per-mod reasons without logging. Status
@@ -149,7 +156,10 @@ impl ModEnvironment {
         api_version: &str,
     ) -> (Vec<&crate::Mod>, Vec<String>) {
         let (plan, issues) = self.runtime_plan_report_detailed(is_server, api_version);
-        (plan, issues.into_iter().map(|issue| issue.to_string()).collect())
+        (
+            plan,
+            issues.into_iter().map(|issue| issue.to_string()).collect(),
+        )
     }
 
     /// Runtime candidate plan. Disabled packages stay available for live
@@ -206,10 +216,16 @@ impl ModEnvironment {
     ) -> (Vec<&crate::Mod>, Vec<ModPlanIssue>) {
         let blocked = match crate::compatibility::conflicts(self) {
             Ok(blocked) => blocked,
-            Err(error) => return (Vec::new(), vec![ModPlanIssue {
-                mod_id: "__loader__".into(), code: "compatibility-rules".into(),
-                detail: format!("compatibility rules: {error}"),
-            }]),
+            Err(error) => {
+                return (
+                    Vec::new(),
+                    vec![ModPlanIssue {
+                        mod_id: "__loader__".into(),
+                        code: "compatibility-rules".into(),
+                        detail: format!("compatibility rules: {error}"),
+                    }],
+                );
+            }
         };
         fn visit<'a>(
             env: &'a ModEnvironment,

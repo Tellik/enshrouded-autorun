@@ -197,9 +197,7 @@ pub fn parse_manifest_with_extension(
         None if extension.get("launcher").and_then(Value::as_str) == Some("EML") => {
             crate::ModTarget::ClientServer
         }
-        None if had_extension => {
-            crate::ModTarget::Client
-        }
+        None if had_extension => crate::ModTarget::Client,
         None => crate::ModTarget::ClientServer,
     };
     let settings = extension
@@ -489,7 +487,8 @@ mod tests {
                 "capabilities": ["runtime"]
             }),
             Some(json!({"schemaVersion":1,"enabled":true,"targets":["client","server"]})),
-        ).expect("targets are read from extended.mod.json");
+        )
+        .expect("targets are read from extended.mod.json");
 
         assert!(matches!(manifest.target, crate::ModTarget::ClientServer));
     }
@@ -507,7 +506,10 @@ mod tests {
         )
         .expect("legacy EML manifest remains valid");
 
-        infer_api_contract(&mut manifest, "runtime.patch.set_enabled('runtime.patch.example', true)");
+        infer_api_contract(
+            &mut manifest,
+            "runtime.patch.set_enabled('runtime.patch.example', true)",
+        );
 
         assert!(matches!(manifest.target, crate::ModTarget::ClientServer));
     }

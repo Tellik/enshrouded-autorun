@@ -9,6 +9,7 @@ pub mod logging;
 pub mod news;
 pub mod paths;
 pub mod prepared;
+pub mod update_check;
 mod registry;
 pub mod status;
 

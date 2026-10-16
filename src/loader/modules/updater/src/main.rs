@@ -240,6 +240,38 @@ mod windows {
                     "schemaVersion": 1, "status": "installed", "version": release["version"],
                     "build": release["build"], "installedAt": stamp, "backup": backup
                 });
+                let repair_required = !super::missing_required_files(&arguments.root).is_empty();
+                let installed_version = release["version"]
+                    .as_str()
+                    .map(|version| version.trim_start_matches('v').to_owned());
+                let installed_build = release["build"].as_u64().or_else(|| {
+                    release["build"]
+                        .as_str()
+                        .and_then(|build| build.parse::<u64>().ok())
+                });
+                if !repair_required {
+                    if let Err(error) = shroudforge_package::config::update_loader(
+                        &arguments.root,
+                        |config| {
+                            let latest = &mut config["modules"]["updates"]["system"]["latestRelease"];
+                            let same_release = latest["baseVersion"].as_str()
+                                == installed_version.as_deref()
+                                && latest["build"].as_u64() == installed_build;
+                            if same_release {
+                                latest["updateAvailable"] = serde_json::Value::Bool(false);
+                                latest["mandatory"] = serde_json::Value::Bool(false);
+                                latest["repairRequired"] = serde_json::Value::Bool(false);
+                            }
+                            Ok(())
+                        },
+                    ) {
+                        append_log(
+                            &arguments.root,
+                            'W',
+                            &format!("Installed update, but could not refresh cached release status: {error}"),
+                        );
+                    }
+                }
                 if let Err(error) =
                     shroudforge_package::config::write_document(&arguments.root, "state", &state)
                 {
@@ -1375,7 +1407,7 @@ pub fn start_headless_control_worker(root: &std::path::Path) -> Result<(), Strin
                         .map(|checked| interval_seconds.saturating_sub(now.saturating_sub(checked)))
                         .unwrap_or(0);
                     if enabled && seconds_until_check == 0 {
-                        match headless_check_system_updates(&root) {
+                        match headless_check_system_updates(&root, false) {
                             Ok(message) => {
                                 let _ = shroudforge_package::logging::append(
                                     &root,
@@ -1543,7 +1575,7 @@ fn execute_headless_control_action(
         Ok(provider)
     };
     match action.name.as_str() {
-        "checkUpdates" => headless_check_system_updates(root),
+        "checkUpdates" => headless_check_system_updates(root, true),
         "queueSystemUpdate" => {
             let release = shroudforge_package::config::read_loader(root)?
                 .pointer("/modules/updates/system/latestRelease")
@@ -1563,7 +1595,7 @@ fn execute_headless_control_action(
                 .cloned()
                 .filter(serde_json::Value::is_object);
             if release.is_none() {
-                headless_check_system_updates(root)?;
+                headless_check_system_updates(root, true)?;
                 release = shroudforge_package::config::read_loader(root)?
                     .pointer("/modules/updates/system/latestRelease")
                     .cloned()
@@ -1692,8 +1724,27 @@ fn execute_headless_control_action(
 }
 
 #[cfg(windows)]
-fn headless_check_system_updates(root: &std::path::Path) -> Result<String, String> {
+fn headless_check_system_updates(
+    root: &std::path::Path,
+    manual: bool,
+) -> Result<String, String> {
     use semver::Version;
+
+    let _check_lock = match shroudforge_package::update_check::begin_system_update_check(
+        root, manual,
+    )? {
+        shroudforge_package::update_check::SystemUpdateCheckStart::Started(lock) => lock,
+        shroudforge_package::update_check::SystemUpdateCheckStart::CoolingDown {
+            remaining_seconds,
+        } => {
+            return Ok(format!(
+                "Recent system update check reused. Next automatic trigger allowed in {remaining_seconds} seconds."
+            ));
+        }
+        shroudforge_package::update_check::SystemUpdateCheckStart::AlreadyRunning => {
+            return Ok("System update check is already running in another process.".into());
+        }
+    };
 
     let config = shroudforge_package::config::read_loader(root)?;
     let include_prereleases = config
@@ -1877,7 +1928,7 @@ fn headless_check_system_updates(root: &std::path::Path) -> Result<String, Strin
 
 #[cfg(windows)]
 pub fn startup_check(root: &std::path::Path) -> bool {
-    if let Err(error) = headless_check_system_updates(root) {
+    if let Err(error) = headless_check_system_updates(root, false) {
         let _ = shroudforge_package::logging::append(
             root,
             'W',

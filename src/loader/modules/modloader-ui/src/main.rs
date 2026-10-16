@@ -5156,6 +5156,73 @@ mod windows {
         })
     }
 
+    fn restore_persisted_update_result(root: &Path, state: &Arc<Mutex<ReleaseState>>) {
+        let Ok(config) = shroudforge_package::config::read_loader(root) else {
+            return;
+        };
+        let last_check_at = config
+            .pointer("/modules/updates/system/lastCheckAt")
+            .and_then(serde_json::Value::as_u64);
+        let latest = config.pointer("/modules/updates/system/latestRelease");
+        let Ok(mut value) = state.lock() else {
+            return;
+        };
+        if let Some(latest) = latest.filter(|latest| latest.is_object()) {
+            if let (
+                Some(version),
+                Some(base_version),
+                Some(build),
+                Some(download_url),
+                Some(checksum),
+            ) = (
+                latest["version"].as_str(),
+                latest["baseVersion"].as_str(),
+                latest["build"].as_u64(),
+                latest["downloadUrl"].as_str(),
+                latest["checksum"].as_str(),
+            ) {
+                let update_available = latest["updateAvailable"].as_bool().unwrap_or(false);
+                let message = latest["message"].as_str().unwrap_or_default().to_owned();
+                let release_url = latest["releaseUrl"].as_str().map(str::to_owned);
+                let mandatory = latest["mandatory"].as_bool().unwrap_or(false);
+                let prerelease = latest["prerelease"].as_bool().unwrap_or(false);
+                value.latest_version = Some(version.to_owned());
+                value.update_available = update_available;
+                value.mandatory = mandatory;
+                value.prerelease = prerelease;
+                value.release_url = release_url.clone();
+                value.message = Some(if update_available {
+                    message.clone()
+                } else {
+                    "ShroudForge is up to date.".into()
+                });
+                value.release = Some(Release {
+                    version: version.to_owned(),
+                    base_version: base_version.to_owned(),
+                    build,
+                    download_url: download_url.to_owned(),
+                    checksum: checksum.to_owned(),
+                    release_url,
+                    message,
+                    mandatory,
+                    prerelease,
+                });
+                value.state = "ready".into();
+                return;
+            }
+        }
+        if last_check_at.is_some() {
+            value.latest_version = None;
+            value.update_available = false;
+            value.mandatory = false;
+            value.prerelease = false;
+            value.release_url = None;
+            value.release = None;
+            value.state = "ready".into();
+            value.message = Some("The recent check found no compatible release.".into());
+        }
+    }
+
     fn start_update_check(
         root: PathBuf,
         provider: ProviderConfig,
@@ -5175,8 +5242,10 @@ mod windows {
             {
                 value.state = "ready".into();
             }
-            if value.state == "checking" || value.state == "downloading" || value.state == "queued"
-            {
+            if value.state == "checking" && request_id.is_none() {
+                return;
+            }
+            if value.state == "downloading" || value.state == "queued" {
                 if let Some(request_id) = request_id {
                     let _ = results.send(AsyncUiResult {
                         request_id,
@@ -5216,7 +5285,109 @@ mod windows {
             }
             return;
         }
+        let manual = request_id.is_some();
         thread::spawn(move || {
+            let _check_lock = match shroudforge_package::update_check::begin_system_update_check(
+                &root, manual,
+            ) {
+                Ok(shroudforge_package::update_check::SystemUpdateCheckStart::Started(lock)) => {
+                    lock
+                }
+                Ok(shroudforge_package::update_check::SystemUpdateCheckStart::CoolingDown {
+                    remaining_seconds,
+                }) => {
+                    restore_persisted_update_result(&root, &state);
+                    if let Ok(mut value) = state.lock() {
+                        if value.message.is_none() {
+                            value.message = Some(format!(
+                                "A recent update check was reused. Another automatic check is allowed in {remaining_seconds} seconds."
+                            ));
+                        }
+                    }
+                    let _ = shroudforge_package::logging::append(
+                        &root,
+                        'D',
+                        "updates",
+                        &format!(
+                            "Recent persisted update check result reused. {remaining_seconds} seconds remain in the automatic cooldown"
+                        ),
+                    );
+                    if let Some(request_id) = request_id {
+                        let update_available = state
+                            .lock()
+                            .map(|value| value.update_available)
+                            .unwrap_or(false);
+                        let detail = if update_available {
+                            "A ShroudForge update is available."
+                        } else {
+                            "ShroudForge is up to date."
+                        };
+                        let _ = results.send(AsyncUiResult {
+                            request_id,
+                            source: "Updates".into(),
+                            action: "Check for updates".into(),
+                            success_message: if update_available {
+                                "updates.check.available"
+                            } else {
+                                "updates.check.upToDate"
+                            }
+                            .into(),
+                            result: Ok(detail.into()),
+                        });
+                    }
+                    return;
+                }
+                Ok(shroudforge_package::update_check::SystemUpdateCheckStart::AlreadyRunning) => {
+                    restore_persisted_update_result(&root, &state);
+                    if let Ok(mut value) = state.lock() {
+                        if value.state != "ready" {
+                            value.state = "idle".into();
+                            value.message = Some(
+                                "Another ShroudForge process is already checking for updates."
+                                    .into(),
+                            );
+                        }
+                    }
+                    let _ = shroudforge_package::logging::append(
+                        &root,
+                        'D',
+                        "updates",
+                        "Update check remained active after the coordination wait",
+                    );
+                    if let Some(request_id) = request_id {
+                        let _ = results.send(AsyncUiResult {
+                            request_id,
+                            source: "Updates".into(),
+                            action: "Check for updates".into(),
+                            success_message: "updates.check.upToDate".into(),
+                            result: Err("An update check is already running.".into()),
+                        });
+                    }
+                    return;
+                }
+                Err(error) => {
+                    if let Ok(mut value) = state.lock() {
+                        value.state = "error".into();
+                        value.message = Some(error.clone());
+                    }
+                    let _ = shroudforge_package::logging::append(
+                        &root,
+                        'E',
+                        "updates",
+                        &format!("Could not coordinate system update check: {error}"),
+                    );
+                    if let Some(request_id) = request_id {
+                        let _ = results.send(AsyncUiResult {
+                            request_id,
+                            source: "Updates".into(),
+                            action: "Check for updates".into(),
+                            success_message: "updates.check.upToDate".into(),
+                            result: Err(error),
+                        });
+                    }
+                    return;
+                }
+            };
             let (current, current_build) = state
                 .lock()
                 .map(|value| (value.current_version.clone(), value.current_build))
@@ -5297,29 +5468,45 @@ mod windows {
                             .duration_since(UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_secs();
-                        let _ = shroudforge_package::config::update_loader(&root, |config| {
+                        if let Err(error) = shroudforge_package::config::update_loader(&root, |config| {
                             config["modules"]["updates"]["system"]["lastCheckAt"] = serde_json::json!(checked_at);
                             config["modules"]["updates"]["system"]["latestRelease"] =
                                 serde_json::Value::Null;
                             Ok(())
-                        });
+                        }) {
+                            let _ = shroudforge_package::logging::append(
+                                &root,
+                                'W',
+                                "updates",
+                                &format!("Could not persist empty update check result: {error}"),
+                            );
+                        }
                         outcome = Ok("No ShroudForge release has been published yet.".into());
                     }
                     Err(error) => {
                         value.state = "error".into();
                         value.message = Some(error.clone());
-                        let checked_at = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs();
-                        let _ = shroudforge_package::config::update_loader(&root, |config| {
-                            config["modules"]["updates"]["system"]["lastCheckAt"] = serde_json::json!(checked_at);
-                            Ok(())
-                        });
                         outcome = Err(error);
                     }
                 }
             }
+            let (level, message) = match &outcome {
+                Ok(detail) => (
+                    if detail == "ShroudForge is up to date." { 'D' } else { 'I' },
+                    format!(
+                        "{} update check completed: {detail}",
+                        if manual { "Manual" } else { "Automatic" }
+                    ),
+                ),
+                Err(error) => (
+                    'W',
+                    format!(
+                        "{} update check failed: {error}",
+                        if manual { "Manual" } else { "Automatic" }
+                    ),
+                ),
+            };
+            let _ = shroudforge_package::logging::append(&root, level, "updates", &message);
             if let Some(request_id) = request_id {
                 let success_message = match outcome {
                     Ok(ref detail) if detail == "ShroudForge is up to date." => {
@@ -5340,17 +5527,6 @@ mod windows {
                     success_message: success_message.into(),
                     result: outcome,
                 });
-            } else {
-                let (level, message) = match outcome {
-                    Ok(detail) => ('I', format!("Automatic update check completed: {detail}")),
-                    Err(error) => ('E', format!("Automatic update check failed: {error}")),
-                };
-                let _ = shroudforge_package::logging::append(
-                    &root,
-                    level,
-                    "updates",
-                    &message,
-                );
             }
         });
     }
