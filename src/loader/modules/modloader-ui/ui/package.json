@@ -15,8 +15,7 @@
     "react": "latest",
     "react-dom": "latest",
     "typescript": "latest",
-    "vite": "latest",
-    "vite-plugin-singlefile": "latest"
+    "vite": "latest"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",
