@@ -810,15 +810,21 @@ mod windows {
             .unwrap_or(988.0);
         let (icon_rgba, icon_width, icon_height) = shroudforge_package::window_icon::rgba()?;
         let icon = tao::window::Icon::from_rgba(icon_rgba, icon_width, icon_height)?;
+        let (title, inner_width, inner_height, min_width, min_height) =
+            if arguments.updater_window {
+                ("ShroudForge | Update", 640.0, 620.0, 540.0, 480.0)
+            } else {
+                ("ShroudForge | Modloader", 1180.0, modloader_height, 860.0, 560.0)
+            };
         let window = WindowBuilder::new()
             .with_window_icon(Some(icon.clone()))
             .with_taskbar_icon(Some(icon))
-            .with_title("ShroudForge | Modloader")
+            .with_title(title)
             .with_decorations(false)
             .with_always_on_top(true)
             .with_visible(arguments.desktop)
-            .with_inner_size(LogicalSize::new(1180.0, modloader_height))
-            .with_min_inner_size(LogicalSize::new(860.0, 560.0))
+            .with_inner_size(LogicalSize::new(inner_width, inner_height))
+            .with_min_inner_size(LogicalSize::new(min_width, min_height))
             .build(&event_loop)?;
 
         let mut saved_position =
@@ -2420,7 +2426,11 @@ mod windows {
             ),
             connected: !arguments.desktop && runtime_is_active(&arguments.root),
             mode: if arguments.desktop {
-                "DESKTOP"
+                if arguments.updater_window {
+                    "UPDATER"
+                } else {
+                    "DESKTOP"
+                }
             } else if !arguments.server {
                 "CLIENT"
             } else {

@@ -63,7 +63,7 @@ window.addEventListener('unhandledrejection',event=>post('ui-error',{message:`Un
 function App(){
   const {t,setLocale}=useI18n()
   const [data,setData]=useState<Snapshot>(empty)
-  const [page,setPage]=useState<PageId>(empty.updaterWindow?'updates':'news')
+  const [page,setPage]=useState<PageId>('news')
   const [selectedMod,setSelectedMod]=useState<string|null>(null)
   const [chirper,setChirper]=useState(false)
   const [settings,setSettings]=useState<Settings>(empty.settings)
@@ -84,7 +84,7 @@ function App(){
 
   useEffect(()=>{
     post('ui-ready')
-    window.__shroudforgeUpdate=(next)=>{const snapshot=next as Snapshot;const start=snapshot.settings.modulePreferences?.modloaderUi?.startPage;const validStart=startPageOptions.includes(start);const visible=Boolean(snapshot.windows?.modloaderUi?.visible);if(!localeHydrated.current&&snapshot.locale){localeHydrated.current=true;setLocale(snapshot.locale);setPage(snapshot.updaterWindow?'updates':validStart?start:'news')}else if(start&&previousStartPage.current&&start!==previousStartPage.current&&visible&&!snapshot.updaterWindow){pendingStartPage.current=start}if(previousWindowVisible.current===false&&visible){const nextPage=pendingStartPage.current||start;setPage(snapshot.updaterWindow?'updates':startPageOptions.includes(nextPage)?nextPage:'news');pendingStartPage.current=undefined}if(start)previousStartPage.current=start;previousWindowVisible.current=visible;setData(snapshot);setSettings(current=>JSON.stringify(current)===JSON.stringify(dataRef.current.settings)?snapshot.settings:current);setRead(snapshot.readNoticeIds||[])}
+    window.__shroudforgeUpdate=(next)=>{const snapshot=next as Snapshot;const start=snapshot.settings.modulePreferences?.modloaderUi?.startPage;const validStart=startPageOptions.includes(start);const visible=Boolean(snapshot.windows?.modloaderUi?.visible);if(!localeHydrated.current&&snapshot.locale){localeHydrated.current=true;setLocale(snapshot.locale);setPage(validStart?start:'news')}else if(start&&previousStartPage.current&&start!==previousStartPage.current&&visible){pendingStartPage.current=start}if(previousWindowVisible.current===false&&visible){const nextPage=pendingStartPage.current||start;setPage(startPageOptions.includes(nextPage)?nextPage:'news');pendingStartPage.current=undefined}if(start)previousStartPage.current=start;previousWindowVisible.current=visible;setData(snapshot);setSettings(current=>JSON.stringify(current)===JSON.stringify(dataRef.current.settings)?snapshot.settings:current);setRead(snapshot.readNoticeIds||[])}
     window.__shroudforgeWindowState=(state)=>{const windows=state as Snapshot['windows'];const moduleWindow=windows?.modloaderUi;const requestId=moduleWindow?.focusRequestId||0;if(moduleWindow?.focusTarget==='worldEditorSettings'&&requestId>handledSettingsRequest.current){handledSettingsRequest.current=requestId;writeUiStorage('shroudforge-world-editor-settings-request',String(requestId));if(!moduleWindow.visible)pendingStartPage.current='settings';setSelectedMod(null);setPage('settings');window.setTimeout(()=>document.getElementById('settings-module-worldEditor')?.scrollIntoView({behavior:'smooth',block:'center'}),120)}setData(current=>({...current,windows}))}
     window.__shroudforgeCommandResult=(result)=>{
       if(!result.success&&result.restoreSettings)setSettings(dataRef.current.settings)
@@ -161,6 +161,8 @@ function App(){
     else if(action.kind==='check-updates')postRequest('check-updates')
     else if(action.kind==='queue-system-update')postRequest('queue-system-update')
   }
+
+  if(data.updaterWindow)return <UpdaterWindow release={data.release} version={data.version} queue={data.updateQueue||{items:[]}} mode={data.mode}/>
 
   return <main className="shell">
     {(Boolean(data.configuration?.errors.length)||Boolean(saveMessage))&&<div className="toast-stack" aria-live="polite">
@@ -338,6 +340,26 @@ function ReleaseNotes({text}:{text:string}){
     blocks.push(<p key={`paragraph-${index}`}>{renderReleaseInline(paragraph.join(' '),`paragraph-${index}`)}</p>)
   }
   return <div className="release-notes">{blocks}</div>
+}
+
+function UpdaterWindow({release,version,queue,mode}:{release:Release;version:string;queue:UpdateQueue;mode:string}){
+  const {t}=useI18n()
+  const active=queue.run?.state==='running'||['queued','downloading','verifying','extracting','staged','waitingForGame','installing'].includes(release.state)
+  const complete=release.state==='installed'
+  const failed=release.state==='error'
+  const queuedSystem=queue.items.some(item=>item.kind==='system'&&item.version===release.latestVersion&&!['complete','cancelled'].includes(item.state))
+  return <main className="updater-shell">
+    <header className="updater-topbar" data-drag-region><div className="updater-brand"><span className="brand-mark">SF</span><span><strong>SHROUDFORGE</strong><small>UPDATER</small></span></div><button className="window-close" onClick={()=>postRequest('hide')} aria-label={t('common.close')}>×</button></header>
+    <section className="updater-content">
+      <div className="updater-heading"><div><small>{t('updater.system')}</small><h1>{release.latestVersion?`ShroudForge ${release.latestVersion}`:t('updater.title')}</h1>{release.prerelease&&<span className="release-channel-chip">{t('updates.prerelease.badge')}</span>}</div></div>
+      {release.updateAvailable&&!failed&&!complete?<><ReleaseNotes text={release.message||t('updater.starting')}/>{!queuedSystem&&<button className="button" onClick={()=>postRequest('queue-system-update')}>{t(release.mandatory?'updater.installRequired':'updater.updateNow')}</button>}{!release.mandatory&&<button className="button ghost" onClick={()=>postRequest('hide')}>{t('updater.later')}</button>}</>:!complete&&<p className="updater-message">{failed?(release.message||t('updater.failedDetail')):release.message||t('updater.starting')}</p>}
+      {active&&<UpdateProgress release={release}/>}
+      {!active&&!complete&&!failed&&release.state==='ready'&&!release.updateAvailable&&<div className="updater-result success"><i>✓</i><span>{t('updater.current')}</span></div>}
+      {complete&&<div className="updater-result success"><i>✓</i><span>{t('updater.completeDetail')}</span></div>}
+      <UpdateQueuePanel queue={queue} mode={mode} release={release} hideWhenEmpty/>
+      <footer className="updater-footer"><span>{t('updater.installedVersion',{version})}</span>{failed&&<button className="button ghost" onClick={()=>postRequest('check-updates')}>{t('updater.retry')}</button>}{release.state==='ready'&&!release.updateAvailable&&<button className="button ghost" onClick={()=>postRequest('check-updates')}>{t('updater.checkAgain')}</button>}</footer>
+    </section>
+  </main>
 }
 
 function UpdateProgress({release}:{release:Release}){
