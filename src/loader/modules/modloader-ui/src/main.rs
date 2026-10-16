@@ -6,7 +6,7 @@ mod username;
 mod windows {
     use std::{
         fs::{self, File, OpenOptions},
-        io::{BufRead, BufReader, Read, Seek, SeekFrom, Write},
+        io::{BufRead, BufReader, Read, Write},
         os::windows::ffi::OsStrExt,
         path::{Component, Path, PathBuf},
         process::Child,
@@ -2890,7 +2890,6 @@ mod windows {
                 })
             })
             .collect::<Vec<_>>();
-        notices.extend(read_log_notices(root, mods));
         notices.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         notices.truncate(100);
         notices
@@ -2939,123 +2938,6 @@ mod windows {
             .cloned()
             .collect::<Vec<_>>();
         shroudforge_package::news::mark_unread(root, &ids)
-    }
-
-    fn read_log_notices(root: &Path, mods: &[ModInfo]) -> Vec<Notice> {
-        const MAX_LOG_TAIL: u64 = 512 * 1024;
-        let path = shroudforge_package::paths::current_log(root);
-        let Ok(mut file) = File::open(&path) else {
-            return Vec::new();
-        };
-        let Ok(length) = file.metadata().map(|metadata| metadata.len()) else {
-            return Vec::new();
-        };
-        let start = length.saturating_sub(MAX_LOG_TAIL);
-        if file.seek(SeekFrom::Start(start)).is_err() {
-            return Vec::new();
-        }
-        let mut bytes = Vec::with_capacity(length.saturating_sub(start) as usize);
-        if file.read_to_end(&mut bytes).is_err() {
-            return Vec::new();
-        }
-        let Ok(modified) = file.metadata().and_then(|metadata| metadata.modified()) else {
-            return Vec::new();
-        };
-        let updated_at = modified
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        let text = String::from_utf8_lossy(&bytes);
-        let mut grouped =
-            std::collections::BTreeMap::<(char, String, String), (usize, String)>::new();
-        for line in text.lines().filter(|line| !line.is_empty()) {
-            let Some(close) = line.find("] [") else {
-                continue;
-            };
-            let Some(level) = line
-                .chars()
-                .nth(1)
-                .filter(|level| matches!(level, 'W' | 'E'))
-            else {
-                continue;
-            };
-            let Some(source_end) = line
-                .get(close + 3..)
-                .and_then(|rest| rest.find("] "))
-                .map(|offset| offset + close + 3)
-            else {
-                continue;
-            };
-            let Some(source) = line.get(close + 3..source_end) else {
-                continue;
-            };
-            let Some(message) = line.get(source_end + 2..) else {
-                continue;
-            };
-            let message = message.chars().take(700).collect::<String>();
-            let clock = line.get(3..close).unwrap_or_default().to_owned();
-            let aggregate = grouped
-                .entry((level, source.to_owned(), message))
-                .or_default();
-            aggregate.0 += 1;
-            aggregate.1 = clock;
-        }
-        grouped
-            .into_iter()
-            .map(|((level, source, message), (count, latest))| {
-                let error = level == 'E';
-                let mut hasher = Sha256::new();
-                hasher.update(level.to_string());
-                hasher.update(&source);
-                hasher.update(&message);
-                hasher.update(&latest);
-                hasher.update(count.to_string());
-                let digest = hasher.finalize();
-                let id = format!(
-                    "log-{}",
-                    digest[..10]
-                        .iter()
-                        .map(|byte| format!("{byte:02x}"))
-                        .collect::<String>()
-                );
-                let mut actions = vec![NoticeAction {
-                    id: "open-debug-console".into(),
-                    kind: "open-debug-console".into(),
-                    target: None,
-                }];
-                if mods.iter().any(|item| item.id == source) {
-                    actions.insert(
-                        0,
-                        NoticeAction {
-                            id: "open-mod".into(),
-                            kind: "open-mod".into(),
-                            target: Some(source.clone()),
-                        },
-                    );
-                }
-                Notice {
-                    id,
-                    mod_id: source.clone(),
-                    ecosystem: mods
-                        .iter()
-                        .find(|item| item.id == source)
-                        .map(|item| item.ecosystem.to_owned()),
-                    title: String::new(),
-                    message: String::new(),
-                    level: if error { "error" } else { "warning" }.into(),
-                    action_url: None,
-                    action_label_key: None,
-                    links: Vec::new(),
-                    actions,
-                    updated_at,
-                    kind: Some(if error { "log.error" } else { "log.warning" }.into()),
-                    values: Some(
-                        serde_json::json!({ "source": source, "count": count, "excerpt": message }),
-                    ),
-                    changelog: Vec::new(),
-                }
-            })
-            .collect()
     }
 
     fn sync_mod_events(root: &Path, mods: &[ModInfo]) {
