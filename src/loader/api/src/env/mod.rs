@@ -15,7 +15,11 @@ mod runtime_attributes;
 mod runtime_building;
 mod runtime_functions;
 mod runtime_networking;
+mod runtime_ownership;
+mod runtime_templates;
+mod runtime_services;
 mod runtime_values;
+pub(crate) mod runtime_overrides;
 #[path = "../shroudforge/v1/shroudforge.rs"]
 pub(crate) mod shroudforge;
 mod table;
@@ -39,7 +43,7 @@ pub fn register(lua: &mlua::Lua, env: &Table, r#mod: &Mod) -> mlua::Result<()> {
 
     let lua_io = io::create(lua, r#mod.clone())?;
     let lua_integer = integer::create(lua)?;
-    let lua_game = game::create(lua)?;
+    let lua_game = game::create(lua, r#mod)?;
     let lua_buffer = buffer::create(lua)?;
     let lua_hasher = hasher::create(lua)?;
     let lua_runtime = loader::create(lua, r#mod.clone())?;
@@ -54,6 +58,17 @@ pub fn register(lua: &mlua::Lua, env: &Table, r#mod: &Mod) -> mlua::Result<()> {
                 .clone(),
         )?,
     )?;
+    let overrides: Table = lua_runtime.raw_get("overrides")?;
+    runtime_ownership::attach(lua, &overrides, r#mod)?;
+    let target_factory: mlua::Function = lua
+        .load(include_str!("../shroudforge/v1/lua/override_targets.lua"))
+        .set_name("runtime.overrides.targets")
+        .eval()?;
+    let targets: Table = target_factory.call((lua_runtime.clone(), lua_game.raw_get::<Table>("assets")?))?;
+    for pair in targets.pairs::<String, mlua::Value>() {
+        let (name, target) = pair?;
+        overrides.raw_set(name, target)?;
+    }
     let lua_loader = crate::eml::v1::create_loader(lua, r#mod)?;
     let lua_shroudforge = shroudforge::create(lua, r#mod)?;
     let lua_image = image::create(lua)?;

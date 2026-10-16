@@ -535,65 +535,89 @@ end
 
 local function resolve_placeable_items()
     if placeable_items and prop_recipes_registered then return placeable_items end
-    local resolved = {}
-    local ok, resources = pcall(game.assets.get_resources_by_type, "keen::ItemInfo")
-    if not ok or type(resources) ~= "table" then
-        shroudforge.log.warn("World Editor could not read ItemInfo assets: " .. tostring(resources))
-        return nil
-    end
-    local item_ids, placed_entities, valid_bounds_count, feedback_count = 0, 0, 0, 0
-    for _, resource in ipairs(resources) do
-        local data = resource.data
-        local equipment = data and data.equipment
-        local id = data and item_id(data.itemId)
-        local reference = equipment and equipment.placedEntity
-        local high, low = guid_halves(reference)
-        local valid_id = id and id > 0 and id % 1 == 0
-        if valid_id then item_ids = item_ids + 1 end
-        if valid_id and reference ~= nil then placed_entities = placed_entities + 1 end
-        local minimum, maximum = equipment and equipment.placementAABBmin, equipment and equipment.placementAABBmax
-        local bounds = minimum and maximum and {
-            tonumber(minimum.x), tonumber(minimum.y), tonumber(minimum.z),
-            tonumber(maximum.x), tonumber(maximum.y), tonumber(maximum.z),
-        }
-        local valid_bounds = bounds ~= nil
-        if valid_bounds then
-            for index = 1, 6 do
-                if not finite_number(bounds[index]) then valid_bounds = false; break end
+    local read_index = 0
+    local function read_recipes(get_resources)
+        read_index = 0
+        local resources = get_resources("keen::ItemInfo")
+        if type(resources) ~= "table" or #resources == 0 then
+            error("ItemInfo query did not return a nonempty resource snapshot")
+        end
+        local resolved = {}
+        local item_ids, placed_entities, valid_bounds_count, feedback_count = 0, 0, 0, 0
+        for resource_index, resource in ipairs(resources) do
+            read_index = resource_index
+            -- Reading `.data` and its nested fields performs the actual runtime
+            -- read and reflection decoding. Keep the whole snapshot protected.
+            local data = resource.data
+            if data == nil then error("ItemInfo resource returned no data") end
+            local equipment = data.equipment
+            local id = item_id(data.itemId)
+            local reference = equipment and equipment.placedEntity
+            local high, low = guid_halves(reference)
+            local valid_id = id and id > 0 and id % 1 == 0
+            if valid_id then item_ids = item_ids + 1 end
+            if valid_id and reference ~= nil then placed_entities = placed_entities + 1 end
+            local minimum, maximum = equipment and equipment.placementAABBmin, equipment and equipment.placementAABBmax
+            local bounds = minimum and maximum and {
+                tonumber(minimum.x), tonumber(minimum.y), tonumber(minimum.z),
+                tonumber(maximum.x), tonumber(maximum.y), tonumber(maximum.z),
+            }
+            local valid_bounds = bounds ~= nil
+            if valid_bounds then
+                for index = 1, 6 do
+                    if not finite_number(bounds[index]) then valid_bounds = false; break end
+                end
             end
-        end
-        if valid_bounds then
-            for axis = 1, 3 do if bounds[axis] > bounds[axis + 3] then valid_bounds = false end end
-        end
-        if valid_id and reference ~= nil and valid_bounds then
-            valid_bounds_count = valid_bounds_count + 1
-            local feedback
-            for _, collider in ipairs(equipment.placementColliders or {}) do
-                for _, entry in ipairs(collider.dataArray or {}) do
-                    -- KFC variants expose their contained typed value as `.value`.
-                    -- `$value` exists only in the raw JSON representation.
-                    local candidate = entry.value.materialFeedbackId
-                    feedback = item_id(candidate)
+            if valid_bounds then
+                for axis = 1, 3 do if bounds[axis] > bounds[axis + 3] then valid_bounds = false end end
+            end
+            if valid_id and reference ~= nil and valid_bounds then
+                valid_bounds_count = valid_bounds_count + 1
+                local feedback
+                for _, collider in ipairs(equipment.placementColliders or {}) do
+                    for _, entry in ipairs(collider.dataArray or {}) do
+                        -- KFC variants expose their contained typed value as `.value`.
+                        -- `$value` exists only in the raw JSON representation.
+                        local candidate = entry.value.materialFeedbackId
+                        feedback = item_id(candidate)
+                        if feedback and feedback ~= 0 then break end
+                    end
                     if feedback and feedback ~= 0 then break end
                 end
-                if feedback and feedback ~= 0 then break end
+                if feedback and feedback ~= 0 then feedback_count = feedback_count + 1 end
+                if feedback and feedback ~= 0 then
+                    resolved[id] = {
+                        id = id, uuidHigh = high, uuidLow = low, feedback = feedback,
+                        bounds = bounds,
+                        name = data.debugName or tostring(id),
+                    }
+                end
             end
-            if feedback and feedback ~= 0 then feedback_count = feedback_count + 1 end
-            if feedback and feedback ~= 0 then
-                resolved[id] = {
-                    id = id, uuidHigh = high, uuidLow = low, feedback = feedback,
-                    bounds = bounds,
-                    name = data.debugName or tostring(id),
-                }
-            end
+        end
+        return resolved, #resources, item_ids, placed_entities, valid_bounds_count, feedback_count
+    end
+    local source = "loaded-runtime"
+    local ok, resolved, resource_count, item_ids, placed_entities, valid_bounds_count, feedback_count =
+        pcall(read_recipes, game.assets.get_loaded_resources_by_type)
+    if not ok then
+        local runtime_failure = string.format("resource index=%d: %s", read_index, tostring(resolved))
+        shroudforge.log.warn("World Editor could not read the complete loaded ItemInfo snapshot (" ..
+            runtime_failure .. "). Falling back to KFC file assets")
+        source = "kfc-file-fallback"
+        ok, resolved, resource_count, item_ids, placed_entities, valid_bounds_count, feedback_count =
+            pcall(read_recipes, game.assets.get_resources_by_type)
+        if not ok then
+            shroudforge.log.warn("World Editor could not read a complete ItemInfo snapshot. loaded-runtime: " ..
+                runtime_failure .. ". kfc-file-fallback: resource index=" .. read_index .. ": " .. tostring(resolved))
+            return nil
         end
     end
     local count = 0
     for _ in pairs(resolved) do count = count + 1 end
     if count == 0 then
         shroudforge.log.warn(string.format(
-            "World Editor found no supported ItemInfo placement recipes (resources=%d validItemIds=%d withPlacedEntity=%d withValidBounds=%d withFeedback=%d)",
-            #resources, item_ids, placed_entities, valid_bounds_count, feedback_count))
+            "World Editor found no supported ItemInfo placement recipes (source=%s resources=%d validItemIds=%d withPlacedEntity=%d withValidBounds=%d withFeedback=%d)",
+            source, resource_count, item_ids, placed_entities, valid_bounds_count, feedback_count))
         return nil
     end
     local native_recipes = {}
@@ -607,7 +631,7 @@ local function resolve_placeable_items()
     end
     placeable_items = resolved
     prop_recipes_registered = true
-    shroudforge.log.debug("World Editor registered " .. count .. " native ItemInfo placement recipes")
+    shroudforge.log.info("World Editor registered " .. count .. " native ItemInfo placement recipes from " .. source)
     return resolved
 end
 

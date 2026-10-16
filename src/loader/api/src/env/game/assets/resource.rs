@@ -25,6 +25,10 @@ impl Resource {
 impl UserData for Resource {
     fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
         fields.add_field_method_get("guid", |_, this| Ok(this.info.resource_id.to_string()));
+        fields.add_field_method_get("source", |_, this| Ok(this.info.source_name()));
+        fields.add_field_method_get("loaded", |_, this| {
+            Ok(this.info.source_name() == "loaded-runtime")
+        });
         fields.add_field_method_get("type", |lua, this| {
             let app_state = lua.app_data_ref::<AppState>().unwrap();
             let index =
@@ -38,6 +42,7 @@ impl UserData for Resource {
             }
         });
         fields.add_field_method_get("part", |_, this| Ok(this.info.resource_id.part_index()));
+        fields.add_field_method_get("session_id", |_, this| Ok(this.info.creation_session()));
         fields.add_field_method_get("data", |lua, this| this.info.get_lua_value(lua));
         fields.add_field_method_set("data", |lua, this, value: LuaValue| {
             this.info.set_lua_value(value, lua)

@@ -12,7 +12,7 @@
     "support-bmac": "https://buymeacoffee.com/bonsaibauer"
   },
   "changelog": [
-    "Deduplicates repeated patch errors and fails activation if the configured patch state cannot be applied."
+    "Refills original Stamina roots through typed ECS queries and guarded attribute updates. Waits for the world without a native modifier patch."
   ],
   "settings": {
     "autoRefill": true

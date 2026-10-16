@@ -12,16 +12,16 @@
     "support-bmac": "https://buymeacoffee.com/bonsaibauer"
   },
   "changelog": [
-    "Fails activation when the native patch cannot be enabled and reports restoration failures."
+    "Uses the actual player-template FallDamage configuration through reflected resource scalar updates, with readback and guarded restoration."
   ],
   "groups": [
     {
       "label": "No Fall Damage",
-      "description": "Build-specific runtime patch status.",
+      "description": "Uses the original player-template fall configuration. Players sharing that template share the effect.",
       "actions": [
         {
           "id": "toggleFallDamagePatch",
-          "label": "Toggle fall-damage patch",
+          "label": "Toggle fall-damage protection",
           "style": "secondary"
         }
       ]

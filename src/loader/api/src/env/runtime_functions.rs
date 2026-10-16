@@ -1,9 +1,11 @@
 //! Build-scoped provisional bindings for every evidenced native entry point.
 use super::{
+    AppState,
     buffer_transform::{self, Plan},
     loader::runtime_provider,
     registry::json_to_lua,
 };
+use crate::runtime_resolution::functions::Resolver;
 use mlua::{Lua, Table, Value as LuaValue};
 use serde_json::{Value, json};
 use std::{
@@ -22,6 +24,8 @@ struct Catalog {
     registry: Value,
     last_refresh: Option<Instant>,
     registry_reason: Option<String>,
+    resolution: Option<Resolver>,
+    dependency_coverage: Value,
 }
 
 impl Catalog {
@@ -41,6 +45,10 @@ impl Catalog {
                 }
             }
             self.base = Some(base);
+            if let Some(resolution) = &mut self.resolution {
+                resolution.set_inventory(base);
+            }
+            self.update_coverage();
         }
         if self
             .last_refresh
@@ -61,8 +69,9 @@ impl Catalog {
                     Err(reason) => reason,
                     _ => "live component registration is not ready".into(),
                 });
-                if !self.owners.is_empty() {
-                    self.set_registry(Value::Null);
+                let unavailable = json!({"available":false,"reason":self.registry_reason});
+                if self.registry != unavailable {
+                    self.set_registry(unavailable);
                 }
             }
         }
@@ -96,7 +105,17 @@ impl Catalog {
                 }
             }
         }
+        if let Some(resolution) = &mut self.resolution {
+            resolution.set_registry(&registry);
+        }
         self.registry = registry;
+        self.update_coverage();
+    }
+
+    fn update_coverage(&mut self) {
+        if let (Some(resolution), Some(base)) = (&self.resolution, self.base) {
+            self.dependency_coverage = resolution.coverage(base["entries"].as_array().unwrap());
+        }
     }
 
     fn keys(&self) -> Vec<u32> {
@@ -180,6 +199,9 @@ impl Catalog {
         }
         let mut entry = self.indices.get(&rva).map(|i| self.base.unwrap()["entries"][*i].clone())
             .unwrap_or_else(|| json!({"id":format!("native:{rva}"),"rva":rva,"ranges":[],"code_bytes":null,"chain_resolved":null}));
+        if let Some(resolution) = &self.resolution {
+            resolution.enrich(&mut entry);
+        }
         let names: std::collections::BTreeSet<_> = entry["engine_descriptors"]
             .as_array()
             .into_iter()
@@ -225,12 +247,108 @@ impl Catalog {
         }
         entry
     }
+
+    fn page(
+        &mut self,
+        lua: &Lua,
+        keys: &[u32],
+        offset: Option<usize>,
+        limit: Option<usize>,
+    ) -> mlua::Result<Table> {
+        let offset = offset.unwrap_or(0).min(keys.len());
+        let end = offset
+            .saturating_add(limit.unwrap_or(256).clamp(1, 4096))
+            .min(keys.len());
+        let page = json!({"schema_version":1,"image":self.base.unwrap()["image"],
+            "count":keys.len(),"inventory_count":self.keys().len(),"unwind_count":self.base.unwrap()["unwind_count"],
+            "registered_callback_count":self.owners.len(),"dependency_resolution":self.dependency_coverage,
+            "system_dependency_layout":self.base.unwrap()["system_dependency_layout"],
+            "pointer_target_count":self.base.unwrap()["pointer_target_count"],"unreadable_pointer_pages":self.base.unwrap()["unreadable_pointer_pages"],
+            "range_count":self.base.unwrap()["range_count"],"source":"unwind-code-pointers-and-live-registration",
+            "complete_engine_api":false,"registry_reason":self.registry_reason,
+            "limitations":["unreferenced leaf functions and inlined code can be absent", "code pointers can target internal labels. A function boundary is not implied", "provisional names are scoped to the executable SHA256", "native ABI and gameplay effects remain unresolved unless explicitly validated"],
+            "offset":offset,"next_offset":(end < keys.len()).then_some(end)});
+        let LuaValue::Table(page) = json_to_lua(lua, &page)? else {
+            unreachable!()
+        };
+        let entries = lua.create_table_with_capacity(end - offset, 0)?;
+        for rva in &keys[offset..end] {
+            entries.push(descriptor_to_lua(lua, &self.describe(*rva, false))?)?;
+        }
+        page.raw_set("entries", entries)?;
+        Ok(page)
+    }
 }
 
-fn binding(lua: &Lua, descriptor: &Value, plan: Option<Plan>) -> mlua::Result<Table> {
+fn descriptor_to_lua(lua: &Lua, descriptor: &Value) -> mlua::Result<Table> {
     let LuaValue::Table(table) = json_to_lua(lua, descriptor)? else {
         unreachable!()
     };
+    let Some(descriptors) = descriptor["engine_descriptors"].as_array() else {
+        return Ok(table);
+    };
+    if !descriptors.iter().any(|descriptor| {
+        descriptor["dependency_slots"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|slot| slot["resolved_entries"].is_array())
+    }) {
+        return Ok(table);
+    }
+    let state = lua
+        .app_data_ref::<AppState>()
+        .ok_or_else(|| mlua::Error::runtime("parser registry is unavailable"))?;
+    let lua_descriptors = table.raw_get::<Table>("engine_descriptors")?;
+    let attach_type = |table: &Table, key: &str, identity: &Value| -> mlua::Result<()> {
+        if let Some(index) = identity["index"]
+            .as_u64()
+            .and_then(|index| usize::try_from(index).ok())
+        {
+            table.raw_set(
+                key,
+                state.get_type(lua, kfc::reflection::TypeIndex::new(index))?,
+            )?;
+        }
+        Ok(())
+    };
+    for (descriptor_index, descriptor) in descriptors.iter().enumerate() {
+        let lua_descriptor = lua_descriptors.raw_get::<Table>(descriptor_index + 1)?;
+        let Some(slots) = descriptor["dependency_slots"].as_array() else {
+            continue;
+        };
+        let lua_slots = lua_descriptor.raw_get::<Table>("dependency_slots")?;
+        for (slot_index, slot) in slots.iter().enumerate() {
+            let Some(dependencies) = slot["resolved_entries"].as_array() else {
+                continue;
+            };
+            let lua_dependencies = lua_slots
+                .raw_get::<Table>(slot_index + 1)?
+                .raw_get::<Table>("resolved_entries")?;
+            for (dependency_index, dependency) in dependencies.iter().enumerate() {
+                let lua_dependency = lua_dependencies.raw_get::<Table>(dependency_index + 1)?;
+                attach_type(&lua_dependency, "type", &dependency["type"])?;
+                let lua_registrations = lua_dependency.raw_get::<Table>("registrations")?;
+                for (registration_index, registration) in dependency["registrations"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .enumerate()
+                {
+                    let lua_registration =
+                        lua_registrations.raw_get::<Table>(registration_index + 1)?;
+                    for key in ["runtime_type", "template_type"] {
+                        attach_type(&lua_registration, key, &registration[key])?;
+                    }
+                }
+            }
+        }
+    }
+    Ok(table)
+}
+
+fn binding(lua: &Lua, descriptor: &Value, plan: Option<Plan>) -> mlua::Result<Table> {
+    let table = descriptor_to_lua(lua, descriptor)?;
     let reason = descriptor["reason"]
         .as_str()
         .unwrap_or("no verified adapter")
@@ -271,27 +389,113 @@ fn binding(lua: &Lua, descriptor: &Value, plan: Option<Plan>) -> mlua::Result<Ta
 }
 
 pub(crate) fn attach(lua: &Lua, table: &Table, patch: &Table) -> mlua::Result<()> {
-    let catalog = Rc::new(RefCell::new(Catalog::default()));
+    let registry = lua
+        .app_data_ref::<AppState>()
+        .unwrap()
+        .type_registry()
+        .clone();
+    let catalog = Rc::new(RefCell::new(Catalog {
+        resolution: Some(Resolver::new(registry)),
+        ..Default::default()
+    }));
     let list_catalog = catalog.clone();
-    let list = lua.create_function(move |lua, (offset, limit): (Option<usize>, Option<usize>)| {
-        let mut catalog = list_catalog.borrow_mut();
-        if let Err(reason) = catalog.refresh() { return Ok((None, Some(reason))); }
-        let keys = catalog.keys();
-        let offset = offset.unwrap_or(0).min(keys.len());
-        let end = offset.saturating_add(limit.unwrap_or(256).clamp(1, 4096)).min(keys.len());
-        let mut page = json!({"schema_version":1,"image":catalog.base.unwrap()["image"],
-            "count":keys.len(),"unwind_count":catalog.base.unwrap()["unwind_count"],"registered_callback_count":catalog.owners.len(),
-            "pointer_target_count":catalog.base.unwrap()["pointer_target_count"],"unreadable_pointer_pages":catalog.base.unwrap()["unreadable_pointer_pages"],
-            "range_count":catalog.base.unwrap()["range_count"],"source":"unwind-code-pointers-and-live-registration",
-            "complete_engine_api":false,"registry_reason":catalog.registry_reason,
-            "limitations":["unreferenced leaf functions and inlined code can be absent", "code pointers can target internal labels. A function boundary is not implied", "provisional names are scoped to the executable SHA256", "native ABI and gameplay effects remain unresolved unless explicitly validated"],
-            "offset":offset,"next_offset":(end < keys.len()).then_some(end)});
-        page["entries"] = keys[offset..end].iter().map(|rva| catalog.describe(*rva, false)).collect();
-        let LuaValue::Table(page) = json_to_lua(lua, &page)? else { unreachable!() };
-        Ok((Some(page), None))
-    })?;
+    let list = lua.create_function(
+        move |lua, (offset, limit): (Option<usize>, Option<usize>)| {
+            let mut catalog = list_catalog.borrow_mut();
+            if let Err(reason) = catalog.refresh() {
+                return Ok((None, Some(reason)));
+            }
+            let keys = catalog.keys();
+            Ok((Some(catalog.page(lua, &keys, offset, limit)?), None))
+        },
+    )?;
     table.raw_set("list", list.clone())?;
     table.raw_set("list_native", list)?;
+    let find_catalog = catalog.clone();
+    table.raw_set(
+        "find",
+        lua.create_function(
+            move |lua, (options, offset, limit): (Option<Table>, Option<usize>, Option<usize>)| {
+                let name = options
+                    .as_ref()
+                    .map(|options| options.get::<Option<String>>("name"))
+                    .transpose()?
+                    .flatten();
+                let component = options
+                    .as_ref()
+                    .map(|options| options.get::<LuaValue>("component"))
+                    .transpose()?
+                    .unwrap_or(LuaValue::Nil);
+                let component = if matches!(component, LuaValue::Nil) {
+                    None
+                } else {
+                    let state = lua.app_data_ref::<AppState>().unwrap();
+                    match super::registry::resolve(state.type_registry(), &component) {
+                        Ok(index) => Some(
+                            state
+                                .type_registry()
+                                .get(index)
+                                .unwrap()
+                                .qualified_name
+                                .clone(),
+                        ),
+                        Err(reason) => return Ok((None, Some(reason))),
+                    }
+                };
+                let mut catalog = find_catalog.borrow_mut();
+                if let Err(reason) = catalog.refresh() {
+                    return Ok((None, Some(reason)));
+                }
+                let keys = catalog
+                    .keys()
+                    .into_iter()
+                    .filter(|rva| {
+                        let entry = catalog
+                            .indices
+                            .get(rva)
+                            .map(|index| &catalog.base.unwrap()["entries"][*index]);
+                        let name_matches = name.as_ref().is_none_or(|name| {
+                            format!("unclear_{rva:08x}").contains(name)
+                                || entry.is_some_and(|entry| {
+                                    entry["engine_descriptors"]
+                                        .as_array()
+                                        .into_iter()
+                                        .flatten()
+                                        .any(|descriptor| {
+                                            descriptor["name"]
+                                                .as_str()
+                                                .is_some_and(|actual| actual.contains(name))
+                                        })
+                                        || entry["operations"].as_array().into_iter().flatten().any(
+                                            |operation| {
+                                                operation["id"]
+                                                    .as_str()
+                                                    .is_some_and(|actual| actual.contains(name))
+                                            },
+                                        )
+                                })
+                        });
+                        name_matches
+                            && component.as_ref().is_none_or(|component| {
+                                catalog.owners.get(rva).is_some_and(|owners| {
+                                    owners.iter().any(|owner| {
+                                        owner["qualified_name"] == *component
+                                            || owner["runtime_type"]["qualified_name"] == *component
+                                            || owner["template_type"]["qualified_name"]
+                                                == *component
+                                    })
+                                }) || entry.is_some_and(|entry| {
+                                    catalog.resolution.as_ref().is_some_and(|resolution| {
+                                        resolution.matches_component(entry, component)
+                                    })
+                                })
+                            })
+                    })
+                    .collect::<Vec<_>>();
+                Ok((Some(catalog.page(lua, &keys, offset, limit)?), None))
+            },
+        )?,
+    )?;
     let modifiers_catalog = catalog.clone();
     let checked_available = patch.raw_get::<mlua::Function>("available")?;
     let checked_set = patch.raw_get::<mlua::Function>("set_enabled")?;
@@ -316,10 +520,15 @@ pub(crate) fn attach(lua: &Lua, table: &Table, patch: &Table) -> mlua::Result<()
                 })
                 .collect();
             let [(rva, modifier)] = matches.as_slice() else {
+                let detail = if matches.is_empty() {
+                    "no exact-build guarded profile patch has a verified owning function"
+                } else {
+                    "multiple guarded profile patches claim this modifier ID"
+                };
                 return Ok((
                     None,
                     Some(format!(
-                        "modifier has no unique verified function association: {id}"
+                        "modifier {id} is unavailable: {detail}. This binding requires a guarded profile patch"
                     )),
                 ));
             };
@@ -353,7 +562,11 @@ pub(crate) fn attach(lua: &Lua, table: &Table, patch: &Table) -> mlua::Result<()
             let LuaValue::Table(bound) = json_to_lua(lua, modifier)? else {
                 unreachable!()
             };
-            bound.raw_set("owner", json_to_lua(lua, &descriptor)?)?;
+            bound.raw_set("backend_kind", "guarded-profile-patch")?;
+            bound.raw_set("execution", "guarded-profile-patch")?;
+            bound.raw_set("profile_required", true)?;
+            bound.raw_set("native_callable", false)?;
+            bound.raw_set("owner", descriptor_to_lua(lua, &descriptor)?)?;
             let available = checked_available.clone();
             let available_operation = operation.clone();
             bound.raw_set(
@@ -436,12 +649,19 @@ mod tests {
                 .unwrap()
                 .find_map(|entry| {
                     let path = entry.ok()?.path();
-                    (path.extension()?.to_str()? == "json").then(|| {
-                        serde_json::from_slice::<Value>(&std::fs::read(path).unwrap()).unwrap()
-                    })
+                    if path.extension()?.to_str()? != "json" {
+                        return None;
+                    }
+                    let profile = serde_json::from_slice::<Value>(&std::fs::read(path).unwrap()).unwrap();
+                    profile["runtimePatches"].is_object().then_some(profile)
                 })
                 .unwrap();
             for patch in profile["runtimePatches"].as_object().unwrap().values() {
+                // These mods now use typed ECS or resource APIs. Legacy
+                // profile entries remain available to older callers.
+                if matches!(patch["modifier"]["id"].as_str(), Some("refill_stamina" | "preserve_health_on_fall" | "override_rotation_constant")) {
+                    continue;
+                }
                 let lua = Lua::new();
                 lua.globals()
                     .set(
@@ -475,8 +695,15 @@ mod tests {
                         .unwrap()
                         .replace('_', "-")
                 );
-                let source =
-                    std::fs::read_to_string(root.join(format!("mods/{slug}/src/mod.lua"))).unwrap();
+                let package_root = if slug == "sf-unlimited-flight" {
+                    "mods"
+                } else {
+                    "reference-mods-0.9"
+                };
+                let source = std::fs::read_to_string(
+                    root.join(format!("{package_root}/{slug}/src/mod.lua")),
+                )
+                .unwrap();
                 let module: Table = lua.load(source).eval().unwrap();
                 module
                     .get::<mlua::Function>("on_load")
@@ -502,6 +729,218 @@ mod tests {
                 assert!(lua.globals().get::<Table>("calls").unwrap().len().unwrap() >= 2);
             }
         }
+    }
+
+    #[test]
+    fn stamina_mod_uses_typed_roots_and_retries_without_a_modifier_patch() {
+        let lua = Lua::new();
+        lua.load(r#"
+            reads_ready=false; writes_ready=false; setting=true
+            queries=0; writes=0; current=76; maximum=113; busy=true
+            effects={}
+            shroudforge={settings={get=function(name) assert(name=='autoRefill'); return setting end}}
+            runtime={
+                has=function(name)
+                    if name=='runtime.ecs.read' then return reads_ready end
+                    if name=='runtime.ecs.write' then return writes_ready end
+                    error('unexpected feature '..name)
+                end,
+                require=function() error('startup must wait for the world') end,
+                functions={bind_modifier=function() error('native modifier must not be used') end},
+                report_effect=function(state,detail) effects[#effects+1]={state=state,detail=detail} end,
+                ecs={
+                    query=function(a,b)
+                        assert(a=='keen::ecs::PlayerInput' and b=='keen::ecs::Stamina')
+                        queries=queries+1
+                        if queries==1 then return nil,'Live ECS query is still scanning' end
+                        return {77}
+                    end,
+                    read_attributes=function(entity,name)
+                        assert(entity==77 and name=='Stamina')
+                        return {values={Stamina=current,Stamina_Max=maximum}}
+                    end,
+                    update_attribute=function(entity,name,value)
+                        assert(entity==77 and name=='Stamina' and value==maximum)
+                        writes=writes+1
+                        if busy then busy=false; return nil,'ecs-scene-frame-busy' end
+                        current=value
+                        return {applied=true,values={Stamina=current,Stamina_Max=maximum}}
+                    end
+                }
+            }
+        "#).exec().unwrap();
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../reference-mods-0.9/sf-auto-stamina-refill/src/mod.lua");
+        let module: Table = lua.load(std::fs::read_to_string(path).unwrap()).eval().unwrap();
+        module.get::<mlua::Function>("on_load").unwrap().call::<()>(()).unwrap();
+        let update = module.get::<mlua::Function>("on_update").unwrap();
+        update.call::<()>(()).unwrap();
+        lua.load("assert(queries==0 and writes==0); reads_ready=true").exec().unwrap();
+        update.call::<()>(()).unwrap();
+        lua.load("assert(queries==0 and writes==0); writes_ready=true").exec().unwrap();
+        update.call::<()>(()).unwrap();
+        lua.load("assert(queries==1 and writes==0)").exec().unwrap();
+        update.call::<()>(()).unwrap();
+        lua.load("assert(writes==1 and current==76 and effects[#effects].state=='waiting')").exec().unwrap();
+        update.call::<()>(()).unwrap();
+        lua.load("assert(writes==2 and current==113 and effects[#effects].state=='write-confirmed')").exec().unwrap();
+        update.call::<()>(()).unwrap();
+        lua.load("assert(writes==2 and effects[#effects].state=='no-change'); setting=false; current=70").exec().unwrap();
+        update.call::<()>(()).unwrap();
+        lua.load("assert(writes==2 and current==70)").exec().unwrap();
+        module.get::<mlua::Function>("on_unload").unwrap().call::<()>(()).unwrap();
+        lua.load("assert(writes==2)").exec().unwrap();
+    }
+
+    #[test]
+    fn no_fall_mod_uses_actual_template_scalars_and_scoped_restoration() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../reference-mods-0.9/sf-no-fall-damage/src/mod.lua");
+        let source = std::fs::read_to_string(path).unwrap();
+        assert!(!source.contains("bind_modifier") && !source.contains("runtime.gameplay.patch"));
+        // Exercise the production mapper's Variant.type contract rather than
+        // supplying a hand-written Type-shaped fixture again.
+        let mut types = Vec::new();
+        for (index, (name, primitive, size, inner, count)) in [
+            ("Float", "FLOAT32", 4, None, 0),
+            ("Component", "STRUCT", 0, None, 0),
+            ("FallDamage", "STRUCT", 8, Some(1), 2),
+            ("Variant", "BLOB_VARIANT", 12, Some(1), 1),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let qualified = format!("keen::ecs::{name}");
+            types.push(json!({"index":index,"name":name,"qualifiedName":qualified,
+                "impactName":name,"size":size,"alignment":4,"elementAlignment":4,
+                "fieldCount":count,"primitiveType":primitive,"innerType":inner,"flags":"",
+                "nameHash":kfc::hash::fnv(name),"qualifiedHash":kfc::hash::fnv(&qualified),
+                "impactHash":kfc::hash::fnv(name),"internalHash":index}));
+        }
+        types[2]["structFields"] = json!({
+            "fallDamageStartDistance":{"name":"fallDamageStartDistance","type":0,"dataOffset":0},
+            "fallDamageLethalDistance":{"name":"fallDamageLethalDistance","type":0,"dataOffset":4}});
+        let registry = Rc::new(serde_json::from_value::<kfc::reflection::TypeRegistry>(
+            json!({"version":"no-fall-variant-contract","types":types}),
+        ).unwrap());
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&kfc::hash::fnv("keen::ecs::FallDamage").to_le_bytes());
+        bytes.extend_from_slice(&8u32.to_le_bytes());
+        bytes.extend_from_slice(&8u32.to_le_bytes());
+        bytes.extend_from_slice(&8f32.to_le_bytes());
+        bytes.extend_from_slice(&16f32.to_le_bytes());
+        let owned: Rc<[u8]> = bytes.into();
+        let mapped_component = crate::alias::MappedValue::from_bytes(
+            &registry,
+            registry.get(kfc::reflection::TypeIndex::new(3)).unwrap(),
+            &owned,
+        ).unwrap();
+        let fixture = r#"
+            assert(type(mapped_component.type)=='string' and mapped_component.type=='keen::ecs::FallDamage')
+            assert(mapped_component.value.fallDamageStartDistance==8 and mapped_component.value.fallDamageLethalDistance==16)
+            session=0; reads_ready=false; writes_ready=false; query_pending=false
+            queries=0; writes={}; reads=0; start=8; lethal=16; mode='ok'; effects={}
+            local template_type={qualified_name='keen::ecs::TemplateResource'}
+            function snapshot()
+                return {guid='fixture-template',type=template_type,part=7,loaded=true,
+                    source='loaded-runtime',data={components={
+                        {type='keen::ecs::Other',value={}},
+                        {type=mapped_component.type,value={
+                            fallDamageStartDistance=start,fallDamageLethalDistance=lethal}}}}}
+            end
+            runtime={
+                has=function(name)
+                    if name=='runtime.ecs.read' then return reads_ready end
+                    if name=='runtime.assets.write' then return writes_ready end
+                    error('unexpected feature '..name)
+                end,
+                functions={bind_modifier=function() error('no modifier allowed') end},
+                require=function() error('startup must wait') end,
+                report_effect=function(state,detail) effects[#effects+1]={state=state,detail=detail} end,
+                world={session_id=function() return session end},
+                ecs={query=function(a,b)
+                    assert(a=='keen::ecs::PlayerInput' and b=='keen::ecs::DynamicFallDamage')
+                    queries=queries+1
+                    if query_pending then query_pending=false; return nil,'query pending' end
+                    return {101,102} -- Both players really use the same template.
+                end,get_template=function(entity) assert(entity==101 or entity==102); return snapshot() end}}
+            game={assets={
+                get_loaded_resource=function(guid,ty,part)
+                    assert(guid=='fixture-template' and ty.qualified_name==template_type.qualified_name and part==7)
+                    reads=reads+1
+                    if mode=='read-failure' then error('resource temporarily unavailable') end
+                    return snapshot()
+                end,
+                write_loaded_field=function(resource,path,value,expected)
+                    assert(resource.guid=='fixture-template' and path=='components[2].value.fallDamageStartDistance')
+                    writes[#writes+1]={value=value,expected=expected}
+                    if mode=='busy' then mode='ok'; return nil,'resource gate busy' end
+                    assert(start==expected)
+                    if mode~='false-success' then start=value end
+                    if mode=='uncertain' then return nil,'Resource write outcome is uncertain. Do not retry blindly' end
+                    return snapshot()
+                end}}
+            shroudforge={ui={on_action=function(id,callback)
+                assert(id=='toggleFallDamagePatch'); toggle=callback
+            end}}
+        "#;
+        let load = || {
+            let lua = Lua::new();
+            lua.globals().set("mapped_component",
+                crate::env::game::value::convert_value_to_lua(&mapped_component, &lua).unwrap(),
+            ).unwrap();
+            lua.load(fixture).exec().unwrap();
+            let module: Table = lua.load(&source).eval().unwrap();
+            module.get::<mlua::Function>("on_load").unwrap().call::<()>(()).unwrap();
+            (lua, module)
+        };
+        let (lua, module) = load();
+        let update = module.get::<mlua::Function>("on_update").unwrap();
+        update.call::<()>(()).unwrap();
+        lua.load("assert(queries==0 and #writes==0); session=11; reads_ready=true").exec().unwrap();
+        update.call::<()>(()).unwrap();
+        lua.load("assert(queries==0 and #writes==0); writes_ready=true; query_pending=true; mode='busy'").exec().unwrap();
+        update.call::<()>(()).unwrap();
+        lua.load("assert(queries==1 and #writes==0)").exec().unwrap();
+        update.call::<()>(()).unwrap();
+        lua.load("assert(#writes==1 and start==8 and effects[#effects].state=='waiting')").exec().unwrap();
+        update.call::<()>(()).unwrap();
+        lua.load("assert(#writes==2 and start==16 and reads>=4 and effects[#effects].state=='write-confirmed')").exec().unwrap();
+        update.call::<()>(()).unwrap();
+        lua.load("assert(#writes==2); writes_ready=false; toggle(); assert(start==16 and #writes==2)").exec().unwrap();
+        update.call::<()>(()).unwrap();
+        lua.load("assert(#writes==2); writes_ready=true").exec().unwrap();
+        update.call::<()>(()).unwrap();
+        lua.load("assert(#writes==3 and start==8 and writes[3].expected==16); toggle(); assert(#writes==4 and start==16)").exec().unwrap();
+        module.get::<mlua::Function>("on_unload").unwrap().call::<()>(()).unwrap();
+        lua.load("assert(#writes==5 and start==8 and effects[#effects].state=='write-confirmed')").exec().unwrap();
+
+        // An uncertain return, false success, foreign change or session switch
+        // must never be retried, restored blindly or bypassed with a UI toggle.
+        for scenario in ["uncertain", "false-success", "foreign-change", "session-change"] {
+            let (lua, module) = load();
+            lua.load("session=11; reads_ready=true; writes_ready=true").exec().unwrap();
+            if matches!(scenario, "uncertain" | "false-success") {
+                lua.globals().set("mode", scenario).unwrap();
+            }
+            let update = module.get::<mlua::Function>("on_update").unwrap();
+            update.call::<()>(()).unwrap();
+            match scenario {
+                "foreign-change" => lua.load("start=12").exec().unwrap(),
+                "session-change" => lua.load("session=12").exec().unwrap(),
+                _ => (),
+            }
+            update.call::<()>(()).unwrap();
+            lua.load("toggle(); toggle(); assert(#writes==1 and effects[#effects].state=='write-failed')").exec().unwrap();
+            module.get::<mlua::Function>("on_unload").unwrap().call::<()>(()).unwrap();
+            lua.load("assert(#writes==1)").exec().unwrap();
+            if scenario == "foreign-change" { lua.load("assert(start==12)").exec().unwrap(); }
+        }
+        let (lua, module) = load();
+        lua.load("session=11; reads_ready=true; writes_ready=true; start=20").exec().unwrap();
+        module.get::<mlua::Function>("on_update").unwrap().call::<()>(()).unwrap();
+        module.get::<mlua::Function>("on_unload").unwrap().call::<()>(()).unwrap();
+        lua.load("assert(#writes==0 and start==20)").exec().unwrap();
     }
 
     #[test]

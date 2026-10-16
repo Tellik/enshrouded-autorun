@@ -43,19 +43,6 @@ fn is_component_type(registry: &TypeRegistry, metadata: &TypeMetadata) -> bool {
     false
 }
 
-fn is_runtime_component_type(registry: &TypeRegistry, metadata: &TypeMetadata) -> bool {
-    if !metadata.qualified_name.starts_with("keen::ecs::")
-        || metadata.qualified_name == "keen::ecs::Component"
-    {
-        return false;
-    }
-    // Dynamic ECS columns are serialized as flat runtime structs instead of
-    // deriving from Component. The provider still requires a verified
-    // build-profile mapping or a validated live registration before resolving one.
-    metadata.qualified_name.starts_with("keen::ecs::Dynamic")
-        || is_component_type(registry, metadata)
-}
-
 pub(crate) fn runtime_provider_report() -> serde_json::Value {
     runtime_provider::report()
 }
@@ -123,6 +110,11 @@ pub fn create(lua: &mlua::Lua, r#mod: Mod) -> mlua::Result<mlua::Table> {
     add_function_with_mod(lua, &table, "report_effect", &r#mod, lua_report_effect)?;
 
     table.raw_set("ecs", create_ecs(lua, &r#mod)?)?;
+    table.raw_set("services", crate::env::runtime_services::create(lua, &r#mod)?)?;
+    table.raw_set(
+        "overrides",
+        crate::env::runtime_overrides::create(lua, &r#mod)?,
+    )?;
     table.raw_set("world", create_world(lua, &r#mod)?)?;
     table.raw_set(
         "network",
@@ -267,6 +259,12 @@ pub(crate) fn available(state: &AppState, r#mod: &Mod, feature: &str) -> bool {
                 && state.api().has_runtime(feature)
                 && has_capability(r#mod, Capability::Runtime)
                 && runtime_provider::can_write()
+        }
+        "runtime.assets.write" => {
+            state.phase() == RuntimePhase::Ingame
+                && state.api().has_runtime(feature)
+                && has_capability(r#mod, Capability::Runtime)
+                && runtime_provider::resource_can_write()
         }
         "runtime.gameplay.patch" => {
             state.phase() == RuntimePhase::Ingame
@@ -423,6 +421,17 @@ fn operation_status(lua: &mlua::Lua, feature: &str, r#mod: &Mod) -> mlua::Result
             },
         );
     }
+    if feature == "runtime.assets.write"
+        && matches!(availability, Availability::Available)
+        && !runtime_provider::resource_can_write()
+    {
+        return availability_to_lua(
+            lua,
+            Availability::Unavailable {
+                reason: "KFC Runtime has no validated live resource scalar write context".into(),
+            },
+        );
+    }
     let world_ready =
         if feature == "runtime.world.cursor.get" || feature == "runtime.world.building.input" {
             runtime_provider::world_operation_available(&feature)
@@ -516,6 +525,10 @@ fn create_ecs(lua: &mlua::Lua, r#mod: &Mod) -> mlua::Result<mlua::Table> {
     add_function_with_mod(lua, &table, "resolve", r#mod, lua_ecs_resolve)?;
     add_function_with_mod(lua, &table, "read", r#mod, lua_ecs_read)?;
     add_function_with_mod(lua, &table, "read_bytes", r#mod, lua_ecs_read_bytes)?;
+    add_function_with_mod(lua, &table, "read_fields", r#mod, lua_ecs_read_fields)?;
+    add_function_with_mod(lua, &table, "get_template", r#mod, lua_ecs_get_template)?;
+    crate::env::runtime_templates::attach(lua, &table, r#mod)?;
+    add_function_with_mod(lua, &table, "write_fields", r#mod, lua_ecs_write_fields)?;
     add_function_with_mod(lua, &table, "write", r#mod, lua_ecs_write)?;
     crate::env::runtime_attributes::attach(lua, &table, r#mod)?;
 
@@ -969,6 +982,11 @@ fn lua_world_entity_set_scale(
     }
     let handle = args.get::<u32>(0)?;
     let scale = lua_vec::<3>(args.get::<mlua::Table>(1)?.clone(), "scale")?;
+    if let Err(reason) = super::runtime_ownership::check_write(&state, r#mod,
+        &super::runtime_ownership::component_target(handle, "keen::ecs::CurrentTransform"))
+    {
+        return Ok((false, Some(reason)));
+    }
     match runtime_provider::world_entity_set_scale(handle, scale) {
         Ok(()) => Ok((true, None)),
         Err(reason) => Ok((false, Some(reason))),
@@ -1433,22 +1451,112 @@ fn lua_ecs_get_catalog(
     let result = lua.create_table()?;
     result.raw_set("version", registry.version.clone())?;
     let entries = lua.create_table()?;
+    let registration_report = runtime_provider::registry().ok();
+    let registration_available = registration_report
+        .as_ref()
+        .is_some_and(|r| r["available"] == true);
+    let mut registrations =
+        std::collections::BTreeMap::<&str, Vec<(&serde_json::Value, &str)>>::new();
+    if let Some(report) = registration_report
+        .as_ref()
+        .filter(|_| registration_available)
+    {
+        for row in report["entries"].as_array().into_iter().flatten() {
+            for (key, role) in [("runtime_type", "runtime"), ("template_type", "template")] {
+                if let Some(name) = row[key]["qualified_name"].as_str() {
+                    registrations.entry(name).or_default().push((row, role));
+                }
+            }
+        }
+    }
+    let mut registered_count = 0usize;
+    let mut runtime_count = 0usize;
+    let mut template_count = 0usize;
+    let mut resolved_count = 0usize;
     let ready = runtime_provider::ready();
     let can_write = runtime_provider::can_write();
     let read_denial = runtime_denial_reason(&state, r#mod, "runtime.ecs.read");
     let write_denial = runtime_denial_reason(&state, r#mod, "runtime.ecs.write");
     for metadata in registry
         .iter()
-        .filter(|ty| is_runtime_component_type(registry, ty))
+        .filter(|ty| ty.qualified_name.starts_with("keen::ecs::"))
     {
         let entry = lua.create_table()?;
         entry.raw_set("type", state.get_type(lua, metadata.index)?)?;
         entry.raw_set("qualified_name", metadata.qualified_name.clone())?;
         entry.raw_set("qualified_hash", metadata.qualified_hash)?;
         entry.raw_set("size", metadata.size)?;
-        let resolved = ready
-            && runtime_provider::resolve(&metadata.qualified_name)
-                .is_some_and(|component| component.size == metadata.size);
+        let roles = registrations.get(metadata.qualified_name.as_str());
+        let registered = roles.is_some();
+        let runtime_registered = roles.is_some_and(|rows| {
+            rows.iter().any(|(row, role)| {
+                *role == "runtime"
+                    && row["runtime_type"]["size"].as_u64() == Some(metadata.size as u64)
+            })
+        });
+        let template_registered = roles.is_some_and(|rows| {
+            rows.iter().any(|(row, role)| {
+                *role == "template"
+                    && row["template_type"]["size"].as_u64() == Some(metadata.size as u64)
+            })
+        });
+        // Mapping and current entity access are different facts. A verified
+        // registration stays resolved while the game is in its main menu.
+        let runtime_resolved = runtime_provider::resolve(&metadata.qualified_name)
+            .is_some_and(|component| component.size == metadata.size)
+            && (!registration_available || runtime_registered);
+        let type_writable = runtime_resolved
+            && can_write
+            && runtime_provider::can_write_component(&metadata.qualified_name);
+        let type_write_reason = if !can_write {
+            Some("runtime entity write context is not ready".to_owned())
+        } else if runtime_resolved && !type_writable {
+            Some("component requires an original command phase that is not validated for this profile".to_owned())
+        } else {
+            None
+        };
+        let resolved = runtime_resolved || template_registered;
+        registered_count += usize::from(registered);
+        runtime_count += usize::from(runtime_registered);
+        template_count += usize::from(template_registered);
+        resolved_count += usize::from(resolved);
+        entry.raw_set("registered", registered)?;
+        entry.raw_set("runtime_resolved", runtime_resolved)?;
+        entry.raw_set(
+            "registration_state",
+            if registered {
+                "registered"
+            } else {
+                "reflected-only"
+            },
+        )?;
+        entry.raw_set(
+            "storage",
+            if runtime_registered {
+                "entity"
+            } else if template_registered {
+                "template-only"
+            } else {
+                "unregistered"
+            },
+        )?;
+        let role_entries = lua.create_table()?;
+        if let Some(rows) = roles {
+            for (row, role) in rows {
+                let association = lua.create_table()?;
+                association.raw_set("role", *role)?;
+                association.raw_set(
+                    "index",
+                    crate::env::registry::json_to_lua(lua, &row["index"])?,
+                )?;
+                association.raw_set(
+                    "qualified_name",
+                    crate::env::registry::json_to_lua(lua, &row["qualified_name"])?,
+                )?;
+                role_entries.push(association)?;
+            }
+        }
+        entry.raw_set("registrations", role_entries)?;
         entry.raw_set("resolved", resolved)?;
         let codec_reason =
             crate::env::runtime_values::validate_owned_type(registry, metadata.index).err();
@@ -1456,7 +1564,8 @@ fn lua_ecs_get_catalog(
         entry.raw_set("value_reason", codec_reason.clone())?;
         entry.raw_set(
             "read_available",
-            resolved
+            runtime_resolved
+                && ready
                 && read_denial.is_none()
                 && matches!(
                     state.api().runtime("runtime.ecs.read"),
@@ -1465,9 +1574,29 @@ fn lua_ecs_get_catalog(
         )?;
         entry.raw_set(
             "write_available",
-            resolved
+            runtime_resolved
                 && codec_reason.is_none()
-                && can_write
+                && type_writable
+                && write_denial.is_none()
+                && matches!(
+                    state.api().runtime("runtime.ecs.write"),
+                    Availability::Available
+                ),
+        )?;
+        entry.raw_set(
+            "read_fields_available",
+            runtime_resolved
+                && ready
+                && read_denial.is_none()
+                && matches!(
+                    state.api().runtime("runtime.ecs.read"),
+                    Availability::Available
+                ),
+        )?;
+        entry.raw_set(
+            "write_fields_available",
+            runtime_resolved
+                && type_writable
                 && write_denial.is_none()
                 && matches!(
                     state.api().runtime("runtime.ecs.write"),
@@ -1476,23 +1605,33 @@ fn lua_ecs_get_catalog(
         )?;
         entry.raw_set("read_reason", read_denial.clone())?;
         entry.raw_set(
+            "write_fields_reason",
+            write_denial.clone().or_else(|| type_write_reason.clone()),
+        )?;
+        entry.raw_set(
             "write_reason",
-            write_denial.clone().or(codec_reason).or_else(|| {
-                (!can_write).then(|| "runtime write dispatcher is not ready".to_owned())
-            }),
+            write_denial.clone().or(codec_reason).or(type_write_reason),
         )?;
         entry.raw_set(
             "reason",
-            if !ready {
-                Some("KFC Runtime is not ready")
+            if !registered && !runtime_resolved {
+                Some("reflected type has no engine component registration")
             } else if !resolved {
-                Some("no runtime mapping with matching reflected size")
+                Some("engine registration and reflected storage size do not agree")
             } else {
                 None
             },
         )?;
         entries.push(entry)?;
     }
+    result.raw_set("registry_available", registration_available)?;
+    result.raw_set("registered_type_count", registered_count)?;
+    result.raw_set("runtime_type_count", runtime_count)?;
+    result.raw_set("template_type_count", template_count)?;
+    result.raw_set("resolved_count", resolved_count)?;
+    result.raw_set("reflected_only_count", entries.raw_len() - registered_count)?;
+    result.raw_set("entity_access_ready", ready)?;
+    result.raw_set("entity_writes_ready", can_write)?;
     result.raw_set("entries", entries)?;
     Ok(result)
 }
@@ -1529,6 +1668,24 @@ fn ecs_registry_entry(
         }
     }
     let has_storage = !row["runtime_type"].is_null();
+    let type_writable = row["runtime_type"]["qualified_name"]
+        .as_str()
+        .is_some_and(runtime_provider::can_write_component);
+    let phase_reason = (has_storage && !type_writable)
+        .then(|| "component write context or original command phase is unavailable".to_owned());
+    entry.raw_set(
+        "read_fields_available",
+        has_storage
+            && available(&state, r#mod, "runtime.ecs.read")
+            && runtime_denial_reason(&state, r#mod, "runtime.ecs.read").is_none(),
+    )?;
+    entry.raw_set(
+        "write_fields_available",
+        has_storage
+            && type_writable
+            && available(&state, r#mod, "runtime.ecs.write")
+            && runtime_denial_reason(&state, r#mod, "runtime.ecs.write").is_none(),
+    )?;
     for (key, operation) in [
         ("read_available", "runtime.ecs.read"),
         ("write_available", "runtime.ecs.write"),
@@ -1536,6 +1693,7 @@ fn ecs_registry_entry(
         entry.raw_set(
             key,
             has_storage
+                && (operation != "runtime.ecs.write" || type_writable)
                 && (operation != "runtime.ecs.write" || codec_reason.is_none())
                 && available(&state, r#mod, operation)
                 && runtime_denial_reason(&state, r#mod, operation).is_none(),
@@ -1543,7 +1701,8 @@ fn ecs_registry_entry(
     }
     entry.raw_set("partial_value", codec_reason.is_some())?;
     entry.raw_set("value_reason", codec_reason.clone())?;
-    entry.raw_set("write_reason", codec_reason)?;
+    entry.raw_set("write_fields_reason", phase_reason.clone())?;
+    entry.raw_set("write_reason", codec_reason.or(phase_reason))?;
     if !has_storage {
         entry.raw_set(
             "reason",
@@ -1721,6 +1880,56 @@ fn lua_ecs_query_bounds(
     Ok((LuaValue::Table(result), None))
 }
 
+fn lua_ecs_get_template(
+    lua: &mlua::Lua,
+    args: FunctionArgs,
+    r#mod: &Mod,
+) -> mlua::Result<(Option<crate::env::game::Resource>, Option<String>)> {
+    let resolve = || -> Result<crate::env::game::Resource, String> {
+        let state = lua.app_data_ref::<AppState>().unwrap();
+        if let Some(reason) = runtime_denial_reason(&state, r#mod, "runtime.ecs.read") {
+            return Err(reason);
+        }
+        if !available(&state, r#mod, "runtime.ecs.read") {
+            return Err("live ECS reads are unavailable".into());
+        }
+        if args.len() != 1 {
+            return Err("get_template expects one current entity handle".into());
+        }
+        let session = runtime_provider::world_session_id();
+        if session == 0 {
+            return Err("get_template requires an active world session".into());
+        }
+        let entity = args.get::<u32>(0).map_err(|error| error.to_string())?;
+        let guid = runtime_provider::entity_template_uuid(entity)
+            .ok_or("entity template UUID is unavailable or unstable")?;
+        let id = shroudforge_parser::kfc_format::resource_id(
+            state.type_registry(),
+            "keen::ecs::TemplateResource",
+            guid,
+            0,
+        )
+        .ok_or("TemplateResource is absent from the active reflection")?;
+        if !runtime_provider::resource_exists(&id)? {
+            return Err("entity template is not loaded in the active ResourceService".into());
+        }
+        // Revalidate the entity-to-template association after resource lookup.
+        if runtime_provider::entity_template_uuid(entity) != Some(guid) {
+            return Err("entity template changed during resource resolution".into());
+        }
+        if runtime_provider::world_session_id() != session {
+            return Err("world session changed during entity template resolution".into());
+        }
+        Ok(crate::env::game::Resource::new(
+            state.get_loaded_resource_info_for_session(&id, session),
+        ))
+    };
+    Ok(match resolve() {
+        Ok(resource) => (Some(resource), None),
+        Err(reason) => (None, Some(reason)),
+    })
+}
+
 fn lua_ecs_read(
     lua: &mlua::Lua,
     args: FunctionArgs,
@@ -1792,6 +2001,155 @@ fn lua_ecs_read_impl(
     let mapped = MappedValue::from_bytes(state.type_registry(), metadata, &bytes)
         .map_err(LuaError::external)?;
     Ok((convert_value_to_lua(&mapped, lua)?, None))
+}
+
+fn lua_ecs_read_fields(
+    lua: &mlua::Lua,
+    args: FunctionArgs,
+    r#mod: &Mod,
+) -> mlua::Result<(LuaValue, Option<String>)> {
+    Ok(match ecs_fields(lua, args, r#mod, false) {
+        Ok(value) => (value, None),
+        Err(reason) => (LuaValue::Nil, Some(reason)),
+    })
+}
+
+fn lua_ecs_write_fields(
+    lua: &mlua::Lua,
+    args: FunctionArgs,
+    r#mod: &Mod,
+) -> mlua::Result<(bool, Option<String>, LuaValue)> {
+    Ok(match ecs_fields(lua, args, r#mod, true) {
+        Ok(confirmed) => (true, None, confirmed),
+        Err(reason) => (false, Some(reason), LuaValue::Nil),
+    })
+}
+
+fn ecs_fields(
+    lua: &mlua::Lua,
+    args: FunctionArgs,
+    r#mod: &Mod,
+    write: bool,
+) -> Result<LuaValue, String> {
+    let state = lua.app_data_ref::<AppState>().unwrap();
+    let operation = if write {
+        "runtime.ecs.write"
+    } else {
+        "runtime.ecs.read"
+    };
+    if let Some(reason) = runtime_denial_reason(&state, r#mod, operation) {
+        return Err(reason);
+    }
+    if !available(&state, r#mod, operation) {
+        return Err(format!("{operation} is currently unavailable"));
+    }
+    if args.len() != 3 && !(write && args.len() == 4) {
+        return Err(if write {
+            "runtime.ecs.write_fields expects entity, component, changes, and optional expected fields"
+        } else {
+            "runtime.ecs.read_fields expects entity, component, and an array of field paths"
+        }
+        .into());
+    }
+    let entity = args.get::<u32>(0).map_err(|e| e.to_string())?;
+    let name = runtime_type_name(lua, &args, 1).map_err(|e| e.to_string())?;
+    let component = runtime_provider::resolve(&name)
+        .ok_or_else(|| format!("live ECS component unavailable: {name}"))?;
+    let registry = state.type_registry();
+    let metadata = registry
+        .iter()
+        .find(|ty| ty.qualified_name == name)
+        .ok_or_else(|| format!("component type metadata unavailable: {name}"))?;
+    if metadata.size != component.size {
+        return Err(format!(
+            "component layout mismatch for {name}: parser={}, runtime={}",
+            metadata.size, component.size
+        ));
+    }
+    let selections = args.get::<mlua::Table>(2).map_err(|e| e.to_string())?;
+    let mut fields = std::collections::BTreeMap::new();
+    for pair in selections.clone().pairs::<LuaValue, LuaValue>() {
+        let (key, value) = pair.map_err(|e| e.to_string())?;
+        if fields.len() >= 1024 {
+            return Err("at most 1024 field paths may be selected".into());
+        }
+        let path = if write {
+            let LuaValue::String(path) = key else {
+                return Err("write_fields keys must be reflected field paths".into());
+            };
+            path.to_str().map_err(|e| e.to_string())?.to_owned()
+        } else {
+            let LuaValue::Integer(position) = key else {
+                return Err("read_fields expects a dense array of field paths".into());
+            };
+            if position <= 0 || position as usize > selections.raw_len() {
+                return Err("read_fields expects a dense array of field paths".into());
+            }
+            let LuaValue::String(path) = &value else {
+                return Err("read_fields expects string field paths".into());
+            };
+            path.to_str().map_err(|e| e.to_string())?.to_owned()
+        };
+        let field = super::runtime_values::inline_field(registry, metadata.index, &path)
+            .map_err(|e| format!("{path}: {e}"))?;
+        if fields.insert(path, (field, value)).is_some() {
+            return Err("duplicate field path".into());
+        }
+    }
+    if fields.is_empty() || (!write && fields.len() != selections.raw_len()) {
+        return Err("select a nonempty set of field paths".into());
+    }
+    let before = runtime_provider::read(entity, &name, component.size)
+        .ok_or_else(|| format!("component read failed: {name}"))?;
+    if write {
+        if !runtime_provider::can_write_component(&name) {
+            return Err("component write context or original command phase is unavailable".into());
+        }
+        if args.len() == 4 {
+            let expected = args.get::<mlua::Table>(3).map_err(|e| e.to_string())?;
+            super::runtime_values::expect_inline_fields(
+                lua,
+                registry,
+                metadata.index,
+                &before,
+                &expected,
+            )?;
+        }
+        let mut after = before.clone();
+        let mut mask = vec![0; before.len()];
+        for (path, (field, value)) in &fields {
+            field
+                .write_into(lua, value, &mut after, &mut mask)
+                .map_err(|e| format!("{path}: {e}"))?;
+        }
+        super::runtime_attributes::recalculate_component_update(&state, &name, &before, &mut after, &mut mask)?;
+        super::runtime_ownership::check_write(&state, r#mod,
+            &super::runtime_ownership::component_target(entity, &name))?;
+        let confirmed = lua.create_table_with_capacity(0, fields.len()).map_err(|error| error.to_string())?;
+        for (path, (field, _)) in &fields {
+            confirmed.raw_set(path.as_str(), field.read(lua, &after)?)
+                .map_err(|error| error.to_string())?;
+        }
+        if after != before {
+            runtime_provider::compare_exchange(entity, &name, &before, &mask, &after)?;
+        }
+        Ok(LuaValue::Table(confirmed))
+    } else {
+        let result = lua
+            .create_table_with_capacity(0, fields.len())
+            .map_err(|e| e.to_string())?;
+        for (path, (field, _)) in fields {
+            result
+                .raw_set(
+                    path.as_str(),
+                    field
+                        .read(lua, &before)
+                        .map_err(|e| format!("{path}: {e}"))?,
+                )
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(LuaValue::Table(result))
+    }
 }
 
 fn lua_ecs_write(
@@ -1879,14 +2237,26 @@ fn lua_ecs_write(
     for (start, end) in ranges {
         mask[start..end].fill(1);
     }
-    if runtime_provider::write(entity_id, &component_name, &mask, &bytes) {
-        Ok((true, None))
-    } else {
-        Ok((
-            false,
-            Some(format!("component write failed: {component_name}")),
-        ))
+    let mut bytes = bytes;
+    for (index, value) in bytes.iter_mut().enumerate() {
+        if mask[index] == 0 {
+            *value = source[index];
+        }
     }
+    if let Err(reason) = super::runtime_attributes::recalculate_component_update(
+        &state, &component_name, &source, &mut bytes, &mut mask,
+    ) {
+        return Ok((false, Some(reason)));
+    }
+    if let Err(reason) = super::runtime_ownership::check_write(&state, r#mod,
+        &super::runtime_ownership::component_target(entity_id, &component_name))
+    {
+        return Ok((false, Some(reason)));
+    }
+    Ok(match runtime_provider::compare_exchange(entity_id, &component_name, &source, &mask, &bytes) {
+        Ok(()) => (true, None),
+        Err(reason) => (false, Some(reason)),
+    })
 }
 
 fn collect_changed_ranges(
@@ -1964,7 +2334,8 @@ fn collect_changed_ranges(
         | PrimitiveType::BlobArray
         | PrimitiveType::BlobString
         | PrimitiveType::BlobOptional
-        | PrimitiveType::BlobVariant => {
+        | PrimitiveType::BlobVariant
+        | PrimitiveType::ObjectReference => {
             if source[base..end] != candidate[base..end] {
                 return Err(format!(
                     "runtime write for dynamic field type is not supported: {}",
@@ -1975,6 +2346,7 @@ fn collect_changed_ranges(
         }
         _ => {
             if source[base..end] != candidate[base..end] {
+                super::runtime_values::validate_runtime_scalar(metadata.primitive_type, &candidate[base..end])?;
                 if let Some((_, previous_end)) =
                     ranges.last_mut().filter(|(_, value)| *value == base)
                 {
@@ -1988,7 +2360,7 @@ fn collect_changed_ranges(
     }
 }
 
-fn runtime_type_name(lua: &mlua::Lua, args: &FunctionArgs, index: usize) -> mlua::Result<String> {
+pub(crate) fn runtime_type_name(lua: &mlua::Lua, args: &FunctionArgs, index: usize) -> mlua::Result<String> {
     let state = lua.app_data_ref::<AppState>().unwrap();
     let type_index =
         crate::env::registry::resolve(state.type_registry(), args.get::<LuaValue>(index)?)
@@ -2061,9 +2433,42 @@ pub(crate) fn runtime_denial_reason(
             "runtime API access is available only while this mod's lifecycle is active".into(),
         );
     }
+    if matches!(feature, "runtime.ecs.write" | "runtime.assets.write") {
+        if let Some(reason) = state.runtime_write_fault() {
+            return Some(reason);
+        }
+    }
     match state.api().runtime(feature) {
         Availability::Available => None,
         Availability::Unavailable { reason } => Some(reason),
+    }
+}
+
+#[cfg(test)]
+mod write_policy_tests {
+    use super::*;
+
+    #[test]
+    fn whole_component_writes_share_finite_and_reference_rules() {
+        let mut model = serde_json::to_value(super::super::registry::tests::fixture()).unwrap();
+        model["types"][0]["primitiveType"] = serde_json::json!("FLOAT32");
+        let registry: TypeRegistry = serde_json::from_value(model.clone()).unwrap();
+        let ty = registry.get(kfc::reflection::TypeIndex::new(0)).unwrap();
+        let source = 1f32.to_le_bytes();
+        for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert!(collect_changed_ranges(&registry, ty, 0, &source, &value.to_le_bytes(), &mut Vec::new()).is_err());
+        }
+        let mut ranges = Vec::new();
+        collect_changed_ranges(&registry, ty, 0, &source, &2f32.to_le_bytes(), &mut ranges).unwrap();
+        assert_eq!(ranges, [(0, 4)]);
+
+        model["types"][0]["primitiveType"] = serde_json::json!("OBJECT_REFERENCE");
+        let registry: TypeRegistry = serde_json::from_value(model).unwrap();
+        let ty = registry.get(kfc::reflection::TypeIndex::new(0)).unwrap();
+        assert!(collect_changed_ranges(&registry, ty, 0, &[0;4], &[1,0,0,0], &mut Vec::new()).is_err());
+        let mut ranges = Vec::new();
+        collect_changed_ranges(&registry, ty, 0, &[0;4], &[0;4], &mut ranges).unwrap();
+        assert!(ranges.is_empty());
     }
 }
 
@@ -2100,11 +2505,48 @@ pub(super) mod runtime_provider {
         pub feedback: u32,
     }
 
+    #[repr(C)]
+    #[derive(Clone, Copy, Default)]
+    pub struct RuntimeResourceId {
+        guid: [u8; 16],
+        type_hash: u32,
+        part_index: u32,
+    }
+
+    impl From<&kfc::guid::ResourceId> for RuntimeResourceId {
+        fn from(resource: &kfc::guid::ResourceId) -> Self {
+            Self {
+                guid: *resource.guid().data(),
+                type_hash: resource.type_hash(),
+                part_index: resource.part_index(),
+            }
+        }
+    }
+
     type Ready = unsafe extern "C" fn() -> bool;
     type Configure = unsafe extern "C" fn(*const *const c_char, *const u32, usize) -> bool;
     type Describe = unsafe extern "C" fn(*const c_char, *mut u32) -> bool;
     type Registry = unsafe extern "C" fn(*mut c_char, usize) -> usize;
     type FunctionCode = unsafe extern "C" fn(u32, *mut u8, usize) -> usize;
+    type ResourcesByType =
+        unsafe extern "C" fn(u32, *mut RuntimeResourceId, usize, *mut usize) -> bool;
+    type ResourceRead =
+        unsafe extern "C" fn(*const RuntimeResourceId, u32, *mut u8, usize, *mut usize) -> bool;
+    type EntityTemplateUuid = unsafe extern "C" fn(u32, *mut u8) -> bool;
+    type ServiceRead = unsafe extern "C" fn(*const c_char, u32, u32, u64, *mut u8, usize) -> bool;
+    type ServiceCompareExchange = unsafe extern "C" fn(
+        *const c_char, u32, u32, u64, *const c_void, *const c_void, *const c_void,
+    ) -> u32;
+    type ResourceCompareExchangeScalarForSession = unsafe extern "C" fn(
+        *const RuntimeResourceId,
+        u32,
+        usize,
+        usize,
+        *const c_void,
+        *const c_void,
+        usize,
+        u64,
+    ) -> u32;
     type ResolveType = unsafe extern "C" fn(*const c_char, *mut c_char, usize) -> bool;
     type Query = unsafe extern "C" fn(*const *const c_char, usize, *mut u32, usize) -> usize;
     type QueryBounds = unsafe extern "C" fn(
@@ -2117,8 +2559,6 @@ pub(super) mod runtime_provider {
     ) -> usize;
     type ResolveEntity = unsafe extern "C" fn(u32) -> u32;
     type Read = unsafe extern "C" fn(u32, *const c_char, *mut c_void, usize) -> bool;
-    type Write =
-        unsafe extern "C" fn(u32, *const c_char, *const c_void, *const c_void, usize) -> bool;
     type CompareExchange = unsafe extern "C" fn(
         u32,
         *const c_char,
@@ -2180,16 +2620,24 @@ pub(super) mod runtime_provider {
         ready: Ready,
         prop_query_ready: Option<Ready>,
         can_write: Ready,
+        can_write_component: Option<RuntimePatchAvailable>,
         describe: Describe,
         registry: Option<Registry>,
         functions: Option<Registry>,
         function_code: Option<FunctionCode>,
+        service_read: Option<ServiceRead>,
+        service_compare_exchange: Option<ServiceCompareExchange>,
+        resources_by_type: Option<ResourcesByType>,
+        resource_read: Option<ResourceRead>,
+        resource_can_write: Option<Ready>,
+        resource_compare_exchange_scalar_for_session: Option<ResourceCompareExchangeScalarForSession>,
+        resource_status: Option<Registry>,
+        entity_template_uuid: Option<EntityTemplateUuid>,
         resolve_type: Option<ResolveType>,
         query: Query,
         query_bounds: Option<QueryBounds>,
         resolve_entity: ResolveEntity,
         read: Read,
-        write: Write,
         compare_exchange: Option<CompareExchange>,
         world_operation_available: WorldOperationAvailable,
         world_context_active: WorldContextActive,
@@ -2264,6 +2712,17 @@ pub(super) mod runtime_provider {
                                     .then(|| std::mem::transmute::<*const c_void, Ready>(pointer))
                             },
                             can_write: symbol!("KfcRuntimeEcsCanWrite", Ready),
+                            can_write_component: {
+                                let pointer = GetProcAddress(
+                                    module,
+                                    c"KfcRuntimeEcsCanWriteComponent".as_ptr(),
+                                );
+                                (!pointer.is_null()).then(|| {
+                                    std::mem::transmute::<*const c_void, RuntimePatchAvailable>(
+                                        pointer,
+                                    )
+                                })
+                            },
                             describe: symbol!("KfcRuntimeEcsDescribe", Describe),
                             registry: {
                                 let pointer =
@@ -2286,11 +2745,67 @@ pub(super) mod runtime_provider {
                                     std::mem::transmute::<*const c_void, FunctionCode>(pointer)
                                 })
                             },
+                            service_read: {
+                                let pointer = GetProcAddress(module, c"KfcRuntimeServiceRead".as_ptr());
+                                (!pointer.is_null()).then(|| std::mem::transmute::<*const c_void, ServiceRead>(pointer))
+                            },
+                            service_compare_exchange: {
+                                let pointer = GetProcAddress(module, c"KfcRuntimeServiceCompareExchange".as_ptr());
+                                (!pointer.is_null()).then(|| std::mem::transmute::<*const c_void, ServiceCompareExchange>(pointer))
+                            },
+                            resources_by_type: {
+                                let pointer =
+                                    GetProcAddress(module, c"KfcRuntimeResourcesByType".as_ptr());
+                                (!pointer.is_null()).then(|| {
+                                    std::mem::transmute::<*const c_void, ResourcesByType>(pointer)
+                                })
+                            },
+                            resource_read: {
+                                let pointer =
+                                    GetProcAddress(module, c"KfcRuntimeResourceRead".as_ptr());
+                                (!pointer.is_null()).then(|| {
+                                    std::mem::transmute::<*const c_void, ResourceRead>(pointer)
+                                })
+                            },
+                            resource_status: {
+                                let pointer =
+                                    GetProcAddress(module, c"KfcRuntimeResourceStatus".as_ptr());
+                                (!pointer.is_null()).then(|| {
+                                    std::mem::transmute::<*const c_void, Registry>(pointer)
+                                })
+                            },
+                            resource_can_write: {
+                                let pointer =
+                                    GetProcAddress(module, c"KfcRuntimeResourceCanWrite".as_ptr());
+                                (!pointer.is_null())
+                                    .then(|| std::mem::transmute::<*const c_void, Ready>(pointer))
+                            },
+                            resource_compare_exchange_scalar_for_session: {
+                                let pointer = GetProcAddress(
+                                    module,
+                                    c"KfcRuntimeResourceCompareExchangeScalarForSession".as_ptr(),
+                                );
+                                (!pointer.is_null()).then(|| {
+                                    std::mem::transmute::<
+                                        *const c_void,
+                                        ResourceCompareExchangeScalarForSession,
+                                    >(pointer)
+                                })
+                            },
                             resolve_type: {
                                 let pointer =
                                     GetProcAddress(module, c"KfcRuntimeEcsResolveType".as_ptr());
                                 (!pointer.is_null()).then(|| {
                                     std::mem::transmute::<*const c_void, ResolveType>(pointer)
+                                })
+                            },
+                            entity_template_uuid: {
+                                let pointer =
+                                    GetProcAddress(module, c"KfcRuntimeEcsTemplateUuid".as_ptr());
+                                (!pointer.is_null()).then(|| {
+                                    std::mem::transmute::<*const c_void, EntityTemplateUuid>(
+                                        pointer,
+                                    )
                                 })
                             },
                             query: symbol!("KfcRuntimeEcsQuery", Query),
@@ -2303,7 +2818,6 @@ pub(super) mod runtime_provider {
                             },
                             resolve_entity: symbol!("KfcRuntimeEcsResolve", ResolveEntity),
                             read: symbol!("KfcRuntimeEcsRead", Read),
-                            write: symbol!("KfcRuntimeEcsWrite", Write),
                             compare_exchange: {
                                 let pointer = GetProcAddress(
                                     module,
@@ -2477,6 +2991,19 @@ pub(super) mod runtime_provider {
     }
     pub fn can_write() -> bool {
         provider().is_some_and(|value| unsafe { (value.can_write)() })
+    }
+    pub fn can_write_component(name: &str) -> bool {
+        let Some(provider) = provider() else {
+            return false;
+        };
+        let Ok(name) = CString::new(name) else {
+            return false;
+        };
+        unsafe {
+            provider
+                .can_write_component
+                .map_or_else(|| (provider.can_write)(), |check| check(name.as_ptr()))
+        }
     }
     pub fn world_operation_available(name: &str) -> bool {
         let Some(provider) = provider() else {
@@ -2869,7 +3396,7 @@ pub(super) mod runtime_provider {
         // ready or stale-game-thread, so a later pause is not mistaken for the
         // initial menu wait.
         let awaiting_world = detail.contains("game_thread=installed-awaiting-world");
-        serde_json::json!({"available":true,"abi":provider.abi,"initialized":true,"ready":unsafe{(provider.ready)()},"writable":unsafe{(provider.can_write)()},"awaitingWorld":awaiting_world,"detail":detail})
+        serde_json::json!({"available":true,"abi":provider.abi,"initialized":true,"ready":unsafe{(provider.ready)()},"writable":unsafe{(provider.can_write)()},"awaitingWorld":awaiting_world,"detail":detail,"resourceService":resource_status()})
     }
     pub fn resolve(name: &str) -> Option<Component> {
         let provider = provider()?;
@@ -2914,6 +3441,199 @@ pub(super) mod runtime_provider {
         }
         code.truncate(count);
         Some(code)
+    }
+    pub fn resources_by_type(type_hash: u32) -> Result<Vec<kfc::guid::ResourceId>, String> {
+        use kfc::guid::{Guid, ResourceId};
+        let fetch = provider()
+            .and_then(|value| value.resources_by_type)
+            .ok_or("native provider lacks the ResourceService listing extension")?;
+        let mut count = 0usize;
+        if !unsafe { fetch(type_hash, std::ptr::null_mut(), 0, &mut count) } {
+            return Err("live ResourceService listing is unavailable".into());
+        }
+        if count > 1 << 20 {
+            return Err("live ResourceService listing exceeded the resource safety limit".into());
+        }
+        let mut native = vec![RuntimeResourceId::default(); count];
+        if count != 0 {
+            let mut actual = 0usize;
+            if !unsafe { fetch(type_hash, native.as_mut_ptr(), native.len(), &mut actual) }
+                || actual != count
+            {
+                return Err("live ResourceService listing changed during retrieval".into());
+            }
+        }
+        Ok(native
+            .into_iter()
+            .map(|resource| {
+                ResourceId::new(
+                    Guid::new(resource.guid),
+                    resource.type_hash,
+                    resource.part_index,
+                )
+            })
+            .collect())
+    }
+    pub fn resource_exists(resource: &kfc::guid::ResourceId) -> Result<bool, String> {
+        use kfc::container::StaticHash;
+        let fetch = provider()
+            .and_then(|value| value.resource_read)
+            .ok_or("native provider lacks the ResourceService read extension")?;
+        let native = RuntimeResourceId::from(resource);
+        let mut size = 0usize;
+        if unsafe {
+            fetch(
+                &native,
+                resource.static_hash(),
+                std::ptr::null_mut(),
+                0,
+                &mut size,
+            )
+        } {
+            if size > 256 * 1024 * 1024 {
+                return Err(
+                    "live ResourceService resource exceeded the 256 MiB safety limit".into(),
+                );
+            }
+            return Ok(true);
+        }
+        // A missing GUID and an unavailable owner share the existing native
+        // read result. Preserve the Lua API's nil-versus-error distinction.
+        if resource_status().is_some_and(|status| status["available"] == true) {
+            Ok(false)
+        } else {
+            Err("live ResourceService resource is unavailable".into())
+        }
+    }
+    pub fn resource_read(resource: &kfc::guid::ResourceId) -> Result<Vec<u8>, String> {
+        use kfc::container::StaticHash;
+        let fetch = provider()
+            .and_then(|value| value.resource_read)
+            .ok_or("native provider lacks the ResourceService read extension")?;
+        let native = RuntimeResourceId::from(resource);
+        let hash = resource.static_hash();
+        let mut size = 0usize;
+        if !unsafe { fetch(&native, hash, std::ptr::null_mut(), 0, &mut size) } {
+            return Err("live ResourceService resource is unavailable".into());
+        }
+        if size > 256 * 1024 * 1024 {
+            return Err("live ResourceService resource exceeded the 256 MiB safety limit".into());
+        }
+        let mut bytes = vec![0u8; size];
+        let mut actual = 0usize;
+        if !unsafe { fetch(&native, hash, bytes.as_mut_ptr(), bytes.len(), &mut actual) }
+            || actual != size
+        {
+            return Err("live ResourceService resource changed during retrieval".into());
+        }
+        Ok(bytes)
+    }
+    pub fn service_read(key: &str, type_hash: u32, size: u32, session: u64) -> Result<Vec<u8>, String> {
+        if size == 0 || size > 256 * 1024 * 1024 {
+            return Err("invalid reflected service snapshot size".into());
+        }
+        if session == 0 || world_session_id() != session {
+            return Err("service snapshot belongs to another or an inactive world session".into());
+        }
+        let key = CString::new(key).map_err(|_| "invalid service key")?;
+        let read = provider().and_then(|provider| provider.service_read)
+            .ok_or("native provider lacks typed service snapshots")?;
+        let mut bytes = vec![0; size as usize];
+        if !unsafe { read(key.as_ptr(), type_hash, size, session, bytes.as_mut_ptr(), bytes.len()) } {
+            return Err("guarded service snapshot is unavailable or changed during retrieval".into());
+        }
+        if world_session_id() != session {
+            return Err("world session changed during service snapshot retrieval".into());
+        }
+        Ok(bytes)
+    }
+    pub fn service_compare_exchange(
+        key: &str, type_hash: u32, size: u32, session: u64,
+        expected: &[u8], mask: &[u8], desired: &[u8],
+    ) -> Result<(), String> {
+        if size == 0 || size > 256 * 1024 * 1024 || expected.len() != size as usize
+            || mask.len() != size as usize || desired.len() != size as usize
+            || mask.iter().any(|byte| *byte > 1)
+        {
+            return Err("service snapshot, mask and reflected layout sizes disagree".into());
+        }
+        if session == 0 || world_session_id() != session {
+            return Err("service update belongs to another or an inactive world session".into());
+        }
+        let key = CString::new(key).map_err(|_| "invalid service key")?;
+        let apply = provider().and_then(|provider| provider.service_compare_exchange)
+            .ok_or("native provider lacks typed service writes")?;
+        match unsafe { apply(key.as_ptr(), type_hash, size, session,
+            expected.as_ptr().cast(), mask.as_ptr().cast(), desired.as_ptr().cast()) } {
+            1 => Ok(()),
+            2 => Err("Service snapshot changed before update. Read current values and retry".into()),
+            3 => Err("Service write outcome is uncertain. Stop writes and do not retry blindly".into()),
+            _ => Err("guarded service update failed".into()),
+        }
+    }
+    pub fn resource_status() -> Option<serde_json::Value> {
+        let fetch = provider()?.resource_status?;
+        fetch_json(fetch, 1024 * 1024).ok()
+    }
+    pub fn entity_template_uuid(entity: u32) -> Option<kfc::guid::Guid> {
+        let fetch = provider()?.entity_template_uuid?;
+        let mut bytes = [0u8; 16];
+        unsafe { fetch(entity, bytes.as_mut_ptr()) }.then(|| kfc::guid::Guid::new(bytes))
+    }
+    pub fn resource_can_write() -> bool {
+        provider()
+            .and_then(|value| value.resource_can_write)
+            .is_some_and(|ready| unsafe { ready() })
+    }
+    pub fn resource_compare_exchange_scalar_for_session(
+        resource: &kfc::guid::ResourceId,
+        resource_size: usize,
+        offset: usize,
+        expected: &[u8],
+        desired: &[u8],
+        expected_session: u64,
+    ) -> Result<(), String> {
+        use kfc::container::StaticHash;
+        if expected.len() != resource_size {
+            return Err("session-bound resource writes require the complete expected resource snapshot".into());
+        }
+        let end = offset.checked_add(4).filter(|end| *end <= expected.len())
+            .ok_or("resource scalar lies outside the complete expected snapshot")?;
+        validate_resource_scalar(resource_size, offset, &expected[offset..end], desired)?;
+        if expected_session == 0 || world_session_id() != expected_session {
+            return Err("resource scalar update belongs to another or an inactive world session".into());
+        }
+        let apply = provider()
+            .and_then(|value| value.resource_compare_exchange_scalar_for_session)
+            .ok_or("native provider lacks the session-bound ResourceService scalar write extension")?;
+        let native = RuntimeResourceId::from(resource);
+        resource_scalar_result(unsafe { apply(&native, resource.static_hash(), resource_size, offset,
+            expected.as_ptr().cast(), desired.as_ptr().cast(), 4, expected_session) })
+    }
+    fn validate_resource_scalar(
+        resource_size: usize,
+        offset: usize,
+        expected: &[u8],
+        desired: &[u8],
+    ) -> Result<(), String> {
+        if expected.len() != 4
+            || desired.len() != 4
+            || offset % 4 != 0
+            || offset.checked_add(4).is_none_or(|end| end > resource_size)
+        {
+            return Err(
+                "resource writes require one aligned 32-bit scalar inside the snapshot".into(),
+            );
+        }
+        Ok(())
+    }
+    fn resource_scalar_result(status: u32) -> Result<(), String> {
+        match status {
+            1 => Ok(()),
+            2 => Err("Resource scalar snapshot changed before update. Read current values and retry".into()),
+            3 => Err("Resource write outcome is uncertain because lifetime or original data-page protection could not be verified. Do not retry blindly".into()),
+            _ => Err("guarded resource scalar update failed".into()),
+        }
     }
     fn fetch_json(fetch: Registry, maximum: usize) -> Result<serde_json::Value, String> {
         let mut size = unsafe { fetch(std::ptr::null_mut(), 0) };
@@ -3033,27 +3753,6 @@ pub(super) mod runtime_provider {
         let handle = unsafe { (provider.resolve_entity)(entity_id) };
         (handle != 0).then_some(handle)
     }
-    pub fn write(entity: u32, name: &str, mask: &[u8], bytes: &[u8]) -> bool {
-        let Some(provider) = provider() else {
-            return false;
-        };
-        let Ok(name) = CString::new(name) else {
-            return false;
-        };
-        if mask.len() != bytes.len() {
-            return false;
-        }
-        unsafe {
-            (provider.write)(
-                entity,
-                name.as_ptr(),
-                mask.as_ptr().cast(),
-                bytes.as_ptr().cast(),
-                bytes.len(),
-            )
-        }
-    }
-
     pub fn compare_exchange(
         entity: u32,
         name: &str,
@@ -3061,6 +3760,9 @@ pub(super) mod runtime_provider {
         mask: &[u8],
         bytes: &[u8],
     ) -> Result<(), String> {
+        if !can_write_component(name) {
+            return Err("component write context or original command phase is unavailable".into());
+        }
         let function = provider()
             .and_then(|p| p.compare_exchange)
             .ok_or("native runtime lacks guarded attribute updates")?;
@@ -3082,6 +3784,9 @@ pub(super) mod runtime_provider {
             2 => Err(
                 "Attribute snapshot changed before update. Read current values and retry".into(),
             ),
+            3 => Err(
+                "ECS write outcome is uncertain because the original bytes could not be verified after rollback".into(),
+            ),
             _ => Err("guarded attribute update failed".into()),
         }
     }
@@ -3089,6 +3794,39 @@ pub(super) mod runtime_provider {
 
 #[cfg(not(windows))]
 pub(super) mod runtime_provider {
+    pub fn service_read(_: &str, _: u32, _: u32, _: u64) -> Result<Vec<u8>, String> {
+        Err("live engine service access is available on Windows only".into())
+    }
+    pub fn service_compare_exchange(
+        _: &str, _: u32, _: u32, _: u64, _: &[u8], _: &[u8], _: &[u8],
+    ) -> Result<(), String> {
+        Err("live engine service access is available on Windows only".into())
+    }
+    pub fn entity_template_uuid(_: u32) -> Option<kfc::guid::Guid> {
+        None
+    }
+    pub fn resource_can_write() -> bool {
+        false
+    }
+    pub fn resource_compare_exchange_scalar_for_session(
+        _: &kfc::guid::ResourceId,
+        _: usize,
+        _: usize,
+        _: &[u8],
+        _: &[u8],
+        _: u64,
+    ) -> Result<(), String> {
+        Err("live ResourceService access is available on Windows only".into())
+    }
+    pub fn resources_by_type(_: u32) -> Result<Vec<kfc::guid::ResourceId>, String> {
+        Err("live ResourceService access is available on Windows only".into())
+    }
+    pub fn resource_exists(_: &kfc::guid::ResourceId) -> Result<bool, String> {
+        Err("live ResourceService access is available on Windows only".into())
+    }
+    pub fn resource_read(_: &kfc::guid::ResourceId) -> Result<Vec<u8>, String> {
+        Err("live ResourceService access is available on Windows only".into())
+    }
     #[repr(C)]
     #[derive(Clone, Copy, Default)]
     pub struct PropRecord {
@@ -3118,6 +3856,9 @@ pub(super) mod runtime_provider {
         false
     }
     pub fn can_write() -> bool {
+        false
+    }
+    pub fn can_write_component(_: &str) -> bool {
         false
     }
     pub fn world_operation_available(_: &str) -> bool {
@@ -3233,9 +3974,6 @@ pub(super) mod runtime_provider {
     }
     pub fn resolve_entity(_: u32) -> Option<u32> {
         None
-    }
-    pub fn write(_: u32, _: &str, _: &[u8], _: &[u8]) -> bool {
-        false
     }
     pub fn compare_exchange(_: u32, _: &str, _: &[u8], _: &[u8], _: &[u8]) -> Result<(), String> {
         Err("native ECS runtime is available on Windows only".into())

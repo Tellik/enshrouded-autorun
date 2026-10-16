@@ -311,6 +311,25 @@ struct Lifecycle {
     update_interval: std::time::Duration,
     next_update: std::time::Instant,
     active: bool,
+    cleanup_pending: bool,
+}
+
+impl Lifecycle {
+    fn try_unload(&mut self, lua: &mlua::Lua) -> mlua::Result<()> {
+        // Keep the active scope and its checked writer permissions until cleanup
+        // confirms that all temporary engine inputs have been released.
+        self.cleanup_pending = true;
+        let callback = self.unload.as_ref().map_or(Ok(()), |key| {
+            lua.registry_value::<Function>(key)?.call::<()>(())
+        });
+        let cleanup = crate::env::runtime_overrides::cleanup(lua, &self.id)
+            .map_err(mlua::Error::runtime);
+        callback?;
+        cleanup?;
+        self.cleanup_pending = false;
+        self.active = false;
+        Ok(())
+    }
 }
 
 /// Compare a newly parsed manifest with the applied one while treating a
@@ -375,7 +394,7 @@ impl IngameRuntime {
     pub fn active_mod_ids(&self) -> Vec<String> {
         self.lifecycle
             .iter()
-            .filter(|item| item.active)
+            .filter(|item| item.active && !item.cleanup_pending)
             .map(|item| item.id.clone())
             .collect()
     }
@@ -661,7 +680,17 @@ impl IngameRuntime {
                     .unwrap()
                     .set_runtime_mod_active(&id, true);
             }
-            if enabled && let Some(key) = load.as_ref() {
+            let mut item = Lifecycle {
+                id: id.clone(),
+                load,
+                update,
+                unload,
+                update_interval: std::time::Duration::from_millis(update_interval_ms),
+                next_update: std::time::Instant::now(),
+                active: enabled,
+                cleanup_pending: false,
+            };
+            if enabled && let Some(key) = item.load.as_ref() {
                 let started = std::time::Instant::now();
                 tracing::debug!(target: "shroudforge::runtime", mod_id = %id,
                     "Runtime mod on_load started");
@@ -671,39 +700,28 @@ impl IngameRuntime {
                     tracing::error!(target: "shroudforge::runtime", mod_id = %id,
                         "on_load failed. Rolling back scope: {error}");
                     errors.insert(id.clone(), format!("on_load failed: {error}").into());
-                    if let Some(key) = &unload {
-                        if let Err(cleanup) = runner
+                    if let Err(cleanup) = item.try_unload(&runner.lua) {
+                        tracing::error!(target: "shroudforge::runtime", mod_id = %id,
+                            "Rollback is pending and will be retried: {cleanup}");
+                    } else {
+                        runner
                             .lua
-                            .registry_value::<Function>(key)
-                            .and_then(|callback| callback.call::<()>(()))
-                        {
-                            tracing::error!(target: "shroudforge::runtime", mod_id = %id,
-                                "Rollback failed. Recovery required: {cleanup}");
-                        }
+                            .app_data_ref::<AppState>()
+                            .unwrap()
+                            .set_runtime_mod_active(&id, false);
+                        continue;
                     }
-                    runner
-                        .lua
-                        .app_data_ref::<AppState>()
-                        .unwrap()
-                        .set_runtime_mod_active(&id, false);
-                    continue;
                 }
-                tracing::debug!(target: "shroudforge::runtime", mod_id = %id,
-                    elapsed_ms = started.elapsed().as_millis(), "Runtime mod on_load completed");
+                if !item.cleanup_pending {
+                    tracing::debug!(target: "shroudforge::runtime", mod_id = %id,
+                        elapsed_ms = started.elapsed().as_millis(), "Runtime mod on_load completed");
+                }
             }
-            if enabled {
+            if enabled && !item.cleanup_pending {
                 tracing::info!(target: "shroudforge::runtime", mod_id = %id,
                     "Runtime mod initialized and active");
             }
-            lifecycle.push(Lifecycle {
-                id,
-                load,
-                update,
-                unload,
-                update_interval: std::time::Duration::from_millis(update_interval_ms),
-                next_update: std::time::Instant::now(),
-                active: enabled,
-            });
+            lifecycle.push(item);
         }
         let configurations = env
             .mod_registry()
@@ -814,6 +832,22 @@ impl IngameRuntime {
             if !item.active {
                 continue;
             }
+            if item.cleanup_pending {
+                if std::time::Instant::now() < item.next_update {
+                    continue;
+                }
+                if item.try_unload(&self.runner.lua).is_ok() {
+                    self.runner
+                        .lua
+                        .app_data_ref::<AppState>()
+                        .unwrap()
+                        .set_runtime_mod_active(&item.id, false);
+                    tracing::info!(target: "shroudforge::runtime", mod_id = %item.id,
+                        "Pending runtime mod cleanup completed");
+                }
+                item.next_update = std::time::Instant::now() + item.update_interval;
+                continue;
+            }
             if let Some(key) = &item.update {
                 if std::time::Instant::now() < item.next_update {
                     continue;
@@ -842,23 +876,16 @@ impl IngameRuntime {
                         "on_update failed: {error}");
                     self.errors
                         .insert(item.id.clone(), format!("on_update failed: {error}").into());
-                    if let Some(unload) = &item.unload {
-                        if let Err(cleanup) = self
-                            .runner
+                    if let Err(cleanup) = item.try_unload(&self.runner.lua) {
+                        tracing::error!(target: "shroudforge::runtime", mod_id = %item.id,
+                            "Update rollback is pending and will be retried: {cleanup}");
+                    } else {
+                        self.runner
                             .lua
-                            .registry_value::<Function>(unload)
-                            .and_then(|callback| callback.call::<()>(()))
-                        {
-                            tracing::error!(target: "shroudforge::runtime", mod_id = %item.id,
-                                "Update rollback failed. Recovery required: {cleanup}");
-                        }
+                            .app_data_ref::<AppState>()
+                            .unwrap()
+                            .set_runtime_mod_active(&item.id, false);
                     }
-                    self.runner
-                        .lua
-                        .app_data_ref::<AppState>()
-                        .unwrap()
-                        .set_runtime_mod_active(&item.id, false);
-                    item.active = false;
                 }
             }
         }
@@ -914,24 +941,16 @@ impl IngameRuntime {
             if !mod_ids.iter().any(|id| id == &item.id) || !item.active {
                 continue;
             }
-            if let Some(key) = &item.unload {
-                if let Err(error) = self
-                    .runner
-                    .lua
-                    .registry_value::<Function>(key)
-                    .and_then(|callback| callback.call::<()>(()))
-                {
-                    let mod_id = item.id.clone();
-                    self.restore_previous_runtime(&unloaded_ids);
-                    return Err(format!("mod '{mod_id}' on_unload failed: {error}"));
-                }
+            if let Err(error) = item.try_unload(&self.runner.lua) {
+                let mod_id = item.id.clone();
+                self.restore_previous_runtime(&unloaded_ids);
+                return Err(format!("mod '{mod_id}' on_unload failed: {error}"));
             }
             self.runner
                 .lua
                 .app_data_ref::<AppState>()
                 .unwrap()
                 .set_runtime_mod_active(&item.id, false);
-            item.active = false;
             unloaded_ids.push(item.id.clone());
         }
         self.publish_status(true);
@@ -942,29 +961,23 @@ impl IngameRuntime {
         let previously_active = self
             .lifecycle
             .iter()
-            .filter(|item| item.active)
+            .filter(|item| item.active && !item.cleanup_pending)
             .map(|item| item.id.clone())
             .collect::<Vec<_>>();
         for item in self.lifecycle.iter_mut().rev() {
             if !item.active {
                 continue;
             }
-            if let Some(key) = &item.unload {
-                if let Err(error) = self
-                    .runner
-                    .lua
-                    .registry_value::<Function>(key)
-                    .and_then(|callback| callback.call::<()>(()))
-                {
-                    tracing::error!(target:"shroudforge::runtime", mod_id=%item.id, "on_unload failed during runtime package refresh: {error}");
-                }
+            if let Err(error) = item.try_unload(&self.runner.lua) {
+                let mod_id = item.id.clone();
+                self.restore_previous_runtime(&previously_active);
+                return Err(format!("mod '{mod_id}' cleanup prevented package refresh: {error}"));
             }
             self.runner
                 .lua
                 .app_data_ref::<AppState>()
                 .unwrap()
                 .set_runtime_mod_active(&item.id, false);
-            item.active = false;
         }
 
         let game_path = self
@@ -1035,9 +1048,10 @@ impl IngameRuntime {
 
     fn restore_previous_runtime(&mut self, active_ids: &[String]) {
         for item in &mut self.lifecycle {
-            if !active_ids.iter().any(|id| id == &item.id) {
+            if !active_ids.iter().any(|id| id == &item.id) || item.cleanup_pending {
                 continue;
             }
+            item.active = true;
             self.runner
                 .lua
                 .app_data_ref::<AppState>()
@@ -1050,12 +1064,17 @@ impl IngameRuntime {
                     .registry_value::<Function>(key)
                     .and_then(|callback| callback.call::<()>(()))
                 {
-                    self.runner
-                        .lua
-                        .app_data_ref::<AppState>()
-                        .unwrap()
-                        .set_runtime_mod_active(&item.id, false);
                     tracing::error!(target:"shroudforge::runtime", mod_id=%item.id, "Could not restore runtime mod after refresh rollback: {error}");
+                    if let Err(cleanup) = item.try_unload(&self.runner.lua) {
+                        tracing::error!(target:"shroudforge::runtime", mod_id=%item.id,
+                            "Refresh rollback cleanup is pending and will be retried: {cleanup}");
+                    } else {
+                        self.runner
+                            .lua
+                            .app_data_ref::<AppState>()
+                            .unwrap()
+                            .set_runtime_mod_active(&item.id, false);
+                    }
                     continue;
                 }
             }
@@ -1179,7 +1198,10 @@ impl IngameRuntime {
                     self.errors.insert(id.clone(), format!("dependency-blocked: {error}").into());
                     tracing::warn!(target:"shroudforge::runtime", mod_id=%id, "Live activation transition deferred: {error}");
                 } else if let Some(item) = self.lifecycle.iter_mut().find(|item| item.id == *id) {
-                    let transition = if wanted_enabled {
+                    let transition = if wanted_enabled && item.cleanup_pending {
+                        Err("Previous runtime mod cleanup is still pending".to_owned())
+                    } else if wanted_enabled {
+                        item.active = true;
                         self.runner
                             .lua
                             .app_data_ref::<AppState>()
@@ -1194,12 +1216,8 @@ impl IngameRuntime {
                         } else {
                             Ok(())
                         }
-                    } else if let Some(key) = &item.unload {
-                        self.runner
-                            .lua
-                            .registry_value::<Function>(key)
-                            .and_then(|callback| callback.call::<()>(()))
-                            .map_err(|error| error.to_string())
+                    } else if item.active {
+                        item.try_unload(&self.runner.lua).map_err(|error| error.to_string())
                     } else {
                         Ok(())
                     };
@@ -1218,22 +1236,22 @@ impl IngameRuntime {
                             tracing::info!(target:"shroudforge::runtime", mod_id=%id, enabled=wanted_enabled, "Runtime mod activation changed live");
                         }
                         Err(error) => {
+                            if !wanted_enabled {
+                                // Keep the requested disable pending until on_unload
+                                // has released the mod's temporary engine state.
+                                self.observed.remove(package);
+                            }
                             if wanted_enabled {
-                                if let Some(key) = &item.unload {
-                                    if let Err(rollback) = self
-                                        .runner
+                                if let Err(rollback) = item.try_unload(&self.runner.lua) {
+                                    tracing::error!(target:"shroudforge::runtime", mod_id=%id,
+                                        "Live activation rollback is pending and will be retried: {rollback}");
+                                } else {
+                                    self.runner
                                         .lua
-                                        .registry_value::<Function>(key)
-                                        .and_then(|callback| callback.call::<()>(()))
-                                    {
-                                        tracing::error!(target:"shroudforge::runtime", mod_id=%id, "Failed live activation rollback: {rollback}");
-                                    }
+                                        .app_data_ref::<AppState>()
+                                        .unwrap()
+                                        .set_runtime_mod_active(id, false);
                                 }
-                                self.runner
-                                    .lua
-                                    .app_data_ref::<AppState>()
-                                    .unwrap()
-                                    .set_runtime_mod_active(id, false);
                             }
                             self.errors.insert(
                                 id.clone(),
@@ -1299,28 +1317,22 @@ impl IngameRuntime {
 
 impl Drop for IngameRuntime {
     fn drop(&mut self) {
-        for item in self.lifecycle.iter().rev() {
+        for item in self.lifecycle.iter_mut().rev() {
             if !item.active {
                 continue;
             }
-            if let Some(key) = &item.unload {
-                let started = std::time::Instant::now();
-                let result = self
-                    .runner
-                    .lua
-                    .registry_value::<Function>(key)
-                    .and_then(|callback| callback.call::<()>(()));
-                self.diagnostics.measure(
-                    "mods",
-                    &item.id,
-                    "on_unload",
-                    started.elapsed(),
-                    result.is_err(),
-                );
-                if let Err(error) = result {
-                    tracing::error!(target: "shroudforge::runtime", mod_id = %item.id,
-                        "on_unload failed: {error}");
-                }
+            let started = std::time::Instant::now();
+            let result = item.try_unload(&self.runner.lua);
+            self.diagnostics.measure(
+                "mods",
+                &item.id,
+                "on_unload",
+                started.elapsed(),
+                result.is_err(),
+            );
+            if let Err(error) = result {
+                tracing::error!(target: "shroudforge::runtime", mod_id = %item.id,
+                    "on_unload failed: {error}");
             }
         }
         if self.publish_on_drop {
@@ -1379,8 +1391,47 @@ pub fn backup_companion_file(path: impl AsRef<std::path::Path>) -> bool {
 
 #[cfg(test)]
 mod live_setting_reload_tests {
-    use super::settings_only_manifest_change;
+    use super::{Lifecycle, settings_only_manifest_change};
     use serde_json::json;
+
+    #[test]
+    fn failed_start_or_update_retains_cleanup_scope_until_unload_succeeds() -> mlua::Result<()> {
+        for failed_callback in ["on_load", "on_update"] {
+            let lua = mlua::Lua::new();
+            let module: mlua::Table = lua.load(r#"
+                value, cleanup_attempts = 1, 0
+                return {
+                    on_load=function() value = 2; error("startup failed after write") end,
+                    on_update=function() value = 2; error("update failed after write") end,
+                    on_unload=function()
+                        cleanup_attempts = cleanup_attempts + 1
+                        if cleanup_attempts == 1 then error("Scene gate is busy") end
+                        value = 1
+                    end,
+                }
+            "#).eval()?;
+            let callback: mlua::Function = module.get(failed_callback)?;
+            assert!(callback.call::<()>(()).is_err());
+            let mut item = Lifecycle {
+                id: "independent-mod".into(),
+                load: None,
+                update: None,
+                unload: Some(lua.create_registry_value(module.get::<mlua::Function>("on_unload")?)?),
+                update_interval: std::time::Duration::from_millis(100),
+                next_update: std::time::Instant::now(),
+                active: true,
+                cleanup_pending: false,
+            };
+            assert!(item.try_unload(&lua).is_err());
+            assert!(item.active && item.cleanup_pending, "busy cleanup retains its writable scope");
+            assert_eq!(lua.globals().get::<i64>("value")?, 2);
+            item.try_unload(&lua)?;
+            assert!(!item.active && !item.cleanup_pending);
+            assert_eq!(lua.globals().get::<i64>("value")?, 1);
+            assert_eq!(lua.globals().get::<i64>("cleanup_attempts")?, 2);
+        }
+        Ok(())
+    }
 
     #[test]
     fn setting_value_change_does_not_look_like_package_metadata_change() {

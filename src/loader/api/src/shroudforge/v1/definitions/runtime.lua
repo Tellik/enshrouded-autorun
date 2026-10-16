@@ -9,6 +9,8 @@
 --- @field is_client boolean True when this mod runs in a player client process.
 --- @field is_server boolean True when this mod runs in a Dedicated Server process.
 --- @field network RuntimeNetworkApi Steam Networking Messages P2P channel on the current client or dedicated-server process.
+--- @field services RuntimeServicesApi Reflected views of original named engine DI services with independently validated plain-data storage contracts.
+--- @field overrides RuntimeOverridesApi Typed reversible changes with shared storage claims and automatic mod-scope cleanup.
 --- @field report_effect fun(state:'waiting'|'no-target'|'no-change'|'write-confirmed'|'write-failed', detail:string?):boolean,string? Report an observed ECS action state. A confirmed write means typed memory was written, not that the gameplay effect was independently verified.
 
 --- @class RuntimeLifecycle
@@ -17,6 +19,150 @@
 --- @field on_unload fun()? Called when the runtime mod stops.
 --- @field update_interval_ms integer? Minimum 8, maximum 1000, default 50. Missed intervals are not replayed.
 runtime = {}
+
+--- Reversible scalar changes through the common typed writers.
+--- Targets resolve original storage identities. Independent mods receive exclusive
+--- storage claims, so they cannot capture another mod's modified baseline.
+--- Registered trackers are restored by the loader on disable, errors and unload,
+--- including mods without on_unload. Busy cleanup retains its writer scope and retries.
+---@class RuntimeOverridesApi
+runtime.overrides = {}
+---@class RuntimeOverrides
+---@field fault string? Uncertain outcome that prevents later helper writes.
+---@field writes integer Confirmed writes in the current update.
+---@field waiting_count integer Operations waiting for a valid snapshot or safe restore.
+---@field details table<string, boolean> Distinct waiting details for the current update.
+local RuntimeOverrides = {}
+---Create an independent ownership tracker for this mod instance.
+---@return RuntimeOverrides
+function runtime.overrides.new() end
+---@class RuntimeWriteClaim
+local RuntimeWriteClaim = {}
+---@return boolean acquired
+---@return string? reason
+function RuntimeWriteClaim:acquire() end
+function RuntimeWriteClaim:release() end
+---@class RuntimeOverrideTarget
+---@field key string Stable target identity used by apply. Do not replace this key.
+---@field claim RuntimeWriteClaim Original storage claim bound to this mod and world.
+---@field shared boolean? Whether the stored input is shared by world participants.
+---@field read fun():table?,string? Returns the owned observed scalar plus dependent values.
+---@field write fun(snapshot:table,value:unknown):boolean,unknown,string?,unknown Uses the guarded public writer and its confirmed result.
+---@field normalize fun(snapshot:table,value:unknown):unknown?,string? Applies the original scalar encoding or attribute program.
+---Bind an original named attribute on one current entity. Full root values guard dependent inputs.
+---@param entity integer
+---@param selector string|integer Original attribute name or stored ID.
+---@return RuntimeOverrideTarget? target
+---@return string? reason
+function runtime.overrides.attribute(entity, selector) end
+---Bind one inline scalar. The original component/root calculator remains authoritative.
+---@param entity integer
+---@param component TypeSelector
+---@param path string
+---@param expected_paths string[]? Additional fields used to calculate the target.
+---@return RuntimeOverrideTarget? target
+---@return string? reason
+function runtime.overrides.component(entity, component, path, expected_paths) end
+---@param resource Resource Current loaded resource snapshot.
+---@param path string Reflected aligned 32-bit scalar path.
+---@return RuntimeOverrideTarget? target
+---@return string? reason
+function runtime.overrides.resource(resource, path) end
+---@param view RuntimeTemplateComponent
+---@param path string
+---@param expected_paths string[]?
+---@return RuntimeOverrideTarget? target
+---@return string? reason
+function runtime.overrides.template(view, path, expected_paths) end
+---@param view RuntimeService
+---@param path string
+---@param expected_paths string[]?
+---@return RuntimeOverrideTarget? target
+---@return string? reason
+function runtime.overrides.service(view, path, expected_paths) end
+---Advanced custom targets must obtain a claim from these same canonical factories.
+---@return RuntimeWriteClaim? claim
+---@return string? reason
+function runtime.overrides.get_component_claim(entity, component) end
+---@return RuntimeWriteClaim? claim
+---@return string? reason
+function runtime.overrides.get_resource_claim(resource) end
+---@return RuntimeWriteClaim? claim
+---@return string? reason
+function runtime.overrides.get_template_claim(view) end
+---@return RuntimeWriteClaim? claim
+---@return string? reason
+function runtime.overrides.get_service_claim(view) end
+---Reset per-update counters and selections. Validated world changes discard old
+---entity state. Unrestored shared inputs retain their claims and fault until restart.
+function RuntimeOverrides:begin_update() end
+---Record an unavailable or conflicting operation without treating it as a write.
+---@param reason string
+function RuntimeOverrides:waiting(reason) end
+---Apply one owned reversible setting. adapter.read returns {value=..., values=...}; adapter.write must compare its observed snapshot and return applied, actual, reason, canonical.
+---The helper preserves the first baseline, detects external edits, and reports uncertain writes without blindly retrying them.
+---@param key string Target key. A typed target's canonical key takes precedence.
+---@param setting string Setting name used by restore_disabled.
+---@param adapter RuntimeOverrideTarget Typed reader/writer with an API ownership claim.
+---@param desired fun(snapshot:table, baseline:unknown):unknown?,string? Calculate the target from the current snapshot and preserved baseline.
+---@param shared boolean? True when all world participants share this stored value.
+function RuntimeOverrides:apply(key, setting, adapter, desired, shared) end
+---Restore values whose settings are disabled, preserving conflicts and retryable busy states.
+---@param enabled fun(setting:string):boolean
+function RuntimeOverrides:restore_disabled(enabled) end
+---Restore every still-owned value through its original adapter.
+function RuntimeOverrides:restore_all() end
+---Restore dynamic targets not selected by apply since begin_update, such as a glider no longer used.
+function RuntimeOverrides:restore_unused() end
+---@return boolean
+function RuntimeOverrides:has_ownership() end
+---@return boolean
+function RuntimeOverrides:has_shared_ownership() end
+---Forget expired entity ownership. Refuses to discard unrestored shared ownership.
+---@return boolean reset
+---@return string? reason
+function RuntimeOverrides:reset() end
+---@param message string
+---@return string
+function RuntimeOverrides:summary(message) end
+
+---@class RuntimeServicesApi
+runtime.services = {}
+---@class RuntimeService
+---@field key string Exact original DI name, for example ecs::GameSettings.
+---@field type Type Corresponding qualified reflected type, for example keen::ecs::GameSettings.
+---@field scope 'host-world-shared' The authoritative world's consumers share this service.
+---@field session_id integer The original nonzero world session. Views cannot authorize another session.
+---@field write_supported boolean A successful view has an original mutable plain-data binding. A current Scene gate, capability and unfaulted session are still required for every write.
+local RuntimeService = {}
+---Resolve an exact original service name through the engine's named registry and mutable system binding.
+---All mods use the same reflection codec and expected-value write path. No feature name, RVA or hash belongs in a mod.
+---Only independently validated inline plain-data contracts are admitted by the exact-image provider profile.
+---Missing contracts, unreflected services, pointer-owning layouts and inactive or changing worlds return nil and a reason.
+---Requires an active mod with runtime.ecs.read. Services currently require a local authoritative world.
+---@param key string Original DI name without the keen:: prefix.
+---@return RuntimeService? service
+---@return string? reason
+function runtime.services.get(key) end
+---Read a fresh original service snapshot under the authoritative world's Scene and lifetime guards.
+---Uses reflected inline field paths, including nesting and one-based static array indices.
+---@param paths string[] Nonempty dense array of distinct field paths, at most 1024 paths.
+---@return table<string, unknown>? values
+---@return string? reason
+function RuntimeService:read_fields(paths) end
+---Compare and write one reflected inline field, preserving all other service bytes.
+---Requires runtime.ecs.write and the same current session. expected is mandatory.
+---The provider compares the entire fresh service snapshot and confirms the result and binding while its original Scene gate is held.
+---Optional expected_fields checks other service-relative input values before that full-snapshot CAS.
+---A conflict changes nothing. Uncertain writes stop further writes in the session.
+---Does not synthesize engine events, UI refreshes or persistence notifications.
+---@param path string Reflected path relative to the service type.
+---@param value unknown Value compatible with the reflected inline field.
+---@param expected unknown Expected current field value, including false for boolean fields.
+---@param expected_fields table<string, unknown>? Nonempty map of at most 1024 service-relative expected fields.
+---@return boolean ok
+---@return string? reason
+function RuntimeService:write_field(path, value, expected, expected_fields) end
 
 ---@class RuntimeNetworkApi
 runtime.network = {}
@@ -98,6 +244,15 @@ function runtime.values.decode(type, bytes) end
 ---@return string? bytes
 ---@return string? reason
 function runtime.values.encode(type, value) end
+
+---Normalize an inline scalar through the exact reflected field codec used by runtime writers.
+---This only uses owned bytes. Dynamic/reference fields and non-finite values are rejected.
+---@param type TypeSelector Reflected root layout.
+---@param path string Inline field path, including one-based static indices.
+---@param value unknown
+---@return unknown? canonical
+---@return string? reason
+function runtime.values.normalize_field(type, path, value) end
 --- Decode the exact reflected default. Never invent zero defaults when none are present.
 --- DS containers requiring engine allocation return nil with an explicit reason.
 ---@param type TypeSelector
@@ -110,7 +265,7 @@ runtime.functions = {}
 ---@field id string native:<decimal RVA>
 ---@field name string Original engine descriptor name when unique; otherwise unclear_<hex RVA>.
 ---@field name_provisional boolean False only for an original engine name.
----@field engine_descriptors table[] Original names and raw dependency-slot offsets from the executable.
+---@field engine_descriptors RuntimeEngineDescriptor[] Original names and parser-resolved dependencies from the executable.
 ---@field modifiers table[] Checked interventions attached to their owning native function.
 ---@field operations table[] Existing checked runtime wrappers attached to the same function.
 ---@field key string Executable SHA256/name; rejects use with another executable.
@@ -126,6 +281,38 @@ runtime.functions = {}
 ---@field reason string? Why the candidate cannot be called when it is unresolved.
 ---@field call fun(source_bytes:string,destination_bytes:string):string?,string?,integer? Runs the verified adapter on owned bytes. Unknown bindings return nil and a reason.
 
+---@class RuntimeEngineDescriptor
+---@field name string Original engine system name.
+---@field descriptor_rva integer Descriptor address relative to the loaded executable.
+---@field dependency_slots RuntimeFunctionDependencySlot[] Original descriptor offsets and dependency names.
+---@field dependency_resolution table Counts for reflected types and validated live registrations. Native signatures and access modes are reported separately.
+---@class RuntimeFunctionDependencySlot
+---@field offset integer Original byte offset. All six dependency spans are preserved.
+---@field entries string[] Original dependency names.
+---@field resolved_entries RuntimeFunctionDependency[] Parser identities joined to current runtime/template registration roles.
+---@field access_mode 'read'|'write'|'configuration-read'|nil Only present with scheduler evidence for the exact executable.
+---@field storage_role 'runtime'|'template'|nil Original registry namespace used by the system builder.
+---@field system_record_mask_offset integer? Original system record mask offset, when proven.
+---@field access_evidence string? Exact-image original scheduler investigation.
+---@field optionality nil Optional versus required dependencies remain unproven.
+---@class RuntimeFunctionDependency
+---@field name string Original dependency name.
+---@field qualified_name string Exact parser type name.
+---@field type Type? The canonical reflected Type object, including fields, inheritance, alignment and defaults.
+---@field reflection_resolved boolean Exact parser identity and inheritance are valid.
+---@field registration_resolved boolean Exactly one live registration matches the parser names, hashes and sizes.
+---@field registrations RuntimeFunctionRegistration[] All live associations. An ambiguous or invalid relation remains inspectable.
+---@field reason string? Why reflection or live registration is unresolved.
+---@class RuntimeFunctionRegistration
+---@field index integer Live component registration index.
+---@field qualified_name string Original registration name, which can differ from its runtime storage type.
+---@field roles ('registration'|'runtime'|'template')[] Roles of this dependency type in the registration.
+---@field runtime_type Type? Actual entity storage layout, if present and validated.
+---@field template_type Type? Configuration layout, if present and validated.
+---@field runtime_size integer? Entity storage size.
+---@field validated boolean Parser identities, hashes and sizes agree with the live registration.
+---@field reason string? Validation failure for this registration.
+
 --- Pages of all observed native code candidates: unwind groups, image code pointers,
 --- and live registration callbacks, including provisional/uncallable entries.
 --- Code pointers can target internal labels. Unreferenced leaf/inlined code may be absent.
@@ -140,6 +327,15 @@ function runtime.functions.list_native(offset, limit) end
 ---@return table? page
 ---@return string? reason
 function runtime.functions.list(offset, limit) end
+--- Search the same complete inventory by an original function-name substring and/or reflected component.
+--- Component search includes registration names, runtime/template roles, system dependencies and owned callbacks.
+--- The returned page includes global dependency_resolution counts and the filtered count.
+---@param options {name:string?,component:TypeSelector?}?
+---@param offset integer? Zero-based filtered offset, default 0.
+---@param limit integer? 1..4096, default 256.
+---@return table? page
+---@return string? reason
+function runtime.functions.find(options, offset, limit) end
 --- Finds a native binding by original name, checked operation ID, RVA, or explicit binding key.
 --- Unresolved candidates are returned with their reason so they can be inspected without calling them.
 ---@param selector integer|string Original engine name, checked operation ID, RVA, native:<decimal>, unclear_<hex>, or SHA256/name.
@@ -163,13 +359,17 @@ function runtime.functions.get_operations() end
 
 ---@class RuntimeFunctionModifier
 ---@field id string ShroudForge intervention ID, not an original engine name.
+---@field backend_kind 'guarded-profile-patch' Existing exact-build profile patch backend.
+---@field execution 'guarded-profile-patch' Execution does not become a generic native function call.
+---@field profile_required boolean True. A verified exact-build patch and unique owner association are required.
+---@field native_callable boolean False. Modifier binding never grants a raw engine call.
 ---@field owner RuntimeNativeBinding Exact owning function, original name when evidenced.
 ---@field effect string Instruction-level effect and scope.
 ---@field scope string Shared helpers affect all callers of the code site.
 ---@field callers table[] Static call paths to named engine systems; not a complete dynamic call graph.
 ---@field available fun():boolean Rechecks the existing capability and native byte guards.
 ---@field set_enabled fun(enabled:boolean):boolean,string? Same checked backend as legacy runtime.patch.
---- Resolve an intervention through its verified function and current KFC attribute definitions.
+--- Resolve an existing guarded profile patch through its verified owning function and current KFC attribute definitions.
 ---@param id string
 ---@return RuntimeFunctionModifier? modifier
 ---@return string? reason
@@ -215,6 +415,9 @@ runtime.ecs = {}
 ---@field callbacks table[] Code ownership evidence with origin/slot_offset/function_rva; resolve via runtime.functions.get(callback.function_rva).
 ---@field read_available boolean True when the validated layout can be read by the current adapter.
 ---@field write_available boolean True when the validated layout can be written by the current adapter.
+---@field read_fields_available boolean Entity reads are ready. Each selected inline field is validated separately, including in a partial component.
+---@field write_fields_available boolean This component is allowed by the current native write policy. Does not grant access to dynamic or reference descriptors.
+---@field write_fields_reason string? Why the current component write policy is unavailable.
 ---@field partial_value boolean Some nested values require an unsupported native container codec.
 ---@field value_reason string? Why a complete component value cannot be decoded.
 ---@field reason string? Why this registration or operation is unavailable.
@@ -263,8 +466,9 @@ function runtime.ecs.get_attribute(selector) end
 ---@return number? value Interpreted according to the reflected storage scalar type.
 ---@return string? reason
 function runtime.ecs.read_attribute(entity, selector) end
---- Write exactly one checked storage element on the existing ECS dispatcher.
---- Does not execute attribute calculation programs, publish events or recalculate dependencies.
+--- Updates one checked attribute input and recalculates its complete initialized root.
+--- Uses the same calculation and complete-snapshot CAS rules as write and write_fields for AttributeComponent subtypes.
+--- Header, root identity and storage descriptors are read-only. Requires an exact validated calculation profile.
 --- Conflicting integer signedness permits only the common nonnegative range; incompatible scalar representations reject writes.
 ---@param entity integer
 ---@param selector string|integer
@@ -290,15 +494,18 @@ function runtime.ecs.read_attributes(entity, selector) end
 function runtime.ecs.evaluate_attributes(selector, values) end
 
 ---Set one attribute and recalculate its complete root. Requires an exact verified executable profile.
----The game-thread write rejects a changed snapshot and checks the entity generation and component layout.
+---The guarded write rejects a changed snapshot and checks the entity generation and component layout.
 ---Applies locally; the engine owns replication. Does not forward client calls to the server.
 ---Signedness conflicts permit only common nonnegative input values and type-independent calculations.
+---Optional expected_values checks named values in this same root against the fresh snapshot before recalculation.
+---A changed expected value rejects the update. The complete native component CAS still applies afterward.
 ---@param entity integer
 ---@param selector string|integer
 ---@param value number
+---@param expected_values table<string, number>? Expected original attribute names from the selected root only.
 ---@return table? result Updated values and calculation trace, or nil on failure.
 ---@return string? reason
-function runtime.ecs.update_attribute(entity, selector, value) end
+function runtime.ecs.update_attribute(entity, selector, value, expected_values) end
 
 --- Return every type that is registered as a component in the live Keen ECS.
 --- The returned Type objects expose their exact names, sizes and fields through `game.types`.
@@ -307,14 +514,51 @@ function runtime.ecs.update_attribute(entity, selector, value) end
 --- @return string? reason
 function runtime.ecs.get_components() end
 
---- List every reflected component candidate, including unresolved types.
---- Availability also depends on the current phase, mod capabilities and provider.
---- A resolved entry does not imply that a matching entity exists or every field is writable.
---- @return table catalog {version, entries={type, qualified_name, size, resolved, read_available, write_available, reason, read_reason, write_reason}[]}
+---@class RuntimeEcsTypeRegistrationRole
+---@field role 'runtime'|'template' Role of this exact reflected type in the engine registration.
+---@field index integer Engine registration index, distinct from the reflection type index.
+---@field qualified_name string Original engine registration name.
+---@class RuntimeEcsCatalogEntry
+---@field type Type Canonical reflected type from the current parser registry.
+---@field qualified_name string Exact reflected type name.
+---@field qualified_hash integer Qualified reflection identity, not a registration index.
+---@field size integer Reflected storage size in bytes.
+---@field registered boolean This exact type occurs as runtime or template layout in the validated registry.
+---@field runtime_resolved boolean The provider resolves a matching entity storage layout, independent of entity access readiness.
+---@field resolved boolean A runtime mapping or matching template registration is validated. Does not imply a live entity exists.
+---@field registration_state 'registered'|'reflected-only' Reports observed engine registration separately from reflection.
+---@field storage 'entity'|'template-only'|'unregistered' Observed engine registry role. A provider fallback can resolve storage before the registry is available.
+---@field registrations RuntimeEcsTypeRegistrationRole[] Observed runtime/template relations for this reflected type.
+---@field read_available boolean A component snapshot can currently be read. Nested value decoding can still be partial.
+---@field write_available boolean Whole-value writes are ready, including the complete owned-value codec.
+---@field read_fields_available boolean Entity reads are ready. Selected field paths still require inline-layout validation.
+---@field write_fields_available boolean This component is allowed by the current native write policy, independently of complete-component codec support.
+---@field write_fields_reason string? Mod/API denial or component-specific write policy limitation.
+---@field partial_value boolean The complete value has an unsupported nested codec.
+---@field value_reason string? Why the complete owned-value codec is unavailable.
+---@field read_reason string? Mod lifecycle, capability or API denial when present.
+---@field write_reason string? Mod/API denial, unsupported complete-value codec or component-specific write policy limitation.
+---@field reason string? Missing registration or incompatible reflected layout.
+---@class RuntimeEcsCatalog
+---@field version string Current parser registry version.
+---@field registry_available boolean The provider exposes a validated engine registry.
+---@field registered_type_count integer Number of reflected keen::ecs::* types with an observed runtime or template relation.
+---@field runtime_type_count integer Number with an observed runtime role and matching size.
+---@field template_type_count integer Number with an observed template role and matching size. Roles can overlap.
+---@field resolved_count integer Number with a validated runtime mapping or matching template registration.
+---@field reflected_only_count integer Number without an observed engine registration relation.
+---@field entity_access_ready boolean Validated current entity reads are ready, independently of the current mod's permissions. The KFC4 original-owner backend does not require a dispatcher hook.
+---@field entity_writes_ready boolean Native guarded writes are ready, independently of the complete-component codec and mod permissions.
+---@field entries RuntimeEcsCatalogEntry[] All reflected keen::ecs::* types, including unregistered helpers and template-only layouts.
+--- List reflected ECS types and their actual runtime/template registration roles.
+--- Mapping identity is independent of the current entity phase and dispatcher readiness.
+--- Read/write availability still requires the active mod lifecycle, capabilities and entity provider.
+---@return RuntimeEcsCatalog catalog
 function runtime.ecs.get_catalog() end
 
 --- Query live entities by real `keen::ecs::*` component type names or Type objects.
---- Returns `nil, reason` until the current game build has a verified ECS provider.
+--- Returns `nil, reason` while unavailable or the first incremental scan is pending. Retry from a later update.
+--- Later calls revalidate the last complete snapshot while advancing discovery. Deleted entities, changed generations and missing components are filtered on every call. Newly matching entities appear after the refresh completes. Every read/write independently validates its handle again.
 --- @param ... string|Type Qualified type name or Type from the current registry.
 --- @return integer[]? entities Opaque, generation-checked ShroudForge entity handles.
 --- @return string? reason
@@ -345,9 +589,89 @@ function runtime.ecs.read(entity, component) end
 ---@return string? reason
 function runtime.ecs.read_bytes(entity, component) end
 
+--- Read selected inline fields from one owned component snapshot, even when a sibling uses an unsupported container.
+--- Paths use reflected names, dot-separated nesting and one-based static indices, such as `dataStorage[1]`.
+--- Supports scalar/enum/Guid values and inline structs/static arrays containing only supported leaves.
+--- Does not follow or decode DS, Blob or ObjectReference descriptors. Enclosing descriptor overlaps are rejected.
+--- Requires runtime.ecs.read, an active ingame mod and a current generation-checked entity handle.
+---@param entity integer
+---@param component TypeSelector Original registration or its actual runtime storage type.
+---@param field_paths string[] Nonempty dense array of distinct field paths, at most 1024 paths.
+---@return table<string, unknown>? values Owned field values keyed by the exact requested path.
+---@return string? reason
+function runtime.ecs.read_fields(entity, component, field_paths) end
+
+--- Resolve a current entity's original template UUID to its loaded TemplateResource.
+--- Requires runtime.ecs.read and a separately validated definition UUID layout.
+--- Returns the same ResourceService snapshot type as game.assets.get_loaded_resource.
+--- This identifies the template owner. It does not prove that every runtime field still aliases its configuration.
+---@param entity integer Current generation-checked entity handle.
+---@return Resource? template
+---@return string? reason
+function runtime.ecs.get_template(entity) end
+
+---@class RuntimeTemplateComponent
+---@field key string Stable resource GUID/type/part plus concrete component name, for deduplication within session_id.
+---@field type Type Concrete reflected configuration type. Distinct from the runtime storage type.
+---@field scope 'shared-template' Every entity using this template shares the configuration change.
+---@field session_id integer Original nonzero world session. Views never authorize another session.
+local RuntimeTemplateComponent = {}
+
+---Read fresh selected aligned 32-bit scalars from this exact shared template configuration.
+---Paths are relative to the concrete component, such as fallDamageStartDistance.
+---Requires an active mod with runtime.ecs.read. Missing or duplicate concrete variants return a reason.
+---@param paths string[] Nonempty dense array of distinct reflected field paths, at most 1024.
+---@return table<string, number|string>? values Values keyed by the exact selected paths.
+---@return string? reason
+function RuntimeTemplateComponent:read_fields(paths) end
+
+---Compare and write one aligned 32-bit reflected scalar, with independent complete native readback under the original gates.
+---Requires runtime.assets.write and the runtime.ecs.write authority gate in the original world session.
+---expected is required. A mismatch writes nothing. References, descriptors and non-finite floats are rejected.
+---The native gate compares the complete fresh resource snapshot before the single-scalar mutation.
+---A later unlocked observation or world change does not reverse a confirmed native success. Future operations recheck the session.
+---Optional expected_fields checks other component-relative inputs in the same fresh snapshot before that native CAS.
+---The resource binding permits guarded restoration after the original entity disappears in the same session.
+---Does not publish events or establish that this engine consumer observes later configuration changes.
+---An 'uncertain' result stops further writes through this view and must never be blindly retried.
+---@param path string Reflected component-relative field path.
+---@param value number|string New scalar, or original enum name.
+---@param expected number|string Expected current scalar, or original enum name.
+---@param expected_fields table<string, number|string>? Nonempty map of at most 1024 component-relative expected scalars.
+---@return boolean ok
+---@return string? reason
+function RuntimeTemplateComponent:write_field(path, value, expected, expected_fields) end
+
+---Bind a current entity's original TemplateResource and one uniquely registered concrete configuration variant.
+---Validates the live template role, entity UUID before/after lookup and the current world session.
+---This is shared-template storage. It neither selects an entity runtime column nor allocates/replaces a template.
+---@param entity integer Current generation-checked entity handle.
+---@param component TypeSelector Original engine registration or its concrete template configuration type.
+---@return RuntimeTemplateComponent? component_view
+---@return string? reason
+function runtime.ecs.get_template_component(entity, component) end
+
+--- Validate and write selected inline field values. Complete-component codec support is not required.
+--- Reads a fresh complete component snapshot inside this call, then compares it again in the validated engine execution phase before applying changes.
+--- A snapshot change rejects the write. Optional expected_fields also checks selected values from an earlier read.
+--- Only reflected value leaves are masked. Padding, siblings and external-storage descriptors are preserved.
+--- Dynamic/reference fields, overlapping selections and non-finite floats are rejected.
+--- Requires runtime.ecs.write, an active ingame mod, the native dispatcher and a current entity generation/layout.
+--- AttributeComponent subtypes run their original complete root calculation and also mask any changed derived scalars. Their headers are read-only.
+--- Does not publish engine events or establish replication and gameplay semantics.
+---@param entity integer
+---@param component TypeSelector Original registration or its actual runtime storage type.
+---@param changes table<string, unknown> Nonempty field-path/value map, at most 1024 entries. Static indices are one-based.
+---@param expected_fields table<string, unknown>? Nonempty field-path/value map checked before applying changes.
+---@return boolean ok True when values already agree or the guarded write succeeds.
+---@return string? reason
+---@return table<string, unknown>? confirmed Selected fields from the confirmed result, including original attribute calculations. No later unlocked read is used.
+function runtime.ecs.write_fields(entity, component, changes, expected_fields) end
+
 --- Write changed reflected fields from a value previously returned by `read`.
---- Padding and concurrently updated fields are retained; the write is verified
---- by readback and restored on failure.
+--- Padding and unselected source fields are preserved. A changed complete source snapshot rejects the write.
+--- AttributeComponent subtypes preserve their headers and run the original complete root calculation before CAS.
+--- Writes are verified by readback. An unconfirmed rollback blocks further writes in the current native binding epoch.
 --- Returns `false, reason` until the current game build has a verified ECS provider.
 --- @param entity integer
 --- @param component string|Type Qualified type name or Type from the current registry.
@@ -482,7 +806,7 @@ function runtime.world.entity.query_props_in_bounds(bounds) end
 function runtime.world.entity.get_transform(entity_handle) end
 
 --- Update a live prop's three scale values through the build-profiled native API.
---- The game-thread write is read back and verified; a failed write is restored when possible.
+--- The guarded write is read back and verified. A failed write is restored when possible.
 --- @param entity_handle integer Handle returned by query_props or spawn.
 --- @param scale number[] Three finite scale values for x, y, and z.
 --- @return boolean ok

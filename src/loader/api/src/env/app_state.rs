@@ -38,6 +38,8 @@ pub struct AppState {
     pub(crate) runtime_configured: Cell<bool>,
     runtime_active_mods: RefCell<HashSet<String>>,
     runtime_effects: RefCell<HashMap<String, serde_json::Value>>,
+    runtime_write_fault: RefCell<Option<(u64, String)>>,
+    runtime_ownership: Rc<RefCell<super::runtime_ownership::OwnershipStore>>,
     native_dlls: RefCell<Vec<NativeDll>>,
     pending_native_dlls: RefCell<Vec<PendingNativeDll>>,
     env: ModEnvironment,
@@ -56,6 +58,7 @@ pub struct AppState {
     // NOTE: the `Vec<u8>` must always be treated as immutable
     new_contents: RefCell<HashMap<ContentHash, Vec<u8>>>,
     resources: RefCell<HashMap<ResourceId, Rc<ResourceInfo>>>,
+    loaded_resource_indexes: RefCell<super::game::LoadedResourceIndexes>,
     types: RefCell<HashMap<TypeIndex, LuaValue>>,
 }
 
@@ -241,6 +244,8 @@ impl AppState {
             runtime_configured: Cell::new(false),
             runtime_active_mods: RefCell::new(HashSet::new()),
             runtime_effects: RefCell::new(HashMap::new()),
+            runtime_write_fault: RefCell::new(None),
+            runtime_ownership: Rc::new(RefCell::new(super::runtime_ownership::OwnershipStore::default())),
             native_dlls: RefCell::new(Vec::new()),
             pending_native_dlls: RefCell::new(Vec::new()),
             env,
@@ -258,6 +263,7 @@ impl AppState {
 
             new_contents: RefCell::new(HashMap::new()),
             resources: RefCell::new(HashMap::new()),
+            loaded_resource_indexes: RefCell::new(super::game::LoadedResourceIndexes::default()),
             types: RefCell::new(HashMap::new()),
         })
     }
@@ -336,6 +342,32 @@ impl AppState {
 
     pub(crate) fn runtime_mod_is_active(&self, id: &str) -> bool {
         self.runtime_active_mods.borrow().contains(id)
+    }
+
+    pub(crate) fn runtime_ownership(&self) -> Rc<RefCell<super::runtime_ownership::OwnershipStore>> {
+        self.runtime_ownership.clone()
+    }
+
+    pub(crate) fn runtime_write_fault(&self) -> Option<String> {
+        let session = super::loader::runtime_provider::world_session_id();
+        self.runtime_write_fault
+            .borrow()
+            .as_ref()
+            .filter(|(original, _)| session != 0 && *original == session)
+            .map(|(_, reason)| reason.clone())
+    }
+
+    /// Only genuinely unconfirmed native mutations belong here. A confirmed
+    /// CAS followed by a later foreign change is not an uncertain CAS outcome.
+    pub(crate) fn record_uncertain_runtime_write(&self, session: u64, reason: &str) {
+        if session == 0 {
+            return;
+        }
+        let mut fault = self.runtime_write_fault.borrow_mut();
+        if fault.as_ref().is_some_and(|(original, _)| *original == session) {
+            return;
+        }
+        *fault = Some((session, reason.to_owned()));
     }
 
     pub(crate) fn report_runtime_effect(&self, id: &str, state: &str, detail: &str) {
@@ -753,6 +785,10 @@ impl AppState {
 
                 let info = ResourceInfo {
                     resource_id: *guid,
+                    source: ResourceSource::KfcFile,
+                    creation_session: 0,
+                    runtime_snapshot: OnceCell::new(),
+                    runtime_write_fault: RefCell::new(None),
                     original_value: OnceCell::new(),
                     value: RefCell::default(),
                     is_dirty: Cell::new(false),
@@ -764,6 +800,60 @@ impl AppState {
                 Some(info)
             }
         }
+    }
+
+    pub fn get_loaded_resource_info(&self, resource_id: &ResourceId) -> Rc<ResourceInfo> {
+        self.get_loaded_resource_info_for_session(
+            resource_id,
+            super::loader::runtime_provider::world_session_id(),
+        )
+    }
+
+    pub(crate) fn loaded_resource_indexes(&self) -> RefMut<'_, super::game::LoadedResourceIndexes> {
+        self.loaded_resource_indexes.borrow_mut()
+    }
+
+    pub(crate) fn invalidate_loaded_resource_indexes(&self) {
+        self.loaded_resource_indexes.borrow_mut().invalidate();
+    }
+
+    /// All Lua resource writers share this path, including template views.
+    /// Confirmed and uncertain mutations both invalidate projected scalar keys.
+    pub(crate) fn compare_exchange_loaded_resource_scalar(
+        &self,
+        resource: &ResourceId,
+        resource_size: usize,
+        offset: usize,
+        expected: &[u8],
+        desired: &[u8],
+        session: u64,
+    ) -> Result<(), String> {
+        let result = super::loader::runtime_provider::resource_compare_exchange_scalar_for_session(
+            resource, resource_size, offset, expected, desired, session,
+        );
+        if result.is_ok() || result.as_ref().is_err_and(|reason| reason.to_lowercase().contains("uncertain")) {
+            self.invalidate_loaded_resource_indexes();
+        }
+        result
+    }
+
+    pub(crate) fn get_loaded_resource_info_for_session(
+        &self,
+        resource_id: &ResourceId,
+        creation_session: u64,
+    ) -> Rc<ResourceInfo> {
+        Rc::new(ResourceInfo::loaded(*resource_id, creation_session))
+    }
+
+    /// Preserve the actual independent readback as the returned snapshot. It
+    /// must not lazily load some later state on its first Lua data access.
+    pub(crate) fn get_loaded_resource_info_from_snapshot(
+        &self,
+        resource_id: &ResourceId,
+        session: u64,
+        snapshot: Vec<u8>,
+    ) -> Rc<ResourceInfo> {
+        Rc::new(ResourceInfo::loaded_snapshot(*resource_id, session, snapshot))
     }
 
     pub fn add_resource(
@@ -796,6 +886,10 @@ impl AppState {
 
         let info = Rc::new(ResourceInfo {
             resource_id: *guid,
+            source: ResourceSource::AssetTransaction,
+            creation_session: 0,
+            runtime_snapshot: OnceCell::new(),
+            runtime_write_fault: RefCell::new(None),
             original_value: OnceCell::new(),
             value: RefCell::new(Some(value)),
             is_dirty: Cell::new(true),
@@ -988,13 +1082,91 @@ fn unload_native_library(_handle: isize) {}
 
 pub struct ResourceInfo {
     pub resource_id: ResourceId,
+    source: ResourceSource,
+    creation_session: u64,
+    runtime_snapshot: OnceCell<Rc<[u8]>>,
+    runtime_write_fault: RefCell<Option<String>>,
 
     original_value: OnceCell<Option<MappedValue>>,
     value: RefCell<Option<LuaValue>>,
     is_dirty: Cell<bool>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ResourceSource {
+    KfcFile,
+    AssetTransaction,
+    LoadedRuntime,
+}
+
 impl ResourceInfo {
+    fn loaded(resource_id: ResourceId, creation_session: u64) -> Self {
+        Self {
+            resource_id,
+            source: ResourceSource::LoadedRuntime,
+            creation_session,
+            runtime_snapshot: OnceCell::new(),
+            runtime_write_fault: RefCell::new(None),
+            original_value: OnceCell::new(),
+            value: RefCell::default(),
+            is_dirty: Cell::new(false),
+        }
+    }
+
+    fn loaded_snapshot(resource_id: ResourceId, session: u64, snapshot: Vec<u8>) -> Self {
+        let info = Self::loaded(resource_id, session);
+        let _ = info.runtime_snapshot.set(Rc::from(snapshot));
+        info
+    }
+
+    pub(crate) fn creation_session(&self) -> Option<u64> {
+        (self.source == ResourceSource::LoadedRuntime).then_some(self.creation_session)
+    }
+
+    pub(crate) fn require_runtime_write_session(&self, current: u64) -> Result<u64, String> {
+        if self.source != ResourceSource::LoadedRuntime {
+            return Err("write_loaded_field requires a ResourceService snapshot".into());
+        }
+        if let Some(reason) = self.runtime_write_fault.borrow().as_ref() {
+            return Err(reason.clone());
+        }
+        if self.creation_session == 0 || current == 0 || self.creation_session != current {
+            return Err("loaded resource belongs to another or an inactive world session. Get a fresh world-bound resource snapshot".into());
+        }
+        Ok(self.creation_session)
+    }
+
+    pub(crate) fn stop_runtime_writes(&self, reason: &str) {
+        *self.runtime_write_fault.borrow_mut() = Some(reason.to_owned());
+    }
+
+    pub(crate) fn loaded_snapshot_bytes(&self) -> Result<&Rc<[u8]>, String> {
+        if self.source != ResourceSource::LoadedRuntime {
+            return Err("resource is not a runtime snapshot".into());
+        }
+        self.runtime_snapshot.get_or_try_init(|| {
+            let session = super::loader::runtime_provider::world_session_id();
+            if self.creation_session != 0 && self.creation_session != session {
+                return Err("world session changed before this resource snapshot was captured".into());
+            }
+            let bytes = super::loader::runtime_provider::resource_read(&self.resource_id)?;
+            if self.creation_session != 0
+                && super::loader::runtime_provider::world_session_id() != self.creation_session
+            {
+                return Err("world session changed during resource snapshot capture".into());
+            }
+            Ok(Rc::from(bytes))
+        })
+    }
+
+    pub fn source_name(&self) -> &'static str {
+        match self.source {
+            ResourceSource::KfcFile => "kfc-file",
+            ResourceSource::AssetTransaction => "asset-transaction",
+            ResourceSource::LoadedRuntime => "loaded-runtime",
+        }
+    }
+
     pub fn get_lua_value(&self, lua: &mlua::Lua) -> mlua::Result<LuaValue> {
         if let Some(value) = self.value.borrow().as_ref() {
             return Ok(value.clone());
@@ -1011,6 +1183,9 @@ impl ResourceInfo {
     }
 
     pub fn set_lua_value(&self, lua_value: LuaValue, lua: &mlua::Lua) -> mlua::Result<()> {
+        if self.source == ResourceSource::LoadedRuntime {
+            return Err(LuaError::generic("loaded runtime resources are read-only"));
+        }
         let app_state = lua.app_data_ref::<AppState>().unwrap();
         if !app_state.has_feature(AppFeatures::PATCH) {
             return Err(LuaError::generic("game.assets.write is unavailable"));
@@ -1034,6 +1209,9 @@ impl ResourceInfo {
     }
 
     pub fn apply(&self, lua: &mlua::Lua) -> mlua::Result<Option<Value>> {
+        if self.source == ResourceSource::LoadedRuntime {
+            return Ok(None);
+        }
         let app_state = lua.app_data_ref::<AppState>().unwrap();
         let type_registry = app_state.type_registry();
 
@@ -1063,8 +1241,15 @@ impl ResourceInfo {
         let app_state = lua.app_data_ref::<AppState>().unwrap();
 
         self.original_value
-            .get_or_try_init(
-                || match app_state.reader().read_resource(&self.resource_id)? {
+            .get_or_try_init(|| {
+                let bytes = match self.source {
+                    ResourceSource::KfcFile => app_state.reader().read_resource(&self.resource_id)?
+                        .map(|bytes| Rc::<[u8]>::from(bytes)),
+                    ResourceSource::AssetTransaction => None,
+                    ResourceSource::LoadedRuntime => Some(self.loaded_snapshot_bytes()
+                        .map_err(LuaError::generic)?.clone()),
+                };
+                match bytes {
                     Some(value) => {
                         let type_registry = app_state.type_registry();
                         let r#type =
@@ -1078,15 +1263,55 @@ impl ResourceInfo {
                         let value = MappedValue::from_bytes(
                             type_registry,
                             r#type,
-                            &Rc::from(value.into_boxed_slice()),
+                            &value,
                         )
                         .map_err(LuaError::external)?;
 
                         Ok(Some(value))
                     }
                     None => Ok(None),
-                },
-            )
+                }
+            })
             .map(|v| v.as_ref())
+    }
+}
+
+#[cfg(test)]
+mod resource_snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn loaded_resource_write_scope_rejects_menu_and_foreign_world_snapshots() {
+        let menu = ResourceInfo::loaded(ResourceId::NONE, 0);
+        assert_eq!(menu.creation_session(), Some(0));
+        assert!(menu.require_runtime_write_session(0).is_err());
+        assert!(menu.require_runtime_write_session(42).is_err());
+        let world = ResourceInfo::loaded(ResourceId::NONE, 42);
+        assert_eq!(world.require_runtime_write_session(42).unwrap(), 42);
+        assert!(world.require_runtime_write_session(0).is_err());
+        assert!(world.require_runtime_write_session(43).is_err());
+        let mut file = ResourceInfo::loaded(ResourceId::NONE, 42);
+        file.source = ResourceSource::KfcFile;
+        assert_eq!(file.creation_session(), None);
+        assert!(file.require_runtime_write_session(42).is_err());
+        let lua = mlua::Lua::new();
+        lua.globals().set("menu", crate::env::game::Resource::new(Rc::new(menu))).unwrap();
+        lua.globals().set("world", crate::env::game::Resource::new(Rc::new(world))).unwrap();
+        lua.globals().set("file", crate::env::game::Resource::new(Rc::new(file))).unwrap();
+        lua.load("assert(menu.session_id==0 and world.session_id==42 and file.session_id==nil)").exec().unwrap();
+        assert!(lua.load("world.session_id=43").exec().is_err());
+    }
+
+    #[test]
+    fn verified_resource_keeps_its_exact_readback_and_stopped_source_cannot_repeat() {
+        let verified = ResourceInfo::loaded_snapshot(ResourceId::NONE, 42, vec![1, 2, 3, 4]);
+        // This succeeds on non-Windows as well: a verified result must never
+        // issue a later native read to manufacture its purported readback.
+        assert_eq!(verified.loaded_snapshot_bytes().unwrap().as_ref(), &[1, 2, 3, 4]);
+        assert!(verified.runtime_snapshot.set(Rc::from(vec![9, 9, 9, 9])).is_err());
+        assert_eq!(verified.loaded_snapshot_bytes().unwrap().as_ref(), &[1, 2, 3, 4]);
+        verified.stop_runtime_writes("native-write-outcome-uncertain");
+        assert_eq!(verified.require_runtime_write_session(42).unwrap_err(), "native-write-outcome-uncertain");
+        assert_eq!(ResourceInfo::loaded(ResourceId::NONE, 42).require_runtime_write_session(42).unwrap(), 42);
     }
 }

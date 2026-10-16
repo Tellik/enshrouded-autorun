@@ -1,4 +1,4 @@
-//! Bounded, owned-data model of the attribute programs present in both builds.
+//! Bounded, owned-data model of the verified KFC3 and KFC4 attribute programs.
 //! This does not call arbitrary engine code or synthesize a native ABI.
 //! Ordering, f32 rounding, wrapping integer arithmetic and ScaleToNewMax's
 //! reference write are checked against the original x64 interpreters in Unicorn.
@@ -134,11 +134,14 @@ pub(crate) fn evaluate(
                         let a = float(bound1)?;
                         let b = float(bound2)?;
                         let v = float(value)?;
-                        // Preserve v's sign bit when equal (including -0).
-                        if v < a.min(b) {
-                            a.min(b).to_bits()
-                        } else if v > a.max(b) {
-                            a.max(b).to_bits()
+                        // Native COMISS sorts strictly, then MINSS selects v
+                        // on equality. Equal +0/-0 bounds retain their original
+                        // positions, unlike Rust f32::min/max's zero handling.
+                        let (low, high) = if a > b { (b, a) } else { (a, b) };
+                        if v < low {
+                            low.to_bits()
+                        } else if v > high {
+                            high.to_bits()
                         } else {
                             value
                         }
@@ -235,6 +238,23 @@ mod tests {
             .unwrap(),
             Some(4f32.to_bits())
         );
+    }
+    #[test]
+    fn float_clamp_preserves_original_zero_bound_selection() {
+        // Current original float VM at 0x231c3c..0x231c87. The upper bound
+        // remains -0 when equal bounds are supplied as (+0, -0).
+        let words = [0x20000, 0x20001, 0x20002, 0xcffff];
+        for (mut input, expected) in [
+            ([1f32.to_bits(), 0, (-0f32).to_bits()], (-0f32).to_bits()),
+            ([(-1f32).to_bits(), 0, (-0f32).to_bits()], 0),
+            ([(-0f32).to_bits(), 0, 0], (-0f32).to_bits()),
+            ([0, (-0f32).to_bits(), (-0f32).to_bits()], 0),
+        ] {
+            assert_eq!(
+                evaluate(Scalar::Float, &mut input, &words).unwrap(),
+                Some(expected)
+            );
+        }
     }
     #[test]
     #[ignore = "set SHROUDFORGE_TEST_VM to independently emulated original-engine vectors"]
