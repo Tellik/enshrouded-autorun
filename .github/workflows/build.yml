@@ -321,7 +321,7 @@ jobs:
           files: |
             build/shroudforge-*.zip
             build/shroudforge-*.zip.sha256
-          body: ${{ inputs.required_release && 'ShroudForge-Update: required' || '' }}
+          body: "${{ inputs.required_release && 'ShroudForge-Update: required' || '' }}"
           generate_release_notes: true
           prerelease: false
           make_latest: true
