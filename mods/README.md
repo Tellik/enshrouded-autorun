@@ -39,13 +39,13 @@ The SF gameplay packages use the same two-file format. EML data tools only need
 | Packages | Capabilities | Reason |
 | --- | --- | --- |
 | `fishing-exporter`, `item-translator`, `kfc-parser-mimic` | `export` | Write generated reports through `io.export`. Asset reads do not need `patch`. |
-| `sf-infinite-item-split`, `sf-infinite-item-use`, `sf-no-fall-damage`, `sf-no-resource-cost`, `sf-auto-stamina-refill`, `sf-unlimited-flight` | `runtime` | Use approved in-game runtime patch operations. |
-| `sf-unlock-blueprints`, `sf-production-time` | `patch` | Write reflected game assets during startup preparation. |
-| `world-editor` | `runtime`, `export` | Standalone Lua world editor using the public runtime API and export storage. |
+| `sf-survival`, `sf-unlimited-flight` | `runtime` | Independent gameplay packages using the shared reflected ECS/resource API and common reversible-override bookkeeping. Both declare `dependencies: []`. |
 
-The gameplay patch mods, `sf-unlock-blueprints` and `sf-production-time` declare
-`targets: ["client", "server"]`. `world-editor` declares `targets: ["client"]` because it depends on the local
-cursor and keyboard UI.
+Both current gameplay packages, `sf-survival` and `sf-unlimited-flight`, declare
+`targets: ["client", "server"]`. Neither depends on the other.
+
+Historical packages are kept under `reference-mods-0.9/`. Temporary runtime probes
+are kept under `diagnostic-mods/`. Neither folder is scanned by the release build.
 
 Process targets describe where a package can execute. They do **not** promise
 multiplayer replication. See [the per-mod multiplayer audit](../docs/sf/mod-multiplayer.md)

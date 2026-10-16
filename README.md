@@ -26,6 +26,40 @@ New to mods? Start with the illustrated guide. It explains everything in simple 
 
 The guide includes separate instructions for your PC and game server, pictures of the Modloader, a first-mod lesson, and an interactive preview for mod settings.
 
+> [!IMPORTANT]
+> 🚧 **ModLoader 1.0 – Work in Progress!**
+>
+> I'm currently working on restoring all ModLoader features for version 1.0!
+>
+> ⚠️ **Automatic updates are currently broken!** Please download and install new versions manually:
+>
+> 📥 **[Download Latest Release](https://github.com/bonsaibauer/shroudforge/releases/latest)**
+>
+> ✅ **Light Version is now available and working!**
+>
+> 🎮 **SF Survival Mod – 8 Features Available:**
+> - ✅ No Fall Damage
+> - ✅ Fast Health Regen
+> - ✅ Fast Mana Regen
+> - ✅ Infinite Stamina
+> - ✅ Infinite Underwater Breath
+> - ✅ Infinite Weapon Durability
+> - ✅ Infinite Frost Timer
+> - ✅ Infinite Mana
+>
+> 🪂 **Unlimited Flight Mod – 5 Settings Available:**
+> - ✅ Unlimited Flying
+> - ✅ Turn Speed
+> - ✅ Move Speed
+> - ✅ Lift Speed
+> - ✅ Descend Speed
+>
+> 🟢 **All features tested and working in Singleplayer!**
+>
+> 🌐 Multiplayer support and additional features will be added gradually!
+>
+> ❤️ **Thanks for your patience! More updates are coming soon!**
+
 <p align="center">
   <a href="https://github.com/bonsaibauer/shroudforge/releases/latest"><img src="assets\shroudforge-banner-4-release-1.0.svg" width="100%" alt="ShroudForge 10 Support"></a>
 </p>
@@ -126,27 +160,12 @@ The release build validates each mod's manifest, ID, Lua entry point, and Lua sy
 
 | Icon | Mod | Description | Version | Client install | Dedicated server install | Singleplayer | Multiplayer |
 | --- | --- | --- | ---: |:---:|:---:|:---:|:---:|
-| <img src="mods/sf-auto-stamina-refill/icon.svg" width="28" alt="SF Auto Stamina Refill"> | **SF Auto Stamina Refill** | Repeatedly refills stamina to maximum. | 1.1.1 | ✅ | ✅ | ✅ | ✅* |
-| <img src="mods/sf-infinite-item-split/icon.svg" width="28" alt="SF Infinite Item Split"> | **SF Infinite Item Split** | Keeps the original stack when splitting items. It also affects other inventory operations. | 1.4.0 | ✅ | ✅ | ✅ | ✅* |
-| <img src="mods/sf-infinite-item-use/icon.svg" width="28" alt="SF Infinite Item Use"> | **SF Infinite Item Use** | Prevents items from being consumed when used. | 1.1.1 | ✅ | ✅ | ✅ | ✅* |
-| <img src="mods/sf-no-fall-damage/icon.svg" width="28" alt="SF No Fall Damage"> | **SF No Fall Damage** | Prevents health loss from falling. | 1.1.1 | ✅ | ✅ | ✅ | ✅* |
-| <img src="mods/sf-no-resource-cost/icon.svg" width="28" alt="SF No Resource Cost"> | **SF No Resource Cost** | Removes resource consumption in supported building, crafting, and item-use actions. | 1.1.1 | ✅ | ✅ | ✅ | ✅* |
-| <img src="mods/sf-production-time/icon.svg" width="28" alt="SF Production Time"> | **SF Production Time** | Sets timed production recipes to a chosen base duration. World speed settings still apply. | 1.0.0 | ✅ | ✅ | ✅ | ✅* |
-| <img src="mods/sf-unlimited-flight/icon.svg" width="28" alt="SF Unlimited Flight"> | **SF Unlimited Flight** | Lets you keep flying without a time limit. | 1.1.1 | ✅ | ✅ | ✅ | ✅* |
-| <img src="mods/sf-unlock-blueprints/icon.svg" width="28" alt="SF Unlock Blueprints"> | **SF Unlock Blueprints** | Changes supported recipe unlock requirements to the first Flame Altar hint. | 1.0.1 | ✅ | ✅ | ✅ | ✅* |
-| <img src="mods/world-editor/icon.svg" width="28" alt="World Editor"> | **World Editor** | Captures, saves, rotates, and places voxel-and-prop blueprints. | 0.3.0 | ✅ | ✅ | ✅ | ✅* |
+| <img src="mods/sf-survival/icon.svg" width="28" alt="SF Survival"> | **SF Survival** | Eight survival settings for health, mana, stamina, breath, body heat, durability, and fall damage. | 1.0.0 | ✅ | ✅ | ✅ | ✅* |
+| <img src="mods/sf-unlimited-flight/icon.svg" width="28" alt="SF Unlimited Flight"> | **SF Unlimited Flight** | Controls original glider stamina and movement values, including upward pitch. | 1.2.0 | ✅ | ✅ | ✅ | ✅* |
 
 \* Multiplayer support depends on installing and enabling the mod in the process that handles the relevant game action. For asset changes such as recipe data or production time, prepare both client and server before starting them. A client-side change alone does not prove that the server accepted or persisted the result.
 
-### World Editor
-
-![World Editor blueprint library](assets/worldeditor_bar.png)
-
-The World Editor can be installed on the client and Dedicated Server. The client provides the editor window, cursor selection, capture, and blueprint library. In singleplayer it uses the local world runtime. In a joined Dedicated Server world it sends the existing blueprint format over Steam P2P for the server to apply.
-
-Blueprint placement has been observed on the Dedicated Server. **Undo for placed props is still unreliable**: the server can fail to remove a prop through the native destroy operation. Treat prop undo as experimental until it has been fixed and verified in a live session. Voxel undo and prop undo should be reported separately.
-
-See the [World Editor guide](mods/world-editor/README.md) for controls and setup, and the [multiplayer execution notes](docs/sf/mod-multiplayer.md) for current validation details.
+Older packages are preserved under [`reference-mods-0.9/`](reference-mods-0.9/). Runtime test probes are stored separately under [`diagnostic-mods/`](diagnostic-mods/). Neither folder is included in the release package.
 
 ## Development roadmap
 
