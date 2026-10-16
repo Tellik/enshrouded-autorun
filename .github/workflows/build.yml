@@ -6,6 +6,11 @@ on:
       - "*.*.*"
   pull_request:
   workflow_dispatch:
+    inputs:
+      required_release:
+        description: Required release
+        type: boolean
+        required: false
 
 permissions:
   contents: read
@@ -316,6 +321,7 @@ jobs:
           files: |
             build/shroudforge-*.zip
             build/shroudforge-*.zip.sha256
+          body: ${{ inputs.required_release && 'ShroudForge-Update: required' || '' }}
           generate_release_notes: true
           prerelease: false
           make_latest: true
