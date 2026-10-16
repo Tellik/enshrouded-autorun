@@ -2,18 +2,18 @@
 
 fn main() {
     let arguments: Vec<String> = std::env::args().collect();
-    if arguments.iter().any(|arg| arg == "--startup-check") {
+    let startup_check = arguments.iter().any(|arg| arg == "--startup-check");
+    let result = if startup_check {
         let root = arguments
             .windows(2)
             .find(|pair| pair[0] == "--root")
             .map(|pair| std::path::PathBuf::from(&pair[1]));
-        let Some(root) = root else {
-            std::process::exit(0);
-        };
-        let required = shroudforge_updater::startup_check(&root);
-        std::process::exit(if required { 2 } else { 0 });
-    }
-    let result = if arguments.iter().any(|arg| arg == "--queue-install") {
+        match root.ok_or("missing --root".to_owned())
+            .and_then(|root| shroudforge_updater::startup_check(&root)) {
+            Ok(required) => std::process::exit(if required { 2 } else { 0 }),
+            Err(error) => Err(error),
+        }
+    } else if arguments.iter().any(|arg| arg == "--queue-install") {
         let value = |name: &str| {
             arguments
                 .windows(2)
@@ -33,7 +33,10 @@ fn main() {
         shroudforge_updater::run_module()
     };
     if let Err(error) = result {
+        // The bootstrap is waiting for this process. Return the failure before
+        // it shows the startup error, rather than blocking it behind a dialog.
         #[cfg(windows)]
+        if !startup_check
         {
             use std::os::windows::ffi::OsStrExt;
             use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};

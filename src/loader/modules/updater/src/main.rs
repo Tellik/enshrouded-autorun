@@ -19,48 +19,32 @@ pub fn parse_release_notes(body: &str) -> (bool, String) {
     (mandatory, notes)
 }
 
-pub fn missing_required_files(root: &std::path::Path) -> Vec<String> {
-    use std::path::{Component, Path};
+pub use mod_loader_bridge::missing_required_files;
 
-    let manifest = std::fs::read(shroudforge_package::paths::version_file(root))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
-    let Some(manifest_paths) = manifest
-        .as_ref()
-        .and_then(|value| value["managedPaths"].as_array())
-    else {
-        return vec!["shroudforge/version.json".into()];
-    };
-    let Some(manifest_paths) = manifest_paths
-        .iter()
-        .map(serde_json::Value::as_str)
-        .collect::<Option<Vec<_>>>()
-    else {
-        return vec!["shroudforge/version.json".into()];
-    };
-    if manifest_paths.is_empty() {
-        return vec!["shroudforge/version.json".into()];
+/// Reuses verified release metadata for repairs without another network check.
+/// Returns whether the installed files currently require repair.
+pub fn refresh_cached_repair_status(root: &std::path::Path) -> Result<bool, String> {
+    if missing_required_files(root).is_empty() {
+        return Ok(false);
     }
-    let mut paths = manifest_paths
-        .into_iter()
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
-    if !paths.iter().any(|path| path == "shroudforge/version.json") {
-        paths.push("shroudforge/version.json".into());
+    let config = shroudforge_package::config::read_loader(root)?;
+    let latest = &config["modules"]["updates"]["system"]["latestRelease"];
+    if latest.is_object()
+        && (latest["repairRequired"].as_bool() != Some(true)
+            || latest["mandatory"].as_bool() != Some(true)
+            || latest["updateAvailable"].as_bool() != Some(true))
+    {
+        shroudforge_package::config::update_loader(root, |config| {
+            let latest = &mut config["modules"]["updates"]["system"]["latestRelease"];
+            if latest.is_object() {
+                latest["repairRequired"] = serde_json::Value::Bool(true);
+                latest["mandatory"] = serde_json::Value::Bool(true);
+                latest["updateAvailable"] = serde_json::Value::Bool(true);
+            }
+            Ok(())
+        })?;
     }
-    if paths.iter().any(|path| {
-        let path = Path::new(path);
-        path.as_os_str().is_empty()
-            || !path
-                .components()
-                .all(|component| matches!(component, Component::Normal(_)))
-    }) {
-        return vec!["shroudforge/version.json".into()];
-    }
-    paths
-        .into_iter()
-        .filter(|path| !root.join(path).is_file())
-        .collect()
+    Ok(true)
 }
 
 #[cfg(windows)]
@@ -193,7 +177,15 @@ mod windows {
         );
 
         let paths = managed_paths(&source)?;
-        let obsolete_mod_paths = obsolete_managed_mod_paths(&arguments.root, &paths)?;
+        let obsolete_mod_paths = match obsolete_managed_mod_paths(&arguments.root, &paths) {
+            Ok(paths) => paths,
+            Err(error) => {
+                append_log(&arguments.root, 'W', &format!(
+                    "Old managed-file metadata is invalid. Preserving unknown mod files during repair: {error}"
+                ));
+                Vec::new()
+            }
+        };
         let mut transaction_paths = paths.clone();
         transaction_paths.extend(obsolete_mod_paths.iter().cloned());
         transaction_paths.sort();
@@ -1055,6 +1047,7 @@ mod scheduled {
 
     pub fn open_update_window(root: &Path) -> Result<(), String> {
         use std::os::windows::process::CommandExt;
+        super::refresh_cached_repair_status(root)?;
         let source = shroudforge_package::paths::loader_executable(root);
         if !source.is_file() {
             return Err(format!(
@@ -1730,8 +1723,12 @@ fn headless_check_system_updates(
 ) -> Result<String, String> {
     use semver::Version;
 
+    let repair_required = super::refresh_cached_repair_status(root)?;
+    let config = shroudforge_package::config::read_loader(root)?;
+    let repair_without_release = repair_required
+        && !config["modules"]["updates"]["system"]["latestRelease"].is_object();
     let _check_lock = match shroudforge_package::update_check::begin_system_update_check(
-        root, manual,
+        root, manual || repair_without_release,
     )? {
         shroudforge_package::update_check::SystemUpdateCheckStart::Started(lock) => lock,
         shroudforge_package::update_check::SystemUpdateCheckStart::CoolingDown {
@@ -1746,7 +1743,6 @@ fn headless_check_system_updates(
         }
     };
 
-    let config = shroudforge_package::config::read_loader(root)?;
     let include_prereleases = config
         .pointer("/modules/updates/system/includePrereleases")
         .and_then(serde_json::Value::as_bool)
@@ -1927,7 +1923,21 @@ fn headless_check_system_updates(
 }
 
 #[cfg(windows)]
-pub fn startup_check(root: &std::path::Path) -> bool {
+pub fn startup_check(root: &std::path::Path) -> Result<bool, String> {
+    let missing = missing_required_files(root);
+    if !missing.is_empty() {
+        let detail = format!(
+            "Installation requires repair. Missing or invalid files: {}",
+            missing.join(", ")
+        );
+        let _ = shroudforge_package::logging::append(root, 'E', "updater", &detail);
+        scheduled::open_update_window(root).map_err(|error| {
+            let error = format!("{detail}. Could not open the repair updater: {error}");
+            let _ = shroudforge_package::logging::append(root, 'E', "updater", &error);
+            error
+        })?;
+        return Ok(true);
+    }
     if let Err(error) = headless_check_system_updates(root, false) {
         let _ = shroudforge_package::logging::append(
             root,
@@ -1935,7 +1945,7 @@ pub fn startup_check(root: &std::path::Path) -> bool {
             "updater",
             &format!("Startup update check did not complete. Game startup continues: {error}"),
         );
-        return false;
+        return Ok(false);
     }
 
     let release = match shroudforge_package::config::read_loader(root)
@@ -1943,10 +1953,10 @@ pub fn startup_check(root: &std::path::Path) -> bool {
         .and_then(|config| config.pointer("/modules/updates/system/latestRelease").cloned())
     {
         Some(release) if release["updateAvailable"].as_bool() == Some(true) => release,
-        _ => return false,
+        _ => return Ok(false),
     };
     let Some(version) = release["version"].as_str() else {
-        return false;
+        return Ok(false);
     };
     let mandatory = release["mandatory"].as_bool() == Some(true);
     let previous_prompt = shroudforge_package::config::read_loader(root)
@@ -1958,20 +1968,23 @@ pub fn startup_check(root: &std::path::Path) -> bool {
                 .map(str::to_owned)
         });
     if !mandatory && previous_prompt.as_deref() == Some(version) {
-        return false;
+        return Ok(false);
     }
 
     match scheduled::open_update_window(root) {
         Ok(()) => {
             if !mandatory {
                 let version = version.to_owned();
-                let _ = shroudforge_package::config::update_loader(root, |config| {
+                if let Err(error) = shroudforge_package::config::update_loader(root, |config| {
                     config["modules"]["updates"]["system"]["startupPromptedVersion"] =
                         serde_json::Value::String(version);
                     Ok(())
-                });
+                }) {
+                    let _ = shroudforge_package::logging::append(root, 'W', "updater",
+                        &format!("Could not save the startup update prompt: {error}"));
+                }
             }
-            mandatory
+            Ok(mandatory)
         }
         Err(error) => {
             let _ = shroudforge_package::logging::append(
@@ -1980,14 +1993,14 @@ pub fn startup_check(root: &std::path::Path) -> bool {
                 "updater",
                 &format!("Startup update window could not be opened: {error}"),
             );
-            false
+            if mandatory { Err(error) } else { Ok(false) }
         }
     }
 }
 
 #[cfg(not(windows))]
-pub fn startup_check(_: &std::path::Path) -> bool {
-    false
+pub fn startup_check(_: &std::path::Path) -> Result<bool, String> {
+    Ok(false)
 }
 
 #[cfg(windows)]

@@ -170,6 +170,12 @@
                         "prerelease": {
                           "type": "boolean"
                         },
+                        "mandatory": {
+                          "type": "boolean"
+                        },
+                        "repairRequired": {
+                          "type": "boolean"
+                        },
                         "updateAvailable": {
                           "type": "boolean"
                         },
@@ -923,6 +929,14 @@
                 },
                 "latestRelease": {
                   "$ref": "#/properties/catalog/properties/provider/oneOf/1/properties/latestRelease"
+                },
+                "startupPromptedVersion": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1,
+                  "maxLength": 128
                 }
               },
               "additionalProperties": false

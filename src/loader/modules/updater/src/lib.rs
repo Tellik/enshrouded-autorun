@@ -4,6 +4,7 @@ mod application;
 pub use application::request_gamefiles_restore;
 pub use application::parse_release_notes;
 pub use application::missing_required_files;
+pub use application::refresh_cached_repair_status;
 pub use application::run_module;
 pub use application::{
     cancel_system_update, cancel_update_queue, check_update_cancelled, clear_update_queue,

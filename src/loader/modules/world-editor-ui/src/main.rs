@@ -17,6 +17,7 @@ mod windows {
         event_loop::{ControlFlow, EventLoop},
         window::WindowBuilder,
     };
+    use tao::platform::windows::WindowBuilderExtWindows;
     use windows::{
         Win32::{
             System::Com::{
@@ -156,7 +157,11 @@ mod windows {
             .unwrap_or(std::ptr::null_mut());
         let event_loop = EventLoop::new();
         let initial_height = initial_state.panel_height as f64;
+        let (icon_rgba, icon_width, icon_height) = shroudforge_package::window_icon::rgba()?;
+        let icon = tao::window::Icon::from_rgba(icon_rgba, icon_width, icon_height)?;
         let window = WindowBuilder::new()
+            .with_window_icon(Some(icon.clone()))
+            .with_taskbar_icon(Some(icon))
             .with_title("ShroudForge | World Editor")
             .with_decorations(false)
             .with_always_on_top(true)

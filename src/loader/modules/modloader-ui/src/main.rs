@@ -29,6 +29,7 @@ mod windows {
         event_loop::{ControlFlow, EventLoopBuilder},
         window::WindowBuilder,
     };
+    use tao::platform::windows::WindowBuilderExtWindows;
     use windows::{
         Win32::{
             System::Com::{
@@ -756,6 +757,9 @@ mod windows {
                 unsafe {
                     CloseHandle(mutex);
                 }
+                shroudforge_package::config::request_window_visibility(
+                    &arguments.root, "modloaderUi", true,
+                )?;
                 return Ok(());
             }
             Some(mutex)
@@ -804,25 +808,17 @@ mod windows {
                     .max(560.0)
             })
             .unwrap_or(988.0);
+        let (icon_rgba, icon_width, icon_height) = shroudforge_package::window_icon::rgba()?;
+        let icon = tao::window::Icon::from_rgba(icon_rgba, icon_width, icon_height)?;
         let window = WindowBuilder::new()
-            .with_title(if arguments.updater_window {
-                "ShroudForge | Update"
-            } else {
-                "ShroudForge | Modloader"
-            })
+            .with_window_icon(Some(icon.clone()))
+            .with_taskbar_icon(Some(icon))
+            .with_title("ShroudForge | Modloader")
             .with_decorations(false)
             .with_always_on_top(true)
             .with_visible(arguments.desktop)
-            .with_inner_size(if arguments.updater_window {
-                LogicalSize::new(640.0, 620.0)
-            } else {
-                LogicalSize::new(1180.0, modloader_height)
-            })
-            .with_min_inner_size(if arguments.updater_window {
-                LogicalSize::new(540.0, 480.0)
-            } else {
-                LogicalSize::new(860.0, 560.0)
-            })
+            .with_inner_size(LogicalSize::new(1180.0, modloader_height))
+            .with_min_inner_size(LogicalSize::new(860.0, 560.0))
             .build(&event_loop)?;
 
         let mut saved_position =
@@ -1860,7 +1856,7 @@ mod windows {
                             .unwrap_or(0);
                         if requested_id != visibility_request_id {
                             visibility_request_id = requested_id;
-                            shown = if arguments.server {
+                            shown = if arguments.server && !arguments.desktop {
                                 false
                             } else {
                                 window_state["modloaderUi"]["requestedVisible"]
@@ -1870,6 +1866,9 @@ mod windows {
                             window.set_visible(shown);
                             if shown {
                                 window.set_focus();
+                                if arguments.updater_window {
+                                    next_update_check = Instant::now();
+                                }
                             }
                             let _ = shroudforge_package::config::publish_window_visibility(
                                 &arguments.root,
@@ -2360,7 +2359,16 @@ mod windows {
             shroudforge_package::paths::updates_dir(&arguments.root).join("updater-status.json"),
         ) {
             if let Ok(status) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                if status["operation"] == "systemStage" {
+                let terminal = matches!(status["status"].as_str(), Some("installed" | "error" | "cancelled"));
+                let last_check = central["modules"]["updates"]["system"]["lastCheckAt"].as_u64();
+                let superseded = terminal && (
+                    release_snapshot.update_available
+                    || matches!(release_snapshot.state.as_str(), "checking" | "error")
+                    || status["updatedAt"].as_u64().zip(last_check)
+                        .is_some_and(|(updated, checked)| updated < checked)
+                );
+                if status["operation"] == "systemStage" && !superseded
+                {
                     if let Some(state) = status["status"].as_str() {
                         let staged = shroudforge_package::paths::updates_dir(&arguments.root)
                             .join("pending.ready")
@@ -2412,11 +2420,7 @@ mod windows {
             ),
             connected: !arguments.desktop && runtime_is_active(&arguments.root),
             mode: if arguments.desktop {
-                if arguments.updater_window {
-                    "UPDATER"
-                } else {
-                    "DESKTOP"
-                }
+                "DESKTOP"
             } else if !arguments.server {
                 "CLIENT"
             } else {
@@ -5287,9 +5291,35 @@ mod windows {
         }
         let manual = request_id.is_some();
         thread::spawn(move || {
-            let _check_lock = match shroudforge_package::update_check::begin_system_update_check(
-                &root, manual,
-            ) {
+            let repair_status = shroudforge_updater::refresh_cached_repair_status(&root);
+            let repair_required = matches!(&repair_status, Ok(true));
+            if repair_required
+                && !manual
+                && shroudforge_package::config::read_loader(&root).is_ok_and(|config| {
+                    config["modules"]["updates"]["system"]["latestRelease"].is_object()
+                })
+            {
+                restore_persisted_update_result(&root, &state);
+                let _ = shroudforge_package::logging::append(
+                    &root,
+                    'D',
+                    "updates",
+                    "Required installation files are missing. Reusing the verified release for repair",
+                );
+                return;
+            }
+            let check_start = repair_status
+                .and_then(|repair_required| {
+                    let repair_without_release = repair_required
+                        && !shroudforge_package::config::read_loader(&root)?["modules"]
+                            ["updates"]["system"]["latestRelease"]
+                            .is_object();
+                    shroudforge_package::update_check::begin_system_update_check(
+                        &root,
+                        manual || repair_without_release,
+                    )
+                });
+            let _check_lock = match check_start {
                 Ok(shroudforge_package::update_check::SystemUpdateCheckStart::Started(lock)) => {
                     lock
                 }
@@ -5400,7 +5430,7 @@ mod windows {
                         let repair_required =
                             !shroudforge_updater::missing_required_files(&root).is_empty();
                         release.mandatory |= repair_required;
-                        value.update_available = release.mandatory || is_update_available(
+                        value.update_available = repair_required || is_update_available(
                             &current,
                             current_build,
                             &release.base_version,
@@ -5435,55 +5465,74 @@ mod windows {
                             "updateAvailable":update_available,
                             "checkedAt":checked_at
                         });
-                        if let Err(error) = shroudforge_package::config::update_loader(&root, |config| {
+                        let persisted = shroudforge_package::config::update_loader(&root, |config| {
                             config["modules"]["updates"]["system"]["lastCheckAt"] = serde_json::json!(checked_at);
                             config["modules"]["updates"]["system"]["latestRelease"] = persisted_release;
                             Ok(())
-                        }) {
-                            let _ = shroudforge_package::logging::append(
-                                &root,
-                                'W',
-                                "updates",
-                                &format!("Could not persist checked release in modloader-config.json: {error}"),
-                            );
-                        }
-                        value.release = Some(release);
-                        value.state = "ready".into();
-                        outcome = Ok(if update_available {
-                            format!("Update {latest_version} is available.")
-                        } else {
-                            "ShroudForge is up to date.".into()
                         });
+                        value.release = Some(release);
+                        match persisted {
+                            Ok(()) => {
+                                value.state = "ready".into();
+                                outcome = Ok(if update_available {
+                                    format!("Update {latest_version} is available.")
+                                } else {
+                                    "ShroudForge is up to date.".into()
+                                });
+                            }
+                            Err(error) => {
+                                let error = format!("Could not persist checked release in modloader-config.json: {error}");
+                                value.state = "error".into();
+                                value.message = Some(error.clone());
+                                outcome = Err(error);
+                            }
+                        }
                     }
                     Ok(None) => {
                         value.update_available = false;
+                        value.mandatory = repair_required;
                         value.prerelease = false;
                         value.latest_version = None;
                         value.release_url = None;
                         value.release = None;
-                        value.state = "ready".into();
                         value.message =
                             Some("No ShroudForge release has been published on GitHub yet.".into());
                         let checked_at = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_secs();
-                        if let Err(error) = shroudforge_package::config::update_loader(&root, |config| {
+                        match shroudforge_package::config::update_loader(&root, |config| {
                             config["modules"]["updates"]["system"]["lastCheckAt"] = serde_json::json!(checked_at);
                             config["modules"]["updates"]["system"]["latestRelease"] =
                                 serde_json::Value::Null;
                             Ok(())
                         }) {
-                            let _ = shroudforge_package::logging::append(
-                                &root,
-                                'W',
-                                "updates",
-                                &format!("Could not persist empty update check result: {error}"),
-                            );
+                            Ok(()) => {
+                                if repair_required {
+                                    let error = "Required ShroudForge files are missing, but no compatible release is available for repair.".to_owned();
+                                    value.state = "error".into();
+                                    value.message = Some(error.clone());
+                                    outcome = Err(error);
+                                } else {
+                                    value.state = "ready".into();
+                                    outcome = Ok("No ShroudForge release has been published yet.".into());
+                                }
+                            }
+                            Err(error) => {
+                                let error = format!("Could not persist empty update check result: {error}");
+                                value.state = "error".into();
+                                value.message = Some(error.clone());
+                                outcome = Err(error);
+                            }
                         }
-                        outcome = Ok("No ShroudForge release has been published yet.".into());
                     }
                     Err(error) => {
+                        let error = if repair_required {
+                            format!("Required ShroudForge files are missing. Could not check the release needed for repair: {error}")
+                        } else {
+                            error
+                        };
+                        value.mandatory |= repair_required;
                         value.state = "error".into();
                         value.message = Some(error.clone());
                         outcome = Err(error);

@@ -14,6 +14,7 @@ mod windows {
         event_loop::{ControlFlow, EventLoop},
         window::WindowBuilder,
     };
+    use tao::platform::windows::WindowBuilderExtWindows;
     use windows_sys::Win32::{
         Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0},
         System::Threading::{
@@ -96,7 +97,11 @@ mod windows {
             .map(open_event)
             .unwrap_or(std::ptr::null_mut());
         let event_loop = EventLoop::new();
+        let (icon_rgba, icon_width, icon_height) = shroudforge_package::window_icon::rgba()?;
+        let icon = tao::window::Icon::from_rgba(icon_rgba, icon_width, icon_height)?;
         let window = WindowBuilder::new()
+            .with_window_icon(Some(icon.clone()))
+            .with_taskbar_icon(Some(icon))
             .with_title("ShroudForge | Debug Console")
             .with_decorations(false)
             .with_always_on_top(true)

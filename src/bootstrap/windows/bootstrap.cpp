@@ -234,10 +234,14 @@ std::string runtime_status_state(std::string_view status) {
         " voxel_context=" + std::string(voxel_context.empty() ? "unknown" : voxel_context);
 }
 
+void show_startup_error(const std::filesystem::path& root, const std::string& detail);
+
 void start_recovery_update_window(const std::filesystem::path& root) {
     const auto executable = shroudforge_directory(root) / L"shroudforge-updater.exe";
     if (!std::filesystem::is_regular_file(executable)) {
-        log('E', "Recovery updater executable is missing: " + executable.string());
+        const auto detail = "Recovery updater executable is missing: " + executable.string();
+        log('E', detail);
+        if (!is_dedicated_server_process()) show_startup_error(root, detail);
         return;
     }
 
@@ -248,19 +252,23 @@ void start_recovery_update_window(const std::filesystem::path& root) {
     if (!CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, FALSE,
             CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT, nullptr, root.c_str(),
             &startup, &process)) {
-        log('E', "Recovery updater window could not be started. " + windows_error(GetLastError()));
+        const auto detail = "Recovery updater window could not be started. " + windows_error(GetLastError());
+        log('E', detail);
+        if (!is_dedicated_server_process()) show_startup_error(root, detail);
         return;
     }
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);
-    log("Independent recovery updater window started after fatal ShroudForge error");
+    log("Independent recovery updater requested after fatal ShroudForge error");
 }
 
 bool run_startup_update_check(const std::filesystem::path& root) {
     const auto executable = shroudforge_directory(root) / L"shroudforge-updater.exe";
     if (!std::filesystem::is_regular_file(executable)) {
-        log('W', "Startup update check skipped because shroudforge-updater.exe is missing");
-        return true;
+        const auto detail = "Installation cannot be checked because shroudforge-updater.exe is missing. Restore ShroudForge from its release package";
+        log('E', detail);
+        if (!is_dedicated_server_process()) show_startup_error(root, detail);
+        return false;
     }
 
     std::wstring command = L"\"" + executable.wstring() + L"\" --startup-check --root \"" +
@@ -270,8 +278,10 @@ bool run_startup_update_check(const std::filesystem::path& root) {
     if (!CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, FALSE,
             CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT, nullptr, root.c_str(),
             &startup, &process)) {
-        log('W', "Startup update check could not start. " + windows_error(GetLastError()));
-        return true;
+        const auto detail = "Startup update check could not start. " + windows_error(GetLastError());
+        log('E', detail);
+        if (!is_dedicated_server_process()) show_startup_error(root, detail);
+        return false;
     }
     CloseHandle(process.hThread);
     const auto result = WaitForSingleObject(process.hProcess, 45000);
@@ -299,7 +309,11 @@ bool run_startup_update_check(const std::filesystem::path& root) {
         return false;
     }
     if (exit_code != 0) {
-        log('W', "Startup update check returned " + std::to_string(exit_code) + ". Game startup continues");
+        const auto detail = "Startup update check failed with exit code " + std::to_string(exit_code) +
+            ". Game startup stopped. Inspect the updater log for the repair error";
+        log('E', detail);
+        if (!is_dedicated_server_process()) show_startup_error(root, detail);
+        return false;
     }
     return true;
 }
@@ -565,11 +579,12 @@ DWORD WINAPI run(void*) {
     log("Log session started for game PID " + std::to_string(GetCurrentProcessId()) +
         ". Archived log files contain earlier sessions");
     log_shroudforge_banner(is_dedicated_server_process());
+    // Check the release manifest before starting any UI or loading runtime DLLs.
+    startup_stage(root, "startup-update-check");
+    if (!run_startup_update_check(root)) return 1;
     // Start the independent log viewer before any ShroudForge DLL or mod code
     // can fail during process startup.
     start_debug_console(root);
-    startup_stage(root, "startup-update-check");
-    if (!run_startup_update_check(root)) return 1;
     const auto runtime_path = shroudforge_directory(root) / L"shroudforge-runtime.dll";
     startup_stage(root, "runtime-dll-load");
     const auto runtime = LoadLibraryW(runtime_path.c_str());

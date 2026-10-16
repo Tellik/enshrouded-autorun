@@ -12,6 +12,7 @@ pub mod prepared;
 pub mod update_check;
 mod registry;
 pub mod status;
+pub mod window_icon;
 
 pub use env::*;
 pub use error::*;
