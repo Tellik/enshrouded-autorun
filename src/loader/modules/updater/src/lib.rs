@@ -2,6 +2,8 @@
 mod application;
 
 pub use application::request_gamefiles_restore;
+pub use application::parse_release_notes;
+pub use application::missing_required_files;
 pub use application::run_module;
 pub use application::{
     cancel_system_update, cancel_update_queue, check_update_cancelled, clear_update_queue,
@@ -11,3 +13,4 @@ pub use application::{
     select_update_queue_items, set_active_queue_item_state, start_headless_control_worker,
     start_update_queue,
 };
+pub use application::startup_check;

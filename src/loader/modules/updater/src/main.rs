@@ -1,3 +1,68 @@
+/// Release notes may contain one machine-readable line that makes a release a
+/// blocking hotfix. Keep this directive out of the text shown in the UI.
+pub fn parse_release_notes(body: &str) -> (bool, String) {
+    let mut mandatory = false;
+    let notes = body
+        .lines()
+        .filter(|line| {
+            if line.trim().eq_ignore_ascii_case("ShroudForge-Update: required") {
+                mandatory = true;
+                false
+            } else {
+                true
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_owned();
+    (mandatory, notes)
+}
+
+pub fn missing_required_files(root: &std::path::Path) -> Vec<String> {
+    use std::path::{Component, Path};
+
+    let manifest = std::fs::read(shroudforge_package::paths::version_file(root))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+    let Some(manifest_paths) = manifest
+        .as_ref()
+        .and_then(|value| value["managedPaths"].as_array())
+    else {
+        return vec!["shroudforge/version.json".into()];
+    };
+    let Some(manifest_paths) = manifest_paths
+        .iter()
+        .map(serde_json::Value::as_str)
+        .collect::<Option<Vec<_>>>()
+    else {
+        return vec!["shroudforge/version.json".into()];
+    };
+    if manifest_paths.is_empty() {
+        return vec!["shroudforge/version.json".into()];
+    }
+    let mut paths = manifest_paths
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if !paths.iter().any(|path| path == "shroudforge/version.json") {
+        paths.push("shroudforge/version.json".into());
+    }
+    if paths.iter().any(|path| {
+        let path = Path::new(path);
+        path.as_os_str().is_empty()
+            || !path
+                .components()
+                .all(|component| matches!(component, Component::Normal(_)))
+    }) {
+        return vec!["shroudforge/version.json".into()];
+    }
+    paths
+        .into_iter()
+        .filter(|path| !root.join(path).is_file())
+        .collect()
+}
+
 #[cfg(windows)]
 mod windows {
     use std::{
@@ -1631,13 +1696,6 @@ fn headless_check_system_updates(root: &std::path::Path) -> Result<String, Strin
     use semver::Version;
 
     let config = shroudforge_package::config::read_loader(root)?;
-    if config
-        .pointer("/modules/updates/system/enabled")
-        .and_then(serde_json::Value::as_bool)
-        == Some(false)
-    {
-        return Err("system update checks are disabled in modloader-config.json".into());
-    }
     let include_prereleases = config
         .pointer("/modules/updates/system/includePrereleases")
         .and_then(serde_json::Value::as_bool)
@@ -1774,16 +1832,19 @@ fn headless_check_system_updates(root: &std::path::Path) -> Result<String, Strin
     if checksum.len() != 64 || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err("GitHub release does not contain a valid SHA-256 checksum".into());
     }
-    let update_available = Version::parse(current_version.trim_start_matches('v'))
+    let repair_required = !super::missing_required_files(root).is_empty();
+    let update_available = repair_required || Version::parse(current_version.trim_start_matches('v'))
         .ok()
         .zip(Version::parse(&base_version).ok())
         .is_some_and(|(current, latest)| {
             latest > current || (latest == current && build > current_build)
         });
-    let message = if release.body.trim().is_empty() {
+    let (release_mandatory, notes) = super::parse_release_notes(&release.body);
+    let mandatory = release_mandatory || repair_required;
+    let message = if notes.trim().is_empty() {
         "A new ShroudForge version is available on GitHub.".to_owned()
     } else {
-        release.body.chars().take(20_000).collect()
+        notes.chars().take(20_000).collect()
     };
     let checked_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1800,6 +1861,8 @@ fn headless_check_system_updates(root: &std::path::Path) -> Result<String, Strin
             "releaseUrl": release.html_url.clone(),
             "message": message.clone(),
             "prerelease": release.prerelease,
+            "mandatory": mandatory,
+            "repairRequired": repair_required,
             "updateAvailable": update_available,
             "checkedAt": checked_at
         });
@@ -1810,6 +1873,70 @@ fn headless_check_system_updates(root: &std::path::Path) -> Result<String, Strin
     } else {
         "ShroudForge is up to date".into()
     })
+}
+
+#[cfg(windows)]
+pub fn startup_check(root: &std::path::Path) -> bool {
+    if let Err(error) = headless_check_system_updates(root) {
+        let _ = shroudforge_package::logging::append(
+            root,
+            'W',
+            "updater",
+            &format!("Startup update check did not complete. Game startup continues: {error}"),
+        );
+        return false;
+    }
+
+    let release = match shroudforge_package::config::read_loader(root)
+        .ok()
+        .and_then(|config| config.pointer("/modules/updates/system/latestRelease").cloned())
+    {
+        Some(release) if release["updateAvailable"].as_bool() == Some(true) => release,
+        _ => return false,
+    };
+    let Some(version) = release["version"].as_str() else {
+        return false;
+    };
+    let mandatory = release["mandatory"].as_bool() == Some(true);
+    let previous_prompt = shroudforge_package::config::read_loader(root)
+        .ok()
+        .and_then(|config| {
+            config
+                .pointer("/modules/updates/system/startupPromptedVersion")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        });
+    if !mandatory && previous_prompt.as_deref() == Some(version) {
+        return false;
+    }
+
+    match scheduled::open_update_window(root) {
+        Ok(()) => {
+            if !mandatory {
+                let version = version.to_owned();
+                let _ = shroudforge_package::config::update_loader(root, |config| {
+                    config["modules"]["updates"]["system"]["startupPromptedVersion"] =
+                        serde_json::Value::String(version);
+                    Ok(())
+                });
+            }
+            mandatory
+        }
+        Err(error) => {
+            let _ = shroudforge_package::logging::append(
+                root,
+                'E',
+                "updater",
+                &format!("Startup update window could not be opened: {error}"),
+            );
+            false
+        }
+    }
+}
+
+#[cfg(not(windows))]
+pub fn startup_check(_: &std::path::Path) -> bool {
+    false
 }
 
 #[cfg(windows)]

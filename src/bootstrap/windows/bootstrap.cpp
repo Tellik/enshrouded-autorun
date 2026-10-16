@@ -256,6 +256,54 @@ void start_recovery_update_window(const std::filesystem::path& root) {
     log("Independent recovery updater window started after fatal ShroudForge error");
 }
 
+bool run_startup_update_check(const std::filesystem::path& root) {
+    const auto executable = shroudforge_directory(root) / L"shroudforge-updater.exe";
+    if (!std::filesystem::is_regular_file(executable)) {
+        log('W', "Startup update check skipped because shroudforge-updater.exe is missing");
+        return true;
+    }
+
+    std::wstring command = L"\"" + executable.wstring() + L"\" --startup-check --root \"" +
+        root.wstring() + L"\"";
+    STARTUPINFOW startup{sizeof(startup)};
+    PROCESS_INFORMATION process{};
+    if (!CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, FALSE,
+            CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT, nullptr, root.c_str(),
+            &startup, &process)) {
+        log('W', "Startup update check could not start. " + windows_error(GetLastError()));
+        return true;
+    }
+    CloseHandle(process.hThread);
+    const auto result = WaitForSingleObject(process.hProcess, 45000);
+    if (result != WAIT_OBJECT_0) {
+        if (result == WAIT_TIMEOUT) {
+            log('W', "Startup update check timed out after 45 seconds. Game startup continues");
+            TerminateProcess(process.hProcess, ERROR_TIMEOUT);
+            WaitForSingleObject(process.hProcess, 1000);
+        } else {
+            log('W', "Could not wait for startup update check. " + windows_error(GetLastError()));
+        }
+        CloseHandle(process.hProcess);
+        return true;
+    }
+
+    DWORD exit_code = 0;
+    const bool read_exit_code = GetExitCodeProcess(process.hProcess, &exit_code) != FALSE;
+    CloseHandle(process.hProcess);
+    if (!read_exit_code) {
+        log('W', "Could not read startup update check result. " + windows_error(GetLastError()));
+        return true;
+    }
+    if (exit_code == 2) {
+        log('E', "A required ShroudForge hotfix is available. Game startup is blocked until it is installed");
+        return false;
+    }
+    if (exit_code != 0) {
+        log('W', "Startup update check returned " + std::to_string(exit_code) + ". Game startup continues");
+    }
+    return true;
+}
+
 void startup_failed(const std::filesystem::path& root, const char* stage,
         const std::string& detail) {
     log('E', std::string("Startup failed at ") + stage + ": " + detail);
@@ -520,6 +568,8 @@ DWORD WINAPI run(void*) {
     // Start the independent log viewer before any ShroudForge DLL or mod code
     // can fail during process startup.
     start_debug_console(root);
+    startup_stage(root, "startup-update-check");
+    if (!run_startup_update_check(root)) return 1;
     const auto runtime_path = shroudforge_directory(root) / L"shroudforge-runtime.dll";
     startup_stage(root, "runtime-dll-load");
     const auto runtime = LoadLibraryW(runtime_path.c_str());

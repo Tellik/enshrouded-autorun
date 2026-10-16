@@ -17,7 +17,7 @@ type NoticeAction = { id:string; kind:string; target?:string }
 type NoticeLink = { labelKey:string; url:string }
 type GitHubContributor = { login:string; html_url:string; contributions:number }
 type Notice = { id:string; modId:string; ecosystem?:'EML'|'SF'; title:string; message:string; level:string; actionUrl?:string; actionLabelKey?:string; links?:NoticeLink[]; actions?:NoticeAction[]; updatedAt:number; kind?:string; values?:Record<string,string|number>; changelog?:string[] }
-type Release = { currentVersion:string; latestVersion?:string; updateAvailable:boolean; prerelease?:boolean; state:string; message?:string; releaseUrl?:string; staged:boolean; downloadedBytes?:number; totalBytes?:number; bytesPerSecond?:number }
+type Release = { currentVersion:string; latestVersion?:string; updateAvailable:boolean; mandatory?:boolean; prerelease?:boolean; state:string; message?:string; releaseUrl?:string; staged:boolean; downloadedBytes?:number; totalBytes?:number; bytesPerSecond?:number }
 type UpdateQueueItem = {id:string;kind:'system'|'mod';operation?:string;title:string;version?:string;prerelease?:boolean;state:string;selected:boolean;message?:string;releaseUrl?:string}
 type UpdateQueue = {items:UpdateQueueItem[];run?:{state:string;waitForGame?:boolean;itemIds?:string[]}|null}
 type ModulePreferences = Record<string,Record<string,any>>
@@ -286,7 +286,7 @@ function Updates({data,settings,setSettings}:{data:Snapshot;settings:Settings;se
 
 function SystemUpdate({release,queued}:{release:Release;queued:boolean}){
   const {t}=useI18n()
-  if(release.updateAvailable)return <Card title={`ShroudForge ${release.latestVersion}`} tone="update">{release.prerelease&&<span className="release-channel-chip">{t('updates.prerelease.badge')}</span>}<ReleaseNotes text={release.message||t('updates.version.available')}/><div className="inline-actions"><button className="button" onClick={()=>postRequest('queue-system-update')} disabled={queued}>{queued?t('updates.queue.added'):t('updates.queue.addSystem')}</button>{release.releaseUrl&&<button className="button ghost" onClick={()=>postRequest('open-url',{url:release.releaseUrl})}>{t('updates.release')}</button>}</div><p className="hint">{t('updates.safety')}</p></Card>
+  if(release.updateAvailable)return <Card title={`ShroudForge ${release.latestVersion}`} tone="update">{release.mandatory&&<span className="release-channel-chip">{t('updater.required')}</span>}{release.prerelease&&<span className="release-channel-chip">{t('updates.prerelease.badge')}</span>}<ReleaseNotes text={release.message||t('updates.version.available')}/><div className="inline-actions"><button className="button" onClick={()=>postRequest('queue-system-update')} disabled={queued}>{queued?t('updates.queue.added'):t('updates.queue.addSystem')}</button>{release.releaseUrl&&<button className="button ghost" onClick={()=>postRequest('open-url',{url:release.releaseUrl})}>{t('updates.release')}</button>}</div><p className="hint">{t('updates.safety')}</p></Card>
   const message=release.state==='ready'&&!release.latestVersion?t('updates.none.notPublished'):release.state==='ready'?t('updates.none.message'):release.state==='checking'?t('updates.checking'):release.state==='idle'?t('updates.none.notChecked'):release.message||t('updates.none.message')
   return <Empty title={t('updates.none.title')} text={message} icon="check"/>
 }
@@ -360,10 +360,10 @@ function UpdaterWindow({release,version,queue,mode}:{release:Release;version:str
   const failed=release.state==='error'
   const queuedSystem=queue.items.some(item=>item.kind==='system'&&item.version===release.latestVersion&&!['complete','cancelled'].includes(item.state))
   return <main className="updater-shell">
-    <header className="updater-topbar" data-drag-region><div className="updater-brand"><span className="brand-mark">SF</span><span><strong>SHROUDFORGE</strong><small>UPDATER</small></span></div><button className="window-close" onClick={()=>postRequest('hide')} aria-label={t('common.close')}>×</button></header>
+    <header className="updater-topbar" data-drag-region><div className="updater-brand"><span className="brand-mark">SF</span><span><strong>SHROUDFORGE</strong><small>UPDATER</small></span></div>{!release.mandatory&&<button className="window-close" onClick={()=>postRequest('hide')} aria-label={t('common.close')}>×</button>}</header>
     <section className="updater-content">
-      <div className="updater-heading"><div><small>{t('updater.system')}</small><h1>{release.latestVersion?`ShroudForge ${release.latestVersion}`:t('updater.title')}</h1>{release.prerelease&&<span className="release-channel-chip">{t('updates.prerelease.badge')}</span>}</div></div>
-      {release.updateAvailable&&!failed&&!complete?<><ReleaseNotes text={release.message||t('updater.starting')}/>{!queuedSystem&&<button className="button" onClick={()=>postRequest('queue-system-update')}>{t('updates.queue.addSystem')}</button>}</>:!complete&&<p className="updater-message">{failed?(release.message||t('updater.failedDetail')):release.message||t('updater.starting')}</p>}
+      <div className="updater-heading"><div><small>{t('updater.system')}</small><h1>{release.latestVersion?`ShroudForge ${release.latestVersion}`:t('updater.title')}</h1>{release.mandatory&&<span className="release-channel-chip">{t('updater.required')}</span>}{release.prerelease&&<span className="release-channel-chip">{t('updates.prerelease.badge')}</span>}</div></div>
+      {release.updateAvailable&&!failed&&!complete?<><ReleaseNotes text={release.message||t('updater.starting')}/>{!queuedSystem&&<button className="button" onClick={()=>postRequest('queue-system-update')}>{t(release.mandatory?'updater.installRequired':'updater.updateNow')}</button>}{!release.mandatory&&<button className="button ghost" onClick={()=>postRequest('hide')}>{t('updater.later')}</button>}</>:!complete&&<p className="updater-message">{failed?(release.message||t('updater.failedDetail')):release.message||t('updater.starting')}</p>}
       {active&&<UpdateProgress release={release}/>}
       {!active&&!complete&&!failed&&release.state==='ready'&&!release.updateAvailable&&<div className="updater-result success"><i>✓</i><span>{t('updater.current')}</span></div>}
       {complete&&<div className="updater-result success"><i>✓</i><span>{t('updater.completeDetail')}</span></div>}

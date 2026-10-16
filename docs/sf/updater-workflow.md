@@ -6,7 +6,21 @@ The Modloader Updates page and the standalone `shroudforge-updater.exe` use the 
 
 The executable and the window are different things: `shroudforge-updater.exe` starts workers and launches the compact window. The compact window is the same Modloader UI bundle, started from a copy of `shroudforge.exe` with `--updater-window`.
 
-Opening the Modloader UI or updater executable must never start a download by itself. A download starts only after the user chooses update items and presses a start action.
+Opening the Modloader UI or updater executable does not start a download by itself. A download starts only after the user chooses an update action.
+
+## Steam startup check
+
+The game bootstrap runs `shroudforge-updater.exe --startup-check` while the game entrypoint is held. A newly available optional release opens this same updater window once for that release. The player can start the update or choose **Later**. A new version is shown again when a newer release appears.
+
+To mark a release as mandatory, add this exact line to its GitHub release notes:
+
+```text
+ShroudForge-Update: required
+```
+
+The line is removed before release notes are displayed. A mandatory update opens the same window and blocks game startup until installation. Missing required runtime files, including either import proxy, also trigger a required repair package. If the check cannot reach GitHub or exceeds its 45-second limit, game startup continues and the failure is written to the ShroudForge log.
+
+At least one of the game's imported proxy DLLs, `dbghelp.dll` or `dinput8.dll`, must still be present for ShroudForge to run a check. If both are missing, Windows can load its System32 copies and no ShroudForge process code runs. The available proxy can open the existing updater when `winmm.dll` is missing. That fallback cannot hold the game's entrypoint, so the game may open without ShroudForge while the repair window is shown.
 
 ## Entry points
 

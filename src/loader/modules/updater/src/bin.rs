@@ -2,6 +2,17 @@
 
 fn main() {
     let arguments: Vec<String> = std::env::args().collect();
+    if arguments.iter().any(|arg| arg == "--startup-check") {
+        let root = arguments
+            .windows(2)
+            .find(|pair| pair[0] == "--root")
+            .map(|pair| std::path::PathBuf::from(&pair[1]));
+        let Some(root) = root else {
+            std::process::exit(0);
+        };
+        let required = shroudforge_updater::startup_check(&root);
+        std::process::exit(if required { 2 } else { 0 });
+    }
     let result = if arguments.iter().any(|arg| arg == "--queue-install") {
         let value = |name: &str| {
             arguments

@@ -344,6 +344,7 @@ mod windows {
         current_build: u64,
         latest_version: Option<String>,
         update_available: bool,
+        mandatory: bool,
         prerelease: bool,
         state: String,
         message: Option<String>,
@@ -363,6 +364,7 @@ mod windows {
                 current_build: installed.build,
                 latest_version: None,
                 update_available: false,
+                mandatory: false,
                 prerelease: false,
                 state: "idle".into(),
                 message: None,
@@ -385,6 +387,7 @@ mod windows {
         checksum: String,
         release_url: Option<String>,
         message: String,
+        mandatory: bool,
         prerelease: bool,
     }
 
@@ -1223,13 +1226,32 @@ mod windows {
                                         "releaseUrl":release.release_url.clone(),
                                         "message":release.message.clone(),
                                         "prerelease":release.prerelease,
+                                        "mandatory":release.mandatory,
                                         "updateAvailable":true,
                                         "checkedAt":SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
                                     })));
                                 let result = release.ok_or_else(|| {
                                     "Check for system updates before adding one to the queue."
                                         .to_owned()
-                                }).and_then(|release| shroudforge_updater::enqueue_system_update(&arguments.root, release));
+                                }).and_then(|release| {
+                                    let version = release["version"]
+                                        .as_str()
+                                        .ok_or("release has no version")?
+                                        .to_owned();
+                                    shroudforge_updater::enqueue_system_update(
+                                        &arguments.root,
+                                        release,
+                                    )?;
+                                    if arguments.updater_window {
+                                        shroudforge_updater::start_update_queue(
+                                            &arguments.root,
+                                            &[format!("system:{version}")],
+                                            false,
+                                            false,
+                                        )?;
+                                    }
+                                    Ok(())
+                                });
                                 report_command_result(
                                     &arguments.root,
                                     &webview,
@@ -2255,11 +2277,13 @@ mod windows {
                     latest["checksum"].as_str(),
                 ) {
                     let update_available = latest["updateAvailable"].as_bool().unwrap_or(false);
+                    let mandatory = latest["mandatory"].as_bool().unwrap_or(false);
                     let prerelease = latest["prerelease"].as_bool().unwrap_or(false);
                     let release_url = latest["releaseUrl"].as_str().map(str::to_owned);
                     let message = latest["message"].as_str().unwrap_or_default().to_owned();
                     release_snapshot.latest_version = Some(version.to_owned());
                     release_snapshot.update_available = update_available;
+                    release_snapshot.mandatory = mandatory;
                     release_snapshot.prerelease = prerelease;
                     release_snapshot.release_url = release_url.clone();
                     if release_snapshot.state == "idle" || release_snapshot.state == "ready" {
@@ -2278,6 +2302,7 @@ mod windows {
                         checksum: checksum.to_owned(),
                         release_url,
                         message,
+                        mandatory,
                         prerelease,
                     });
                 }
@@ -5041,13 +5066,17 @@ mod windows {
             let mut outcome = Err("Update status is unavailable.".to_owned());
             if let Ok(mut value) = state.lock() {
                 match result {
-                    Ok(Some(release)) => {
-                        value.update_available = is_update_available(
+                    Ok(Some(mut release)) => {
+                        let repair_required =
+                            !shroudforge_updater::missing_required_files(&root).is_empty();
+                        release.mandatory |= repair_required;
+                        value.update_available = release.mandatory || is_update_available(
                             &current,
                             current_build,
                             &release.base_version,
                             release.build,
                         );
+                        value.mandatory = release.mandatory;
                         value.latest_version = Some(release.version.clone());
                         value.prerelease = release.prerelease;
                         value.release_url = release.release_url.clone();
@@ -5071,6 +5100,8 @@ mod windows {
                             "releaseUrl":release.release_url.clone(),
                             "message":release.message.chars().take(20_000).collect::<String>(),
                             "prerelease":release.prerelease,
+                            "mandatory":release.mandatory,
+                            "repairRequired":repair_required,
                             "updateAvailable":update_available,
                             "checkedAt":checked_at
                         });
@@ -5254,6 +5285,7 @@ mod windows {
         if checksum.len() != 64 || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return Err("GitHub release does not contain a valid SHA-256 checksum".into());
         }
+        let (mandatory, notes) = shroudforge_updater::parse_release_notes(&release.body);
         Ok(Some(Release {
             version,
             base_version,
@@ -5262,10 +5294,11 @@ mod windows {
             checksum,
             release_url: Some(release.html_url),
             prerelease: release.prerelease,
-            message: if release.body.trim().is_empty() {
+            mandatory,
+            message: if notes.trim().is_empty() {
                 "A new ShroudForge version is available on GitHub.".into()
             } else {
-                release.body
+                notes
             },
         }))
     }

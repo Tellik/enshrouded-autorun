@@ -575,7 +575,9 @@
   "updater.failed": "Update failed",
   "updater.failedDetail": "The update could not be completed. See the ShroudForge log for details.",
   "updater.installedVersion": "Installed version: {version}",
+  "updater.installRequired": "Install required update",
   "updater.installing": "Installing update…",
+  "updater.later": "Later",
   "updater.preparing": "Preparing…",
   "updater.progress": "Download · {percent}%",
   "updater.queued": "Starting update…",
@@ -595,6 +597,8 @@
   "updater.step.waitingForGame": "Waiting for game to close",
   "updater.system": "SYSTEM UPDATE",
   "updater.title": "ShroudForge Update",
+  "updater.updateNow": "Update now",
+  "updater.required": "Required update",
   "updater.verifying": "Verifying download…",
   "updater.waiting": "The update will install after Enshrouded closes.",
   "updater.current": "ShroudForge is up to date."
