@@ -4,6 +4,10 @@ Each JSON file describes one game executable build and process target. Keep the
 sections in this order so the file reads from identity, through runtime layout
 and ECS metadata, to executable patch definitions.
 
+New client profiles use `<SteamBuildId>.json` and the ID
+`enshrouded-client-<SteamBuildId>`. The name covers the complete validated data
+connection. Individual read and write capabilities are specified by the profile.
+
 | Section | Meaning |
 | --- | --- |
 | `schemaVersion`, `id`, `target` | Profile format version, stable launcher selection ID, and executable name. |
