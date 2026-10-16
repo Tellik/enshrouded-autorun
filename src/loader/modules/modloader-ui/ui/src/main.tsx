@@ -539,13 +539,52 @@ function ModPage({mod,status,dependencyStates}:{mod:ModInfo;status?:{state:strin
   const [enabled,setLocalEnabled]=useState(mod.enabled)
   const initial=()=>Object.fromEntries(mod.settings.filter(item=>item.key).map(item=>[item.key,mod.settingValues[item.key]??item.default??(item.type==='boolean'?false:'')]))
   const [values,setValues]=useState<Record<string,unknown>>(initial)
-  const [revision,setRevision]=useState(mod.revision)
-  useEffect(()=>{setValues(initial());setRevision(mod.revision);setLocalEnabled(mod.enabled)},[mod.id,mod.revision])
+  const valuesRef=useRef(values)
+  const revisionRef=useRef(mod.revision)
+  const modIdRef=useRef(mod.id)
+  const autoSaveTimer=useRef<number|undefined>(undefined)
+  const pendingAutoSave=useRef(false)
+  useEffect(()=>{
+    const changedMod=modIdRef.current!==mod.id
+    if(changedMod){
+      if(autoSaveTimer.current!==undefined){window.clearTimeout(autoSaveTimer.current);autoSaveTimer.current=undefined}
+      if(pendingAutoSave.current){pendingAutoSave.current=false;postRequest('save-mod-settings',{modId:modIdRef.current,values:valuesRef.current,revision:revisionRef.current})}
+      modIdRef.current=mod.id
+      valuesRef.current=initial()
+      setValues(valuesRef.current)
+    }else if(!pendingAutoSave.current){
+      valuesRef.current=initial()
+      setValues(valuesRef.current)
+    }
+    revisionRef.current=mod.revision
+    setLocalEnabled(mod.enabled)
+  },[mod.id,mod.revision])
+  useEffect(()=>()=>{
+    if(autoSaveTimer.current!==undefined)window.clearTimeout(autoSaveTimer.current)
+    if(pendingAutoSave.current)postRequest('save-mod-settings',{modId:modIdRef.current,values:valuesRef.current,revision:revisionRef.current})
+  },[])
    const groupedKeys=new Set(mod.groups.flatMap(group=>group.settings))
    const groups=[...mod.groups,...(mod.settings.some(item=>!groupedKeys.has(item.key))?[{label:t('mod.settings'),settings:mod.settings.filter(item=>!groupedKeys.has(item.key)).map(item=>item.key),actions:[]}]:[])]
    const settings=mod.settings
-  const save=()=>postRequest('save-mod-settings',{modId:mod.id,values,revision})
-  const setEnabled=(next:boolean)=>{setLocalEnabled(next);postRequest('set-mod-enabled',{modId:mod.id,enabled:next,revision:mod.revision})}
+  const save=()=>{
+    if(autoSaveTimer.current!==undefined){window.clearTimeout(autoSaveTimer.current);autoSaveTimer.current=undefined}
+    pendingAutoSave.current=false
+    postRequest('save-mod-settings',{modId:mod.id,values:valuesRef.current,revision:revisionRef.current})
+  }
+  const updateSetting=(key:string,value:unknown)=>{
+    const next={...valuesRef.current,[key]:value}
+    valuesRef.current=next
+    setValues(next)
+    pendingAutoSave.current=true
+    if(autoSaveTimer.current!==undefined)window.clearTimeout(autoSaveTimer.current)
+    autoSaveTimer.current=window.setTimeout(()=>{
+      autoSaveTimer.current=undefined
+      if(!pendingAutoSave.current)return
+      pendingAutoSave.current=false
+      postRequest('save-mod-settings',{modId:modIdRef.current,values:valuesRef.current,revision:revisionRef.current})
+    },350)
+  }
+  const setEnabled=(next:boolean)=>{setLocalEnabled(next);postRequest('set-mod-enabled',{modId:mod.id,enabled:next,revision:revisionRef.current})}
   const remove=()=>{if(window.confirm(t('mod.remove.confirm',{name:mod.name})))postRequest('remove-mod',{modId:mod.id})}
    const disablePending=status?.code==='native-dll-disable-pending'
    const stateCode=status?.state==='blocked'?'blocked':status?.state==='restart-required'?'restart':!enabled?'disabled':enabled!==mod.enabled?'unknown':status?.state==='failed'?'error':status?.state==='waiting-world'?'waiting':status?.state==='not-running'?'notRunning':!status||status?.state==='unconfirmed'?'unknown':'running'
@@ -553,7 +592,7 @@ function ModPage({mod,status,dependencyStates}:{mod:ModInfo;status?:{state:strin
   const target=mod.target==='client'?'Client':mod.target==='server'?'Server':'Client, Server'
    const visibleLinks=linkOrder.flatMap(key=>{const definition=linkDefinitions[key],url=mod.links?.[key];const appearance=definition?.appearance||'';const tone=appearance.startsWith('support-')?`support ${appearance}`:appearance;return definition&&url?[{key,url,label:t(definition.labelKey as TranslationKey),description:t(definition.descriptionKey as TranslationKey),icon:definition.icon,tone}]:[]})
     const title=<span className="mod-title-lockup"><ModIcon mod={mod} variant="page"/><span className="mod-title-copy"><span>{mod.name}</span>{mod.authors.length>0&&<span className="mod-author-byline"><em>by</em><span>{formatAuthors(mod.authors)}</span></span>}</span></span>
-    return <><PageHeader eyebrow="MOD" title={title} subtitle={mod.description||mod.id} actions={<>{mod.source==='shroudedit'&&<button className="button ghost" onClick={()=>postRequest('update-mod',{modId:mod.id,title:mod.name})}>{t('updates.queue.addMod')}</button>}<button className="button danger" onClick={remove}>{t('mod.remove')}</button><button className="button" onClick={()=>{postRequest('refresh-mod',{modId:mod.id});setValues(initial());setRevision(mod.revision);setLocalEnabled(mod.enabled)}}>{t('common.refresh')}</button><button className="button" onClick={save}>{t('common.save')}</button></>}/><section className="mod-status-row"><strong className={'mod-state-chip '+stateCode} title={status?.code==='native-dll-disable-pending'?t('mod.status.disablePending'):status?.detail}>{stateLabel}</strong><div className="mod-enable-group"><span>{t('common.active')}</span><SettingSwitch label={enabled?t('mod.disable'):t('mod.enable')} checked={enabled} onChange={setEnabled}/></div></section><Card title={t('mod.settings')}><div className="settings-module-list">{groups.map((group,index)=><section className="settings-module mod-settings-section" key={`${group.label}-${index}`}><header><div><h3>{group.label}</h3>{group.description&&<p className="hint">{group.description}</p>}</div></header><div className="settings-options">{group.settings.map(key=>settings.find(item=>item.key===key)).filter((definition):definition is SettingDefinition=>Boolean(definition)).map(definition=><ModSetting key={definition.key} definition={definition} value={values[definition.key]} onChange={value=>setValues({...values,[definition.key]:value})}/>)}</div>{group.actions.length>0&&<div className="mod-actions">{group.actions.map((action,index)=><ModActionButton key={`${action.id}-${index}`} mod={mod} action={action}/>)}</div>}</section>)}{groups.length===0&&<p className="hint">{t('mod.settings.empty')}</p>}</div></Card><Card title={t('mod.details')}><div className="mod-meta"><span className={`mod-info-badge ecosystem ${mod.ecosystem.toLowerCase()}`}>{t(mod.ecosystem==='SF'?'mod.ecosystem.sf':'mod.ecosystem.eml')}</span><span className="mod-info-badge version"><Icon name="version"/>{mod.version}</span><span className="mod-info-badge target"><Icon name={mod.target==='server'?'server':'client'}/>{target}</span><span className={`mod-info-badge ${mod.runtime?'runtime':'asset'}`}><Icon name={mod.runtime?'bolt':'blueprint'}/>{mod.runtime?t('mod.type.runtime'):t('mod.type.asset')}</span>{mod.license&&<span className="mod-info-badge license">{mod.license}</span>}</div>{visibleLinks.length>0&&<nav className="mod-links" aria-label={t('mod.links')}>{visibleLinks.map(link=><HeaderLink key={link.key} label={link.label} icon={link.icon} tone={link.tone} title={link.description} onClick={()=>postRequest('open-url',{url:link.url})}/>)}</nav>}{mod.changelog.length>0&&<div className="mod-changelog"><h4>{t('mod.versions')}</h4><ul>{mod.changelog.map((item,index)=><li key={index}>{item}</li>)}</ul></div>}</Card><Card title={t("mod.dependencies.title")}><DependencyList dependencies={mod.dependencies} dependencyStates={dependencyStates}/></Card></>
+    return <><PageHeader eyebrow="MOD" title={title} subtitle={mod.description||mod.id} actions={<>{mod.source==='shroudedit'&&<button className="button ghost" onClick={()=>postRequest('update-mod',{modId:mod.id,title:mod.name})}>{t('updates.queue.addMod')}</button>}<button className="button danger" onClick={remove}>{t('mod.remove')}</button><button className="button" onClick={()=>{save();postRequest('refresh-mod',{modId:mod.id})}}>{t('common.refresh')}</button><button className="button" onClick={save}>{t('common.save')}</button></>}/><section className="mod-status-row"><strong className={'mod-state-chip '+stateCode} title={status?.code==='native-dll-disable-pending'?t('mod.status.disablePending'):status?.detail}>{stateLabel}</strong><div className="mod-enable-group"><span>{t('common.active')}</span><SettingSwitch label={enabled?t('mod.disable'):t('mod.enable')} checked={enabled} onChange={setEnabled}/></div></section><Card title={t('mod.settings')}><div className="settings-module-list">{groups.map((group,index)=><section className="settings-module mod-settings-section" key={`${group.label}-${index}`}><header><div><h3>{group.label}</h3>{group.description&&<p className="hint">{group.description}</p>}</div></header><div className="settings-options">{group.settings.map(key=>settings.find(item=>item.key===key)).filter((definition):definition is SettingDefinition=>Boolean(definition)).map(definition=><ModSetting key={definition.key} definition={definition} value={values[definition.key]} onChange={value=>updateSetting(definition.key,value)}/>)}</div>{group.actions.length>0&&<div className="mod-actions">{group.actions.map((action,index)=><ModActionButton key={`${action.id}-${index}`} mod={mod} action={action}/>)}</div>}</section>)}{groups.length===0&&<p className="hint">{t('mod.settings.empty')}</p>}</div></Card><Card title={t('mod.details')}><div className="mod-meta"><span className={`mod-info-badge ecosystem ${mod.ecosystem.toLowerCase()}`}>{t(mod.ecosystem==='SF'?'mod.ecosystem.sf':'mod.ecosystem.eml')}</span><span className="mod-info-badge version"><Icon name="version"/>{mod.version}</span><span className="mod-info-badge target"><Icon name={mod.target==='server'?'server':'client'}/>{target}</span><span className={`mod-info-badge ${mod.runtime?'runtime':'asset'}`}><Icon name={mod.runtime?'bolt':'blueprint'}/>{mod.runtime?t('mod.type.runtime'):t('mod.type.asset')}</span>{mod.license&&<span className="mod-info-badge license">{mod.license}</span>}</div>{visibleLinks.length>0&&<nav className="mod-links" aria-label={t('mod.links')}>{visibleLinks.map(link=><HeaderLink key={link.key} label={link.label} icon={link.icon} tone={link.tone} title={link.description} onClick={()=>postRequest('open-url',{url:link.url})}/>)}</nav>}{mod.changelog.length>0&&<div className="mod-changelog"><h4>{t('mod.versions')}</h4><ul>{mod.changelog.map((item,index)=><li key={index}>{item}</li>)}</ul></div>}</Card><Card title={t("mod.dependencies.title")}><DependencyList dependencies={mod.dependencies} dependencyStates={dependencyStates}/></Card></>
 }
 
 function ModTypeMark({ecosystem}:{ecosystem:'EML'|'SF'}){return <span className={`mod-type-mark ${ecosystem.toLowerCase()}`} aria-hidden="true">{ecosystem}</span>}
