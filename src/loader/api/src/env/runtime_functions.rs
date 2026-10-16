@@ -519,7 +519,7 @@ mod tests {
             end}}
         "#).exec().unwrap();
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../mods/sf-unlock-blueprints/src/mod.lua");
+            .join("../../../reference-mods-0.9/sf-unlock-blueprints/src/mod.lua");
         lua.load(std::fs::read_to_string(path).unwrap())
             .exec()
             .unwrap();
