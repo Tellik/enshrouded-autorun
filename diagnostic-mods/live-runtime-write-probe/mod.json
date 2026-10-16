@@ -1,0 +1,11 @@
+{
+  "id": "sf-live-runtime-write-probe",
+  "name": "SF Typed Attribute Write Probe",
+  "version": "0.0.1",
+  "description": "Temporary controlled Stamina_Max_Adder +1 and restore probe using the existing typed Lua API.",
+  "authors": ["ShroudForge development"],
+  "capabilities": ["runtime"],
+  "dependencies": [],
+  "icon": null,
+  "license": null
+}

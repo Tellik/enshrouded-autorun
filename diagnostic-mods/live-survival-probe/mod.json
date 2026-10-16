@@ -1,0 +1,1 @@
+{"id":"sf-live-survival-probe","name":"SF Survival API observer","version":"1.0.0","description":"Temporary read-only observation of public runtime bindings.","authors":["bonsaibauer"],"capabilities":["runtime"],"dependencies":[]}
