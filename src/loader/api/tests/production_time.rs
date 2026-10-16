@@ -30,7 +30,7 @@ fn check(snapshot: serde_json::Value) -> mlua::Result<()> {
     let lua = Lua::new();
     lua.globals().set("snapshot", convert(&lua, &snapshot)?)?;
     let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../mods/sf-production-time/src/mod.lua");
+        .join("../../../reference-mods-0.9/sf-production-time/src/mod.lua");
     lua.globals()
         .set("source", std::fs::read_to_string(source).unwrap())?;
     lua.load(r#"
@@ -169,8 +169,8 @@ fn production_time_real_kfc_roundtrip_on_isolated_copy() -> Result<(), Box<dyn s
         let name = format!("{stem}.{extension}");
         std::fs::copy(source.join(&name), root.join(name))?;
     }
-    let package =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../mods/sf-production-time");
+    let package = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../reference-mods-0.9/sf-production-time");
     let destination = root.join("mods/sf-production-time");
     std::fs::create_dir_all(destination.join("src"))?;
     for name in ["mod.json", "src/mod.lua"] {

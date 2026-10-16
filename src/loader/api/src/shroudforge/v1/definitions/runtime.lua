@@ -521,7 +521,6 @@ function runtime.ecs.get_components() end
 ---@class RuntimeEcsCatalogEntry
 ---@field type Type Canonical reflected type from the current parser registry.
 ---@field qualified_name string Exact reflected type name.
----@field qualified_hash integer Qualified reflection identity, not a registration index.
 ---@field size integer Reflected storage size in bytes.
 ---@field registered boolean This exact type occurs as runtime or template layout in the validated registry.
 ---@field runtime_resolved boolean The provider resolves a matching entity storage layout, independent of entity access readiness.

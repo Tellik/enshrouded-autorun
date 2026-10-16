@@ -1,5 +1,5 @@
 {
-  "version": "1.6.5",
+  "version": "1.6.8",
   "symbols": [
     {
       "kind": "field",
@@ -184,6 +184,310 @@
         }
       ],
       "description": "Returns a list of all resources with the given type.",
+      "errors": "",
+      "example": "",
+      "source": "eml/v1/definitions/assets/manager.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "game",
+      "name": "game.assets.get_loaded_resource",
+      "signature": "game.assets.get_loaded_resource(guid, type, part)",
+      "params": [
+        {
+          "name": "guid",
+          "type": "Guid",
+          "description": "The unique identifier of the resource."
+        },
+        {
+          "name": "type",
+          "type": "string|Type",
+          "description": "The qualified type name of the resource."
+        },
+        {
+          "name": "part",
+          "type": "u32?",
+          "description": "The part number, defaulting to 0."
+        }
+      ],
+      "returns": [
+        "Resource?"
+      ],
+      "returnDetails": [
+        {
+          "type": "Resource?",
+          "name": "",
+          "description": "The matching live resource, if it is loaded."
+        }
+      ],
+      "description": "Returns one resource from the game's live ResourceService by guid, type, and part. This function is available in the ingame phase and returns read-only resource data. The returned session_id binds writes to the creation world. Menu snapshots have session_id=0 and cannot be written.",
+      "errors": "",
+      "example": "",
+      "source": "eml/v1/definitions/assets/manager.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "game",
+      "name": "game.assets.get_loaded_resources_by_type",
+      "signature": "game.assets.get_loaded_resources_by_type(type)",
+      "params": [
+        {
+          "name": "type",
+          "type": "string|Type",
+          "description": "The qualified type name of the resources."
+        }
+      ],
+      "returns": [
+        "Resource[]"
+      ],
+      "returnDetails": [
+        {
+          "type": "Resource[]",
+          "name": "",
+          "description": "The matching live resources."
+        }
+      ],
+      "description": "Returns live resources from the game's ResourceService that match the given type. This function is available in the ingame phase and returns read-only resource data.",
+      "errors": "",
+      "example": "",
+      "source": "eml/v1/definitions/assets/manager.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "eml",
+      "name": "LoadedResourceIndexProgress.session_id",
+      "signature": "LoadedResourceIndexProgress.session_id: integer",
+      "params": [],
+      "returns": [
+        "integer"
+      ],
+      "description": "Captured world session, including zero for read-only menu lookup.",
+      "owner": "LoadedResourceIndexProgress",
+      "owner_description": "",
+      "source": "eml/v1/definitions/assets/manager.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "eml",
+      "name": "LoadedResourceIndexProgress.scanned",
+      "signature": "LoadedResourceIndexProgress.scanned: integer",
+      "params": [],
+      "returns": [
+        "integer"
+      ],
+      "description": "Payloads indexed so far.",
+      "owner": "LoadedResourceIndexProgress",
+      "owner_description": "",
+      "source": "eml/v1/definitions/assets/manager.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "eml",
+      "name": "LoadedResourceIndexProgress.total",
+      "signature": "LoadedResourceIndexProgress.total: integer",
+      "params": [],
+      "returns": [
+        "integer"
+      ],
+      "description": "ResourceIds in the captured type listing.",
+      "owner": "LoadedResourceIndexProgress",
+      "owner_description": "",
+      "source": "eml/v1/definitions/assets/manager.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "eml",
+      "name": "LoadedResourceIndexProgress.payload_reads",
+      "signature": "LoadedResourceIndexProgress.payload_reads: integer",
+      "params": [],
+      "returns": [
+        "integer"
+      ],
+      "description": "Payloads read this call, including fresh candidate confirmation, at most 64.",
+      "owner": "LoadedResourceIndexProgress",
+      "owner_description": "",
+      "source": "eml/v1/definitions/assets/manager.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "eml",
+      "name": "LoadedResourceIndexProgress.complete",
+      "signature": "LoadedResourceIndexProgress.complete: boolean",
+      "params": [],
+      "returns": [
+        "boolean"
+      ],
+      "description": "Whether the whole captured listing has been indexed.",
+      "owner": "LoadedResourceIndexProgress",
+      "owner_description": "",
+      "source": "eml/v1/definitions/assets/manager.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "eml",
+      "name": "LoadedResourceIndexProgress.phase",
+      "signature": "LoadedResourceIndexProgress.phase: 'indexing'|'confirming'|'complete'",
+      "params": [],
+      "returns": [
+        "'indexing'|'confirming'|'complete'"
+      ],
+      "description": "Retry indexing and confirming from a later update.",
+      "owner": "LoadedResourceIndexProgress",
+      "owner_description": "",
+      "source": "eml/v1/definitions/assets/manager.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "game",
+      "name": "game.assets.get_loaded_resource_by_field",
+      "signature": "game.assets.get_loaded_resource_by_field(type, field_path, value)",
+      "params": [
+        {
+          "name": "type",
+          "type": "string|Type",
+          "description": "Qualified resource type name or reflected Type."
+        },
+        {
+          "name": "field_path",
+          "type": "string",
+          "description": "Fixed inline scalar path, at most 1024 bytes."
+        },
+        {
+          "name": "value",
+          "type": "integer|number|string",
+          "description": "Scalar value, or an original enum name."
+        }
+      ],
+      "returns": [
+        "Resource?",
+        "string? reason Pending",
+        "missing",
+        "ambiguous or unavailable explanation.",
+        "LoadedResourceIndexProgress?"
+      ],
+      "returnDetails": [
+        {
+          "type": "Resource?",
+          "name": "resource",
+          "description": "Freshly confirmed unique candidate."
+        },
+        {
+          "type": "string? reason Pending",
+          "name": "",
+          "description": ""
+        },
+        {
+          "type": "missing",
+          "name": "",
+          "description": ""
+        },
+        {
+          "type": "ambiguous or unavailable explanation.",
+          "name": "",
+          "description": ""
+        },
+        {
+          "type": "LoadedResourceIndexProgress?",
+          "name": "progress",
+          "description": "Absent when validation or resource access fails."
+        }
+      ],
+      "description": "Resolve a unique loaded resource by one reflected scalar field, without a per-mod index. Ingame phase only. Menu session zero is readable and never authorizes writes. The field must be fixed inline storage, aligned and exactly 32 bits: integer, finite float or enum. Nested structs, typedefs and one-based static array elements are supported. Blob/DS traversal and references are rejected. Values use the existing typed codec, including enum names and exact Float32 bits. Positive and negative zero are distinct. Each call reads at most 64 payloads. No candidate is returned before the entire captured type listing has been indexed. Retry while progress.phase is indexing or confirming. Complete missing and ambiguous results return nil and a reason. All mods share at most 16 indexes keyed by session, type and path. Successful resource writes invalidate them. Missing and ambiguous indexes refresh after two seconds. A changed candidate discards its index immediately. A successful lookup rereads the candidate and returns a Resource preserving those confirmed bytes and captured session. Uniqueness refers to the completed index snapshot. Concurrent resource additions or changes elsewhere are not a transaction.",
+      "errors": "",
+      "example": "",
+      "source": "eml/v1/definitions/assets/manager.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "game",
+      "name": "game.assets.read_loaded_field",
+      "signature": "game.assets.read_loaded_field(resource, field_path)",
+      "params": [
+        {
+          "name": "resource",
+          "type": "Resource",
+          "description": "Loaded-runtime snapshot."
+        },
+        {
+          "name": "field_path",
+          "type": "string",
+          "description": "Value supplied for the field_path parameter.",
+          "description_de": "Wert für den Parameter field_path."
+        }
+      ],
+      "returns": [
+        "unknown?",
+        "string?",
+        "Type?"
+      ],
+      "returnDetails": [
+        {
+          "type": "unknown?",
+          "name": "value",
+          "description": "May be false or zero."
+        },
+        {
+          "type": "string?",
+          "name": "reason",
+          "description": ""
+        },
+        {
+          "type": "Type?",
+          "name": "type",
+          "description": "Exact reflected scalar type for encode/decode."
+        }
+      ],
+      "description": "Read one aligned 32-bit scalar and its reflected type from an immutable loaded resource snapshot. Uses the exact field codec as write_loaded_field, including owned BlobArray indices and BlobVariant.value. This performs no new process read. In particular, it can inspect the writer's confirmed returned snapshot.",
+      "errors": "",
+      "example": "",
+      "source": "eml/v1/definitions/assets/manager.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "game",
+      "name": "game.assets.write_loaded_field",
+      "signature": "game.assets.write_loaded_field(resource, field_path, value, expected)",
+      "params": [
+        {
+          "name": "resource",
+          "type": "Resource",
+          "description": "A loaded-runtime Resource from the current ResourceService."
+        },
+        {
+          "name": "field_path",
+          "type": "string",
+          "description": "Value supplied for the field_path parameter.",
+          "description_de": "Wert für den Parameter field_path."
+        },
+        {
+          "name": "value",
+          "type": "unknown",
+          "description": "Value this function converts, checks, reads, or writes.",
+          "description_de": "Wert, den diese Funktion umwandelt, prüft, liest oder schreibt."
+        },
+        {
+          "name": "expected",
+          "type": "unknown?",
+          "description": "Optional expected current scalar."
+        }
+      ],
+      "returns": [
+        "Resource?",
+        "string?"
+      ],
+      "returnDetails": [
+        {
+          "type": "Resource?",
+          "name": "updated",
+          "description": "New Resource preserving the independently verified snapshot."
+        },
+        {
+          "type": "string?",
+          "name": "reason",
+          "description": ""
+        }
+      ],
+      "description": "Atomically update one reflected 32-bit scalar in a loaded resource. Requires runtime.assets.write, runtime.ecs.write authority and an active ingame mod with Runtime capability. The loaded Resource must originate from the same nonzero current world session. Menu and prior-world snapshots cannot write. Paths use reflected field names, one-based owned BlobArray indices and BlobVariant.value. Only one aligned float, integer or 32-bit enum is supported. References and container descriptors are rejected. The current scalar is compared again before writing. Without expected, this Resource's complete immutable source snapshot is required to match. An explicit expected value checks caller intent instead of that source scalar. The native original engine gates also compare the complete fresh resource snapshot, preserving the selected variant and descriptor layout. Success includes an independent complete native readback under the original engine gates. The returned Resource preserves those verified bytes. Existing Resource snapshots remain unchanged. This does not publish notifications or guarantee that the engine consumes this field. A genuinely uncertain native outcome blocks public writes in the original session. Stop retries and restoration. A later independent observation or world change cannot turn that confirmed native result into a failed write.",
       "errors": "",
       "example": "",
       "source": "eml/v1/definitions/assets/manager.lua"
@@ -417,6 +721,48 @@
         "u32"
       ],
       "description": "The part number of the asset, which is used for assets that are split into multiple parts.",
+      "owner": "Resource",
+      "owner_description": "Represents a specific resource in the game, identified by its guid, type, and part.",
+      "source": "eml/v1/definitions/assets/resource.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "game",
+      "name": "Resource.source",
+      "signature": "Resource.source: string",
+      "params": [],
+      "returns": [
+        "string"
+      ],
+      "description": "`kfc-file`, `asset-transaction`, or `loaded-runtime`.",
+      "owner": "Resource",
+      "owner_description": "Represents a specific resource in the game, identified by its guid, type, and part.",
+      "source": "eml/v1/definitions/assets/resource.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "game",
+      "name": "Resource.loaded",
+      "signature": "Resource.loaded: boolean",
+      "params": [],
+      "returns": [
+        "boolean"
+      ],
+      "description": "True when the resource came from the game's live ResourceService.",
+      "owner": "Resource",
+      "owner_description": "Represents a specific resource in the game, identified by its guid, type, and part.",
+      "source": "eml/v1/definitions/assets/resource.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "game",
+      "name": "Resource.session_id",
+      "signature": "Resource.session_id: integer?",
+      "params": [],
+      "returns": [
+        "integer?"
+      ],
+      "description": "Creation world session for loaded-runtime snapshots, zero for menu snapshots, nil for file/transaction resources.",
       "owner": "Resource",
       "owner_description": "Represents a specific resource in the game, identified by its guid, type, and part.",
       "source": "eml/v1/definitions/assets/resource.lua"
@@ -21714,6 +22060,34 @@
     {
       "kind": "field",
       "namespace": "runtime",
+      "name": "runtime.services",
+      "signature": "runtime.services: RuntimeServicesApi",
+      "params": [],
+      "returns": [
+        "RuntimeServicesApi"
+      ],
+      "description": "Reflected views of original named engine DI services with independently validated plain-data storage contracts.",
+      "owner": "RuntimeApi",
+      "owner_description": "The execution-facing part of the single ShroudForge API. Its shape is identical before and inside the game; `phase` and `has()` report availability.",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "runtime.overrides",
+      "signature": "runtime.overrides: RuntimeOverridesApi",
+      "params": [],
+      "returns": [
+        "RuntimeOverridesApi"
+      ],
+      "description": "Typed reversible changes with shared storage claims and automatic mod-scope cleanup.",
+      "owner": "RuntimeApi",
+      "owner_description": "The execution-facing part of the single ShroudForge API. Its shape is identical before and inside the game; `phase` and `has()` report availability.",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
       "name": "runtime.report_effect",
       "signature": "runtime.report_effect: fun(state:'waiting'|'no-target'|'no-change'|'write-confirmed'|'write-failed', detail:string?):boolean,string?",
       "params": [],
@@ -21779,6 +22153,935 @@
       "description": "Minimum 8, maximum 1000, default 50. Missed intervals are not replayed.",
       "owner": "RuntimeLifecycle",
       "owner_description": "The execution-facing part of the single ShroudForge API. Its shape is identical before and inside the game; `phase` and `has()` report availability.",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeOverrides.fault",
+      "signature": "RuntimeOverrides.fault: string?",
+      "params": [],
+      "returns": [
+        "string?"
+      ],
+      "description": "Uncertain outcome that prevents later helper writes.",
+      "owner": "RuntimeOverrides",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeOverrides.writes",
+      "signature": "RuntimeOverrides.writes: integer",
+      "params": [],
+      "returns": [
+        "integer"
+      ],
+      "description": "Confirmed writes in the current update.",
+      "owner": "RuntimeOverrides",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeOverrides.waiting_count",
+      "signature": "RuntimeOverrides.waiting_count: integer",
+      "params": [],
+      "returns": [
+        "integer"
+      ],
+      "description": "Operations waiting for a valid snapshot or safe restore.",
+      "owner": "RuntimeOverrides",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeOverrides.details",
+      "signature": "RuntimeOverrides.details: table<string,",
+      "params": [],
+      "returns": [
+        "table<string,"
+      ],
+      "description": "boolean> Distinct waiting details for the current update.",
+      "owner": "RuntimeOverrides",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "runtime.overrides.new",
+      "signature": "runtime.overrides.new()",
+      "params": [],
+      "returns": [
+        "RuntimeOverrides"
+      ],
+      "returnDetails": [
+        {
+          "type": "RuntimeOverrides",
+          "name": "",
+          "description": ""
+        }
+      ],
+      "description": "Create an independent ownership tracker for this mod instance.",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "RuntimeWriteClaim:acquire",
+      "signature": "RuntimeWriteClaim:acquire()",
+      "params": [],
+      "returns": [
+        "boolean",
+        "string?"
+      ],
+      "returnDetails": [
+        {
+          "type": "boolean",
+          "name": "acquired",
+          "description": ""
+        },
+        {
+          "type": "string?",
+          "name": "reason",
+          "description": ""
+        }
+      ],
+      "description": "",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "RuntimeWriteClaim:release",
+      "signature": "RuntimeWriteClaim:release()",
+      "params": [],
+      "returns": [],
+      "returnDetails": [],
+      "description": "",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeOverrideTarget.key",
+      "signature": "RuntimeOverrideTarget.key: string",
+      "params": [],
+      "returns": [
+        "string"
+      ],
+      "description": "Stable target identity used by apply. Do not replace this key.",
+      "owner": "RuntimeOverrideTarget",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeOverrideTarget.claim",
+      "signature": "RuntimeOverrideTarget.claim: RuntimeWriteClaim",
+      "params": [],
+      "returns": [
+        "RuntimeWriteClaim"
+      ],
+      "description": "Original storage claim bound to this mod and world.",
+      "owner": "RuntimeOverrideTarget",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeOverrideTarget.shared",
+      "signature": "RuntimeOverrideTarget.shared: boolean?",
+      "params": [],
+      "returns": [
+        "boolean?"
+      ],
+      "description": "Whether the stored input is shared by world participants.",
+      "owner": "RuntimeOverrideTarget",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeOverrideTarget.read",
+      "signature": "RuntimeOverrideTarget.read: fun():table?,string?",
+      "params": [],
+      "returns": [
+        "fun():table?,string?"
+      ],
+      "description": "Returns the owned observed scalar plus dependent values.",
+      "owner": "RuntimeOverrideTarget",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeOverrideTarget.write",
+      "signature": "RuntimeOverrideTarget.write: fun(snapshot:table,value:unknown):boolean,unknown,string?,unknown",
+      "params": [],
+      "returns": [
+        "fun(snapshot:table,value:unknown):boolean,unknown,string?,unknown"
+      ],
+      "description": "Uses the guarded public writer and its confirmed result.",
+      "owner": "RuntimeOverrideTarget",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeOverrideTarget.normalize",
+      "signature": "RuntimeOverrideTarget.normalize: fun(snapshot:table,value:unknown):unknown?,string?",
+      "params": [],
+      "returns": [
+        "fun(snapshot:table,value:unknown):unknown?,string?"
+      ],
+      "description": "Applies the original scalar encoding or attribute program.",
+      "owner": "RuntimeOverrideTarget",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "runtime.overrides.attribute",
+      "signature": "runtime.overrides.attribute(entity, selector)",
+      "params": [
+        {
+          "name": "entity",
+          "type": "integer",
+          "description": "Opaque entity handle returned by runtime.ecs.query.",
+          "description_de": "Opaker Entity-Handle aus runtime.ecs.query."
+        },
+        {
+          "name": "selector",
+          "type": "string|integer",
+          "description": "Original attribute name or stored ID."
+        }
+      ],
+      "returns": [
+        "RuntimeOverrideTarget?",
+        "string?"
+      ],
+      "returnDetails": [
+        {
+          "type": "RuntimeOverrideTarget?",
+          "name": "target",
+          "description": ""
+        },
+        {
+          "type": "string?",
+          "name": "reason",
+          "description": ""
+        }
+      ],
+      "description": "Bind an original named attribute on one current entity. Full root values guard dependent inputs.",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "runtime.overrides.component",
+      "signature": "runtime.overrides.component(entity, component, path, expected_paths)",
+      "params": [
+        {
+          "name": "entity",
+          "type": "integer",
+          "description": "Opaque entity handle returned by runtime.ecs.query.",
+          "description_de": "Opaker Entity-Handle aus runtime.ecs.query."
+        },
+        {
+          "name": "component",
+          "type": "TypeSelector",
+          "description": "Component name or Type from the current reflected registry.",
+          "description_de": "Komponentenname oder Type aus dem aktuellen Register."
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "description": "Path relative to this mod's package folder.",
+          "description_de": "Pfad relativ zum Paketordner dieses Mods."
+        },
+        {
+          "name": "expected_paths",
+          "type": "string[]?",
+          "description": "Additional fields used to calculate the target."
+        }
+      ],
+      "returns": [
+        "RuntimeOverrideTarget?",
+        "string?"
+      ],
+      "returnDetails": [
+        {
+          "type": "RuntimeOverrideTarget?",
+          "name": "target",
+          "description": ""
+        },
+        {
+          "type": "string?",
+          "name": "reason",
+          "description": ""
+        }
+      ],
+      "description": "Bind one inline scalar. The original component/root calculator remains authoritative.",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "runtime.overrides.resource",
+      "signature": "runtime.overrides.resource(resource, path)",
+      "params": [
+        {
+          "name": "resource",
+          "type": "Resource",
+          "description": "Current loaded resource snapshot."
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "description": "Reflected aligned 32-bit scalar path."
+        }
+      ],
+      "returns": [
+        "RuntimeOverrideTarget?",
+        "string?"
+      ],
+      "returnDetails": [
+        {
+          "type": "RuntimeOverrideTarget?",
+          "name": "target",
+          "description": ""
+        },
+        {
+          "type": "string?",
+          "name": "reason",
+          "description": ""
+        }
+      ],
+      "description": "",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "runtime.overrides.template",
+      "signature": "runtime.overrides.template(view, path, expected_paths)",
+      "params": [
+        {
+          "name": "view",
+          "type": "RuntimeTemplateComponent",
+          "description": "Value supplied for the view parameter.",
+          "description_de": "Wert für den Parameter view."
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "description": "Path relative to this mod's package folder.",
+          "description_de": "Pfad relativ zum Paketordner dieses Mods."
+        },
+        {
+          "name": "expected_paths",
+          "type": "string[]?",
+          "description": "Value supplied for the expected_paths parameter.",
+          "description_de": "Wert für den Parameter expected_paths."
+        }
+      ],
+      "returns": [
+        "RuntimeOverrideTarget?",
+        "string?"
+      ],
+      "returnDetails": [
+        {
+          "type": "RuntimeOverrideTarget?",
+          "name": "target",
+          "description": ""
+        },
+        {
+          "type": "string?",
+          "name": "reason",
+          "description": ""
+        }
+      ],
+      "description": "",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "runtime.overrides.service",
+      "signature": "runtime.overrides.service(view, path, expected_paths)",
+      "params": [
+        {
+          "name": "view",
+          "type": "RuntimeService",
+          "description": "Value supplied for the view parameter.",
+          "description_de": "Wert für den Parameter view."
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "description": "Path relative to this mod's package folder.",
+          "description_de": "Pfad relativ zum Paketordner dieses Mods."
+        },
+        {
+          "name": "expected_paths",
+          "type": "string[]?",
+          "description": "Value supplied for the expected_paths parameter.",
+          "description_de": "Wert für den Parameter expected_paths."
+        }
+      ],
+      "returns": [
+        "RuntimeOverrideTarget?",
+        "string?"
+      ],
+      "returnDetails": [
+        {
+          "type": "RuntimeOverrideTarget?",
+          "name": "target",
+          "description": ""
+        },
+        {
+          "type": "string?",
+          "name": "reason",
+          "description": ""
+        }
+      ],
+      "description": "",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "runtime.overrides.get_component_claim",
+      "signature": "runtime.overrides.get_component_claim(entity, component)",
+      "params": [],
+      "returns": [
+        "RuntimeWriteClaim?",
+        "string?"
+      ],
+      "returnDetails": [
+        {
+          "type": "RuntimeWriteClaim?",
+          "name": "claim",
+          "description": ""
+        },
+        {
+          "type": "string?",
+          "name": "reason",
+          "description": ""
+        }
+      ],
+      "description": "Advanced custom targets must obtain a claim from these same canonical factories.",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "runtime.overrides.get_resource_claim",
+      "signature": "runtime.overrides.get_resource_claim(resource)",
+      "params": [],
+      "returns": [
+        "RuntimeWriteClaim?",
+        "string?"
+      ],
+      "returnDetails": [
+        {
+          "type": "RuntimeWriteClaim?",
+          "name": "claim",
+          "description": ""
+        },
+        {
+          "type": "string?",
+          "name": "reason",
+          "description": ""
+        }
+      ],
+      "description": "",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "runtime.overrides.get_template_claim",
+      "signature": "runtime.overrides.get_template_claim(view)",
+      "params": [],
+      "returns": [
+        "RuntimeWriteClaim?",
+        "string?"
+      ],
+      "returnDetails": [
+        {
+          "type": "RuntimeWriteClaim?",
+          "name": "claim",
+          "description": ""
+        },
+        {
+          "type": "string?",
+          "name": "reason",
+          "description": ""
+        }
+      ],
+      "description": "",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "runtime.overrides.get_service_claim",
+      "signature": "runtime.overrides.get_service_claim(view)",
+      "params": [],
+      "returns": [
+        "RuntimeWriteClaim?",
+        "string?"
+      ],
+      "returnDetails": [
+        {
+          "type": "RuntimeWriteClaim?",
+          "name": "claim",
+          "description": ""
+        },
+        {
+          "type": "string?",
+          "name": "reason",
+          "description": ""
+        }
+      ],
+      "description": "",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "RuntimeOverrides:begin_update",
+      "signature": "RuntimeOverrides:begin_update()",
+      "params": [],
+      "returns": [],
+      "returnDetails": [],
+      "description": "Reset per-update counters and selections. Validated world changes discard old entity state. Unrestored shared inputs retain their claims and fault until restart.",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "RuntimeOverrides:waiting",
+      "signature": "RuntimeOverrides:waiting(reason)",
+      "params": [
+        {
+          "name": "reason",
+          "type": "string",
+          "description": "Value supplied for the reason parameter.",
+          "description_de": "Wert für den Parameter reason."
+        }
+      ],
+      "returns": [],
+      "returnDetails": [],
+      "description": "Record an unavailable or conflicting operation without treating it as a write.",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "RuntimeOverrides:apply",
+      "signature": "RuntimeOverrides:apply(key, setting, adapter, desired, shared)",
+      "params": [
+        {
+          "name": "key",
+          "type": "string",
+          "description": "Target key. A typed target's canonical key takes precedence."
+        },
+        {
+          "name": "setting",
+          "type": "string",
+          "description": "Setting name used by restore_disabled."
+        },
+        {
+          "name": "adapter",
+          "type": "RuntimeOverrideTarget",
+          "description": "Typed reader/writer with an API ownership claim."
+        },
+        {
+          "name": "desired",
+          "type": "fun(snapshot:table, baseline:unknown)",
+          "description": "Value supplied for the desired parameter.",
+          "description_de": "Wert für den Parameter desired."
+        },
+        {
+          "name": "shared",
+          "type": "boolean?",
+          "description": "True when all world participants share this stored value."
+        }
+      ],
+      "returns": [],
+      "returnDetails": [],
+      "description": "Apply one owned reversible setting. adapter.read returns {value=..., values=...}; adapter.write must compare its observed snapshot and return applied, actual, reason, canonical. The helper preserves the first baseline, detects external edits, and reports uncertain writes without blindly retrying them.",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "RuntimeOverrides:restore_disabled",
+      "signature": "RuntimeOverrides:restore_disabled(enabled)",
+      "params": [
+        {
+          "name": "enabled",
+          "type": "fun(setting:string)",
+          "description": "True to enable the patch, false to restore its original bytes.",
+          "description_de": "True aktiviert den Patch, false stellt die ursprünglichen Bytes wieder her."
+        }
+      ],
+      "returns": [],
+      "returnDetails": [],
+      "description": "Restore values whose settings are disabled, preserving conflicts and retryable busy states.",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "RuntimeOverrides:restore_all",
+      "signature": "RuntimeOverrides:restore_all()",
+      "params": [],
+      "returns": [],
+      "returnDetails": [],
+      "description": "Restore every still-owned value through its original adapter.",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "RuntimeOverrides:restore_unused",
+      "signature": "RuntimeOverrides:restore_unused()",
+      "params": [],
+      "returns": [],
+      "returnDetails": [],
+      "description": "Restore dynamic targets not selected by apply since begin_update, such as a glider no longer used.",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "RuntimeOverrides:has_ownership",
+      "signature": "RuntimeOverrides:has_ownership()",
+      "params": [],
+      "returns": [
+        "boolean"
+      ],
+      "returnDetails": [
+        {
+          "type": "boolean",
+          "name": "",
+          "description": ""
+        }
+      ],
+      "description": "",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "RuntimeOverrides:has_shared_ownership",
+      "signature": "RuntimeOverrides:has_shared_ownership()",
+      "params": [],
+      "returns": [
+        "boolean"
+      ],
+      "returnDetails": [
+        {
+          "type": "boolean",
+          "name": "",
+          "description": ""
+        }
+      ],
+      "description": "",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "RuntimeOverrides:reset",
+      "signature": "RuntimeOverrides:reset()",
+      "params": [],
+      "returns": [
+        "boolean",
+        "string?"
+      ],
+      "returnDetails": [
+        {
+          "type": "boolean",
+          "name": "reset",
+          "description": ""
+        },
+        {
+          "type": "string?",
+          "name": "reason",
+          "description": ""
+        }
+      ],
+      "description": "Forget expired entity ownership. Refuses to discard unrestored shared ownership.",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "RuntimeOverrides:summary",
+      "signature": "RuntimeOverrides:summary(message)",
+      "params": [
+        {
+          "name": "message",
+          "type": "string",
+          "description": "Value supplied for the message parameter.",
+          "description_de": "Wert für den Parameter message."
+        }
+      ],
+      "returns": [
+        "string"
+      ],
+      "returnDetails": [
+        {
+          "type": "string",
+          "name": "",
+          "description": ""
+        }
+      ],
+      "description": "",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeService.key",
+      "signature": "RuntimeService.key: string",
+      "params": [],
+      "returns": [
+        "string"
+      ],
+      "description": "Exact original DI name, for example ecs::GameSettings.",
+      "owner": "RuntimeService",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeService.type",
+      "signature": "RuntimeService.type: Type",
+      "params": [],
+      "returns": [
+        "Type"
+      ],
+      "description": "Corresponding qualified reflected type, for example keen::ecs::GameSettings.",
+      "owner": "RuntimeService",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeService.scope",
+      "signature": "RuntimeService.scope: 'host-world-shared'",
+      "params": [],
+      "returns": [
+        "'host-world-shared'"
+      ],
+      "description": "The authoritative world's consumers share this service.",
+      "owner": "RuntimeService",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeService.session_id",
+      "signature": "RuntimeService.session_id: integer",
+      "params": [],
+      "returns": [
+        "integer"
+      ],
+      "description": "The original nonzero world session. Views cannot authorize another session.",
+      "owner": "RuntimeService",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeService.write_supported",
+      "signature": "RuntimeService.write_supported: boolean",
+      "params": [],
+      "returns": [
+        "boolean"
+      ],
+      "description": "A successful view has an original mutable plain-data binding. A current Scene gate, capability and unfaulted session are still required for every write.",
+      "owner": "RuntimeService",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "runtime.services.get",
+      "signature": "runtime.services.get(key)",
+      "params": [
+        {
+          "name": "key",
+          "type": "string",
+          "description": "Original DI name without the keen:: prefix."
+        }
+      ],
+      "returns": [
+        "RuntimeService?",
+        "string?"
+      ],
+      "returnDetails": [
+        {
+          "type": "RuntimeService?",
+          "name": "service",
+          "description": ""
+        },
+        {
+          "type": "string?",
+          "name": "reason",
+          "description": ""
+        }
+      ],
+      "description": "Resolve an exact original service name through the engine's named registry and mutable system binding. All mods use the same reflection codec and expected-value write path. No feature name, RVA or hash belongs in a mod. Only independently validated inline plain-data contracts are admitted by the exact-image provider profile. Missing contracts, unreflected services, pointer-owning layouts and inactive or changing worlds return nil and a reason. Requires an active mod with runtime.ecs.read. Services currently require a local authoritative world.",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "RuntimeService:read_fields",
+      "signature": "RuntimeService:read_fields(paths)",
+      "params": [
+        {
+          "name": "paths",
+          "type": "string[]",
+          "description": "Nonempty dense array of distinct field paths, at most 1024 paths."
+        }
+      ],
+      "returns": [
+        "table<string",
+        "string?"
+      ],
+      "returnDetails": [
+        {
+          "type": "table<string",
+          "name": "",
+          "description": "unknown>? values"
+        },
+        {
+          "type": "string?",
+          "name": "reason",
+          "description": ""
+        }
+      ],
+      "description": "Read a fresh original service snapshot under the authoritative world's Scene and lifetime guards. Uses reflected inline field paths, including nesting and one-based static array indices.",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "RuntimeService:write_field",
+      "signature": "RuntimeService:write_field(path, value, expected, expected_fields)",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "description": "Reflected path relative to the service type."
+        },
+        {
+          "name": "value",
+          "type": "unknown",
+          "description": "Value compatible with the reflected inline field."
+        },
+        {
+          "name": "expected",
+          "type": "unknown",
+          "description": "Expected current field value, including false for boolean fields."
+        },
+        {
+          "name": "expected_fields",
+          "type": "table<string,",
+          "description": "unknown>? Nonempty map of at most 1024 service-relative expected fields."
+        }
+      ],
+      "returns": [
+        "boolean",
+        "string?"
+      ],
+      "returnDetails": [
+        {
+          "type": "boolean",
+          "name": "ok",
+          "description": ""
+        },
+        {
+          "type": "string?",
+          "name": "reason",
+          "description": ""
+        }
+      ],
+      "description": "Compare and write one reflected inline field, preserving all other service bytes. Requires runtime.ecs.write and the same current session. expected is mandatory. The provider compares the entire fresh service snapshot and confirms the result and binding while its original Scene gate is held. Optional expected_fields checks other service-relative input values before that full-snapshot CAS. A conflict changes nothing. Uncertain writes stop further writes in the session. Does not synthesize engine events, UI refreshes or persistence notifications.",
+      "errors": "",
+      "example": "",
       "source": "shroudforge/v1/definitions/runtime.lua"
     },
     {
@@ -22398,6 +23701,50 @@
     {
       "kind": "function",
       "namespace": "runtime",
+      "name": "runtime.values.normalize_field",
+      "signature": "runtime.values.normalize_field(type, path, value)",
+      "params": [
+        {
+          "name": "type",
+          "type": "TypeSelector",
+          "description": "Reflected root layout."
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "description": "Inline field path, including one-based static indices."
+        },
+        {
+          "name": "value",
+          "type": "unknown",
+          "description": "Value this function converts, checks, reads, or writes.",
+          "description_de": "Wert, den diese Funktion umwandelt, prüft, liest oder schreibt."
+        }
+      ],
+      "returns": [
+        "unknown?",
+        "string?"
+      ],
+      "returnDetails": [
+        {
+          "type": "unknown?",
+          "name": "canonical",
+          "description": ""
+        },
+        {
+          "type": "string?",
+          "name": "reason",
+          "description": ""
+        }
+      ],
+      "description": "Normalize an inline scalar through the exact reflected field codec used by runtime writers. This only uses owned bytes. Dynamic/reference fields and non-finite values are rejected.",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
       "name": "runtime.values.new",
       "signature": "runtime.values.new(type)",
       "params": [
@@ -22475,12 +23822,12 @@
       "kind": "field",
       "namespace": "runtime",
       "name": "RuntimeNativeBinding.engine_descriptors",
-      "signature": "RuntimeNativeBinding.engine_descriptors: table[]",
+      "signature": "RuntimeNativeBinding.engine_descriptors: RuntimeEngineDescriptor[]",
       "params": [],
       "returns": [
-        "table[]"
+        "RuntimeEngineDescriptor[]"
       ],
-      "description": "Original names and raw dependency-slot offsets from the executable.",
+      "description": "Original names and parser-resolved dependencies from the executable.",
       "owner": "RuntimeNativeBinding",
       "owner_description": "",
       "source": "shroudforge/v1/definitions/runtime.lua"
@@ -22682,6 +24029,384 @@
       "source": "shroudforge/v1/definitions/runtime.lua"
     },
     {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEngineDescriptor.name",
+      "signature": "RuntimeEngineDescriptor.name: string",
+      "params": [],
+      "returns": [
+        "string"
+      ],
+      "description": "Original engine system name.",
+      "owner": "RuntimeEngineDescriptor",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEngineDescriptor.descriptor_rva",
+      "signature": "RuntimeEngineDescriptor.descriptor_rva: integer",
+      "params": [],
+      "returns": [
+        "integer"
+      ],
+      "description": "Descriptor address relative to the loaded executable.",
+      "owner": "RuntimeEngineDescriptor",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEngineDescriptor.dependency_slots",
+      "signature": "RuntimeEngineDescriptor.dependency_slots: RuntimeFunctionDependencySlot[]",
+      "params": [],
+      "returns": [
+        "RuntimeFunctionDependencySlot[]"
+      ],
+      "description": "Original descriptor offsets and dependency names.",
+      "owner": "RuntimeEngineDescriptor",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEngineDescriptor.dependency_resolution",
+      "signature": "RuntimeEngineDescriptor.dependency_resolution: table",
+      "params": [],
+      "returns": [
+        "table"
+      ],
+      "description": "Counts for reflected types and validated live registrations. Native signatures and access modes are reported separately.",
+      "owner": "RuntimeEngineDescriptor",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionDependencySlot.offset",
+      "signature": "RuntimeFunctionDependencySlot.offset: integer",
+      "params": [],
+      "returns": [
+        "integer"
+      ],
+      "description": "Original byte offset. All six dependency spans are preserved.",
+      "owner": "RuntimeFunctionDependencySlot",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionDependencySlot.entries",
+      "signature": "RuntimeFunctionDependencySlot.entries: string[]",
+      "params": [],
+      "returns": [
+        "string[]"
+      ],
+      "description": "Original dependency names.",
+      "owner": "RuntimeFunctionDependencySlot",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionDependencySlot.resolved_entries",
+      "signature": "RuntimeFunctionDependencySlot.resolved_entries: RuntimeFunctionDependency[]",
+      "params": [],
+      "returns": [
+        "RuntimeFunctionDependency[]"
+      ],
+      "description": "Parser identities joined to current runtime/template registration roles.",
+      "owner": "RuntimeFunctionDependencySlot",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionDependencySlot.access_mode",
+      "signature": "RuntimeFunctionDependencySlot.access_mode: 'read'|'write'|'configuration-read'|nil",
+      "params": [],
+      "returns": [
+        "'read'|'write'|'configuration-read'|nil"
+      ],
+      "description": "Only present with scheduler evidence for the exact executable.",
+      "owner": "RuntimeFunctionDependencySlot",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionDependencySlot.storage_role",
+      "signature": "RuntimeFunctionDependencySlot.storage_role: 'runtime'|'template'|nil",
+      "params": [],
+      "returns": [
+        "'runtime'|'template'|nil"
+      ],
+      "description": "Original registry namespace used by the system builder.",
+      "owner": "RuntimeFunctionDependencySlot",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionDependencySlot.system_record_mask_offset",
+      "signature": "RuntimeFunctionDependencySlot.system_record_mask_offset: integer?",
+      "params": [],
+      "returns": [
+        "integer?"
+      ],
+      "description": "Original system record mask offset, when proven.",
+      "owner": "RuntimeFunctionDependencySlot",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionDependencySlot.access_evidence",
+      "signature": "RuntimeFunctionDependencySlot.access_evidence: string?",
+      "params": [],
+      "returns": [
+        "string?"
+      ],
+      "description": "Exact-image original scheduler investigation.",
+      "owner": "RuntimeFunctionDependencySlot",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionDependencySlot.optionality",
+      "signature": "RuntimeFunctionDependencySlot.optionality: nil",
+      "params": [],
+      "returns": [
+        "nil"
+      ],
+      "description": "Optional versus required dependencies remain unproven.",
+      "owner": "RuntimeFunctionDependencySlot",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionDependency.name",
+      "signature": "RuntimeFunctionDependency.name: string",
+      "params": [],
+      "returns": [
+        "string"
+      ],
+      "description": "Original dependency name.",
+      "owner": "RuntimeFunctionDependency",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionDependency.qualified_name",
+      "signature": "RuntimeFunctionDependency.qualified_name: string",
+      "params": [],
+      "returns": [
+        "string"
+      ],
+      "description": "Exact parser type name.",
+      "owner": "RuntimeFunctionDependency",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionDependency.type",
+      "signature": "RuntimeFunctionDependency.type: Type?",
+      "params": [],
+      "returns": [
+        "Type?"
+      ],
+      "description": "The canonical reflected Type object, including fields, inheritance, alignment and defaults.",
+      "owner": "RuntimeFunctionDependency",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionDependency.reflection_resolved",
+      "signature": "RuntimeFunctionDependency.reflection_resolved: boolean",
+      "params": [],
+      "returns": [
+        "boolean"
+      ],
+      "description": "Exact parser identity and inheritance are valid.",
+      "owner": "RuntimeFunctionDependency",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionDependency.registration_resolved",
+      "signature": "RuntimeFunctionDependency.registration_resolved: boolean",
+      "params": [],
+      "returns": [
+        "boolean"
+      ],
+      "description": "Exactly one live registration matches the parser names, hashes and sizes.",
+      "owner": "RuntimeFunctionDependency",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionDependency.registrations",
+      "signature": "RuntimeFunctionDependency.registrations: RuntimeFunctionRegistration[]",
+      "params": [],
+      "returns": [
+        "RuntimeFunctionRegistration[]"
+      ],
+      "description": "All live associations. An ambiguous or invalid relation remains inspectable.",
+      "owner": "RuntimeFunctionDependency",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionDependency.reason",
+      "signature": "RuntimeFunctionDependency.reason: string?",
+      "params": [],
+      "returns": [
+        "string?"
+      ],
+      "description": "Why reflection or live registration is unresolved.",
+      "owner": "RuntimeFunctionDependency",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionRegistration.index",
+      "signature": "RuntimeFunctionRegistration.index: integer",
+      "params": [],
+      "returns": [
+        "integer"
+      ],
+      "description": "Live component registration index.",
+      "owner": "RuntimeFunctionRegistration",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionRegistration.qualified_name",
+      "signature": "RuntimeFunctionRegistration.qualified_name: string",
+      "params": [],
+      "returns": [
+        "string"
+      ],
+      "description": "Original registration name, which can differ from its runtime storage type.",
+      "owner": "RuntimeFunctionRegistration",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionRegistration.roles",
+      "signature": "RuntimeFunctionRegistration.roles: ('registration'|'runtime'|'template')[]",
+      "params": [],
+      "returns": [
+        "('registration'|'runtime'|'template')[]"
+      ],
+      "description": "Roles of this dependency type in the registration.",
+      "owner": "RuntimeFunctionRegistration",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionRegistration.runtime_type",
+      "signature": "RuntimeFunctionRegistration.runtime_type: Type?",
+      "params": [],
+      "returns": [
+        "Type?"
+      ],
+      "description": "Actual entity storage layout, if present and validated.",
+      "owner": "RuntimeFunctionRegistration",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionRegistration.template_type",
+      "signature": "RuntimeFunctionRegistration.template_type: Type?",
+      "params": [],
+      "returns": [
+        "Type?"
+      ],
+      "description": "Configuration layout, if present and validated.",
+      "owner": "RuntimeFunctionRegistration",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionRegistration.runtime_size",
+      "signature": "RuntimeFunctionRegistration.runtime_size: integer?",
+      "params": [],
+      "returns": [
+        "integer?"
+      ],
+      "description": "Entity storage size.",
+      "owner": "RuntimeFunctionRegistration",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionRegistration.validated",
+      "signature": "RuntimeFunctionRegistration.validated: boolean",
+      "params": [],
+      "returns": [
+        "boolean"
+      ],
+      "description": "Parser identities, hashes and sizes agree with the live registration.",
+      "owner": "RuntimeFunctionRegistration",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionRegistration.reason",
+      "signature": "RuntimeFunctionRegistration.reason: string?",
+      "params": [],
+      "returns": [
+        "string?"
+      ],
+      "description": "Validation failure for this registration.",
+      "owner": "RuntimeFunctionRegistration",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
       "kind": "function",
       "namespace": "runtime",
       "name": "runtime.functions.list_native",
@@ -22755,6 +24480,50 @@
         }
       ],
       "description": "Alias of list_native.",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "runtime.functions.find",
+      "signature": "runtime.functions.find(options, offset, limit)",
+      "params": [
+        {
+          "name": "options",
+          "type": "{name:string?,component:TypeSelector?}?",
+          "description": "Optional settings for this request, such as channel, reliability, or result limit.",
+          "description_de": "Optionale Einstellungen für diese Anfrage, zum Beispiel Kanal, Zustellung oder Treffergrenze."
+        },
+        {
+          "name": "offset",
+          "type": "integer?",
+          "description": "Zero-based filtered offset, default 0."
+        },
+        {
+          "name": "limit",
+          "type": "integer?",
+          "description": "1..4096, default 256."
+        }
+      ],
+      "returns": [
+        "table?",
+        "string?"
+      ],
+      "returnDetails": [
+        {
+          "type": "table?",
+          "name": "page",
+          "description": ""
+        },
+        {
+          "type": "string?",
+          "name": "reason",
+          "description": ""
+        }
+      ],
+      "description": "Search the same complete inventory by an original function-name substring and/or reflected component. Component search includes registration names, runtime/template roles, system dependencies and owned callbacks. The returned page includes global dependency_resolution counts and the filtered count.",
       "errors": "",
       "example": "",
       "source": "shroudforge/v1/definitions/runtime.lua"
@@ -22897,6 +24666,62 @@
     {
       "kind": "field",
       "namespace": "runtime",
+      "name": "RuntimeFunctionModifier.backend_kind",
+      "signature": "RuntimeFunctionModifier.backend_kind: 'guarded-profile-patch'",
+      "params": [],
+      "returns": [
+        "'guarded-profile-patch'"
+      ],
+      "description": "Existing exact-build profile patch backend.",
+      "owner": "RuntimeFunctionModifier",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionModifier.execution",
+      "signature": "RuntimeFunctionModifier.execution: 'guarded-profile-patch'",
+      "params": [],
+      "returns": [
+        "'guarded-profile-patch'"
+      ],
+      "description": "Execution does not become a generic native function call.",
+      "owner": "RuntimeFunctionModifier",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionModifier.profile_required",
+      "signature": "RuntimeFunctionModifier.profile_required: boolean",
+      "params": [],
+      "returns": [
+        "boolean"
+      ],
+      "description": "True. A verified exact-build patch and unique owner association are required.",
+      "owner": "RuntimeFunctionModifier",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeFunctionModifier.native_callable",
+      "signature": "RuntimeFunctionModifier.native_callable: boolean",
+      "params": [],
+      "returns": [
+        "boolean"
+      ],
+      "description": "False. Modifier binding never grants a raw engine call.",
+      "owner": "RuntimeFunctionModifier",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
       "name": "RuntimeFunctionModifier.owner",
       "signature": "RuntimeFunctionModifier.owner: RuntimeNativeBinding",
       "params": [],
@@ -23007,7 +24832,7 @@
           "description": ""
         }
       ],
-      "description": "Resolve an intervention through its verified function and current KFC attribute definitions.",
+      "description": "Resolve an existing guarded profile patch through its verified owning function and current KFC attribute definitions.",
       "errors": "",
       "example": "",
       "source": "shroudforge/v1/definitions/runtime.lua"
@@ -23286,6 +25111,48 @@
         "boolean"
       ],
       "description": "True when the validated layout can be written by the current adapter.",
+      "owner": "RuntimeComponentRegistration",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeComponentRegistration.read_fields_available",
+      "signature": "RuntimeComponentRegistration.read_fields_available: boolean",
+      "params": [],
+      "returns": [
+        "boolean"
+      ],
+      "description": "Entity reads are ready. Each selected inline field is validated separately, including in a partial component.",
+      "owner": "RuntimeComponentRegistration",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeComponentRegistration.write_fields_available",
+      "signature": "RuntimeComponentRegistration.write_fields_available: boolean",
+      "params": [],
+      "returns": [
+        "boolean"
+      ],
+      "description": "This component is allowed by the current native write policy. Does not grant access to dynamic or reference descriptors.",
+      "owner": "RuntimeComponentRegistration",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeComponentRegistration.write_fields_reason",
+      "signature": "RuntimeComponentRegistration.write_fields_reason: string?",
+      "params": [],
+      "returns": [
+        "string?"
+      ],
+      "description": "Why the current component write policy is unavailable.",
       "owner": "RuntimeComponentRegistration",
       "owner_description": "",
       "source": "shroudforge/v1/definitions/runtime.lua"
@@ -23784,7 +25651,7 @@
           "description": ""
         }
       ],
-      "description": "Write exactly one checked storage element on the existing ECS dispatcher. Does not execute attribute calculation programs, publish events or recalculate dependencies. Conflicting integer signedness permits only the common nonnegative range; incompatible scalar representations reject writes.",
+      "description": "Updates one checked attribute input and recalculates its complete initialized root. Uses the same calculation and complete-snapshot CAS rules as write and write_fields for AttributeComponent subtypes. Header, root identity and storage descriptors are read-only. Requires an exact validated calculation profile. Conflicting integer signedness permits only the common nonnegative range; incompatible scalar representations reject writes.",
       "errors": "",
       "example": "",
       "source": "shroudforge/v1/definitions/runtime.lua"
@@ -23871,7 +25738,7 @@
       "kind": "function",
       "namespace": "runtime",
       "name": "runtime.ecs.update_attribute",
-      "signature": "runtime.ecs.update_attribute(entity, selector, value)",
+      "signature": "runtime.ecs.update_attribute(entity, selector, value, expected_values)",
       "params": [
         {
           "name": "entity",
@@ -23890,6 +25757,11 @@
           "type": "number",
           "description": "Numeric or structured value passed to this ECS operation.",
           "description_de": "Numerischer oder strukturierter Wert für diesen ECS-Vorgang."
+        },
+        {
+          "name": "expected_values",
+          "type": "table<string,",
+          "description": "number>? Expected original attribute names from the selected root only."
         }
       ],
       "returns": [
@@ -23914,7 +25786,7 @@
           "description": ""
         }
       ],
-      "description": "Set one attribute and recalculate its complete root. Requires an exact verified executable profile. The game-thread write rejects a changed snapshot and checks the entity generation and component layout. Applies locally; the engine owns replication. Does not forward client calls to the server. Signedness conflicts permit only common nonnegative input values and type-independent calculations.",
+      "description": "Set one attribute and recalculate its complete root. Requires an exact verified executable profile. The guarded write rejects a changed snapshot and checks the entity generation and component layout. Applies locally; the engine owns replication. Does not forward client calls to the server. Signedness conflicts permit only common nonnegative input values and type-independent calculations. Optional expected_values checks named values in this same root against the fresh snapshot before recalculation. A changed expected value rejects the update. The complete native component CAS still applies afterward.",
       "errors": "",
       "example": "",
       "source": "shroudforge/v1/definitions/runtime.lua"
@@ -23947,22 +25819,470 @@
       "source": "shroudforge/v1/definitions/runtime.lua"
     },
     {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsTypeRegistrationRole.role",
+      "signature": "RuntimeEcsTypeRegistrationRole.role: 'runtime'|'template'",
+      "params": [],
+      "returns": [
+        "'runtime'|'template'"
+      ],
+      "description": "Role of this exact reflected type in the engine registration.",
+      "owner": "RuntimeEcsTypeRegistrationRole",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsTypeRegistrationRole.index",
+      "signature": "RuntimeEcsTypeRegistrationRole.index: integer",
+      "params": [],
+      "returns": [
+        "integer"
+      ],
+      "description": "Engine registration index, distinct from the reflection type index.",
+      "owner": "RuntimeEcsTypeRegistrationRole",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsTypeRegistrationRole.qualified_name",
+      "signature": "RuntimeEcsTypeRegistrationRole.qualified_name: string",
+      "params": [],
+      "returns": [
+        "string"
+      ],
+      "description": "Original engine registration name.",
+      "owner": "RuntimeEcsTypeRegistrationRole",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalogEntry.type",
+      "signature": "RuntimeEcsCatalogEntry.type: Type",
+      "params": [],
+      "returns": [
+        "Type"
+      ],
+      "description": "Canonical reflected type from the current parser registry.",
+      "owner": "RuntimeEcsCatalogEntry",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalogEntry.qualified_name",
+      "signature": "RuntimeEcsCatalogEntry.qualified_name: string",
+      "params": [],
+      "returns": [
+        "string"
+      ],
+      "description": "Exact reflected type name.",
+      "owner": "RuntimeEcsCatalogEntry",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalogEntry.size",
+      "signature": "RuntimeEcsCatalogEntry.size: integer",
+      "params": [],
+      "returns": [
+        "integer"
+      ],
+      "description": "Reflected storage size in bytes.",
+      "owner": "RuntimeEcsCatalogEntry",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalogEntry.registered",
+      "signature": "RuntimeEcsCatalogEntry.registered: boolean",
+      "params": [],
+      "returns": [
+        "boolean"
+      ],
+      "description": "This exact type occurs as runtime or template layout in the validated registry.",
+      "owner": "RuntimeEcsCatalogEntry",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalogEntry.runtime_resolved",
+      "signature": "RuntimeEcsCatalogEntry.runtime_resolved: boolean",
+      "params": [],
+      "returns": [
+        "boolean"
+      ],
+      "description": "The provider resolves a matching entity storage layout, independent of entity access readiness.",
+      "owner": "RuntimeEcsCatalogEntry",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalogEntry.resolved",
+      "signature": "RuntimeEcsCatalogEntry.resolved: boolean",
+      "params": [],
+      "returns": [
+        "boolean"
+      ],
+      "description": "A runtime mapping or matching template registration is validated. Does not imply a live entity exists.",
+      "owner": "RuntimeEcsCatalogEntry",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalogEntry.registration_state",
+      "signature": "RuntimeEcsCatalogEntry.registration_state: 'registered'|'reflected-only'",
+      "params": [],
+      "returns": [
+        "'registered'|'reflected-only'"
+      ],
+      "description": "Reports observed engine registration separately from reflection.",
+      "owner": "RuntimeEcsCatalogEntry",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalogEntry.storage",
+      "signature": "RuntimeEcsCatalogEntry.storage: 'entity'|'template-only'|'unregistered'",
+      "params": [],
+      "returns": [
+        "'entity'|'template-only'|'unregistered'"
+      ],
+      "description": "Observed engine registry role. A provider fallback can resolve storage before the registry is available.",
+      "owner": "RuntimeEcsCatalogEntry",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalogEntry.registrations",
+      "signature": "RuntimeEcsCatalogEntry.registrations: RuntimeEcsTypeRegistrationRole[]",
+      "params": [],
+      "returns": [
+        "RuntimeEcsTypeRegistrationRole[]"
+      ],
+      "description": "Observed runtime/template relations for this reflected type.",
+      "owner": "RuntimeEcsCatalogEntry",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalogEntry.read_available",
+      "signature": "RuntimeEcsCatalogEntry.read_available: boolean",
+      "params": [],
+      "returns": [
+        "boolean"
+      ],
+      "description": "A component snapshot can currently be read. Nested value decoding can still be partial.",
+      "owner": "RuntimeEcsCatalogEntry",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalogEntry.write_available",
+      "signature": "RuntimeEcsCatalogEntry.write_available: boolean",
+      "params": [],
+      "returns": [
+        "boolean"
+      ],
+      "description": "Whole-value writes are ready, including the complete owned-value codec.",
+      "owner": "RuntimeEcsCatalogEntry",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalogEntry.read_fields_available",
+      "signature": "RuntimeEcsCatalogEntry.read_fields_available: boolean",
+      "params": [],
+      "returns": [
+        "boolean"
+      ],
+      "description": "Entity reads are ready. Selected field paths still require inline-layout validation.",
+      "owner": "RuntimeEcsCatalogEntry",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalogEntry.write_fields_available",
+      "signature": "RuntimeEcsCatalogEntry.write_fields_available: boolean",
+      "params": [],
+      "returns": [
+        "boolean"
+      ],
+      "description": "This component is allowed by the current native write policy, independently of complete-component codec support.",
+      "owner": "RuntimeEcsCatalogEntry",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalogEntry.write_fields_reason",
+      "signature": "RuntimeEcsCatalogEntry.write_fields_reason: string?",
+      "params": [],
+      "returns": [
+        "string?"
+      ],
+      "description": "Mod/API denial or component-specific write policy limitation.",
+      "owner": "RuntimeEcsCatalogEntry",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalogEntry.partial_value",
+      "signature": "RuntimeEcsCatalogEntry.partial_value: boolean",
+      "params": [],
+      "returns": [
+        "boolean"
+      ],
+      "description": "The complete value has an unsupported nested codec.",
+      "owner": "RuntimeEcsCatalogEntry",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalogEntry.value_reason",
+      "signature": "RuntimeEcsCatalogEntry.value_reason: string?",
+      "params": [],
+      "returns": [
+        "string?"
+      ],
+      "description": "Why the complete owned-value codec is unavailable.",
+      "owner": "RuntimeEcsCatalogEntry",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalogEntry.read_reason",
+      "signature": "RuntimeEcsCatalogEntry.read_reason: string?",
+      "params": [],
+      "returns": [
+        "string?"
+      ],
+      "description": "Mod lifecycle, capability or API denial when present.",
+      "owner": "RuntimeEcsCatalogEntry",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalogEntry.write_reason",
+      "signature": "RuntimeEcsCatalogEntry.write_reason: string?",
+      "params": [],
+      "returns": [
+        "string?"
+      ],
+      "description": "Mod/API denial, unsupported complete-value codec or component-specific write policy limitation.",
+      "owner": "RuntimeEcsCatalogEntry",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalogEntry.reason",
+      "signature": "RuntimeEcsCatalogEntry.reason: string?",
+      "params": [],
+      "returns": [
+        "string?"
+      ],
+      "description": "Missing registration or incompatible reflected layout.",
+      "owner": "RuntimeEcsCatalogEntry",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalog.version",
+      "signature": "RuntimeEcsCatalog.version: string",
+      "params": [],
+      "returns": [
+        "string"
+      ],
+      "description": "Current parser registry version.",
+      "owner": "RuntimeEcsCatalog",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalog.registry_available",
+      "signature": "RuntimeEcsCatalog.registry_available: boolean",
+      "params": [],
+      "returns": [
+        "boolean"
+      ],
+      "description": "The provider exposes a validated engine registry.",
+      "owner": "RuntimeEcsCatalog",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalog.registered_type_count",
+      "signature": "RuntimeEcsCatalog.registered_type_count: integer",
+      "params": [],
+      "returns": [
+        "integer"
+      ],
+      "description": "Number of reflected keen::ecs::* types with an observed runtime or template relation.",
+      "owner": "RuntimeEcsCatalog",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalog.runtime_type_count",
+      "signature": "RuntimeEcsCatalog.runtime_type_count: integer",
+      "params": [],
+      "returns": [
+        "integer"
+      ],
+      "description": "Number with an observed runtime role and matching size.",
+      "owner": "RuntimeEcsCatalog",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalog.template_type_count",
+      "signature": "RuntimeEcsCatalog.template_type_count: integer",
+      "params": [],
+      "returns": [
+        "integer"
+      ],
+      "description": "Number with an observed template role and matching size. Roles can overlap.",
+      "owner": "RuntimeEcsCatalog",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalog.resolved_count",
+      "signature": "RuntimeEcsCatalog.resolved_count: integer",
+      "params": [],
+      "returns": [
+        "integer"
+      ],
+      "description": "Number with a validated runtime mapping or matching template registration.",
+      "owner": "RuntimeEcsCatalog",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalog.reflected_only_count",
+      "signature": "RuntimeEcsCatalog.reflected_only_count: integer",
+      "params": [],
+      "returns": [
+        "integer"
+      ],
+      "description": "Number without an observed engine registration relation.",
+      "owner": "RuntimeEcsCatalog",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalog.entity_access_ready",
+      "signature": "RuntimeEcsCatalog.entity_access_ready: boolean",
+      "params": [],
+      "returns": [
+        "boolean"
+      ],
+      "description": "Validated current entity reads are ready, independently of the current mod's permissions. The KFC4 original-owner backend does not require a dispatcher hook.",
+      "owner": "RuntimeEcsCatalog",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalog.entity_writes_ready",
+      "signature": "RuntimeEcsCatalog.entity_writes_ready: boolean",
+      "params": [],
+      "returns": [
+        "boolean"
+      ],
+      "description": "Native guarded writes are ready, independently of the complete-component codec and mod permissions.",
+      "owner": "RuntimeEcsCatalog",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeEcsCatalog.entries",
+      "signature": "RuntimeEcsCatalog.entries: RuntimeEcsCatalogEntry[]",
+      "params": [],
+      "returns": [
+        "RuntimeEcsCatalogEntry[]"
+      ],
+      "description": "All reflected keen::ecs::* types, including unregistered helpers and template-only layouts.",
+      "owner": "RuntimeEcsCatalog",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
       "kind": "function",
       "namespace": "runtime",
       "name": "runtime.ecs.get_catalog",
       "signature": "runtime.ecs.get_catalog()",
       "params": [],
       "returns": [
-        "table"
+        "RuntimeEcsCatalog"
       ],
       "returnDetails": [
         {
-          "type": "table",
+          "type": "RuntimeEcsCatalog",
           "name": "catalog",
-          "description": "{version, entries={type, qualified_name, size, resolved, read_available, write_available, reason, read_reason, write_reason}[]}"
+          "description": ""
         }
       ],
-      "description": "List every reflected component candidate, including unresolved types. Availability also depends on the current phase, mod capabilities and provider. A resolved entry does not imply that a matching entity exists or every field is writable.",
+      "description": "List reflected ECS types and their actual runtime/template registration roles. Mapping identity is independent of the current entity phase and dispatcher readiness. Read/write availability still requires the active mod lifecycle, capabilities and entity provider.",
       "errors": "",
       "example": "",
       "source": "shroudforge/v1/definitions/runtime.lua"
@@ -24001,7 +26321,7 @@
           "description": ""
         }
       ],
-      "description": "Query live entities by real `keen::ecs::*` component type names or Type objects. Returns `nil, reason` until the current game build has a verified ECS provider.",
+      "description": "Query live entities by real `keen::ecs::*` component type names or Type objects. Returns `nil, reason` while unavailable or the first incremental scan is pending. Retry from a later update. Later calls revalidate the last complete snapshot while advancing discovery. Deleted entities, changed generations and missing components are filtered on every call. Newly matching entities appear after the refresh completes. Every read/write independently validates its handle again.",
       "errors": "",
       "example": "",
       "source": "shroudforge/v1/definitions/runtime.lua"
@@ -24135,6 +26455,313 @@
     {
       "kind": "function",
       "namespace": "runtime",
+      "name": "runtime.ecs.read_fields",
+      "signature": "runtime.ecs.read_fields(entity, component, field_paths)",
+      "params": [
+        {
+          "name": "entity",
+          "type": "integer",
+          "description": "Opaque entity handle returned by runtime.ecs.query.",
+          "description_de": "Opaker Entity-Handle aus runtime.ecs.query."
+        },
+        {
+          "name": "component",
+          "type": "TypeSelector",
+          "description": "Original registration or its actual runtime storage type."
+        },
+        {
+          "name": "field_paths",
+          "type": "string[]",
+          "description": "Nonempty dense array of distinct field paths, at most 1024 paths."
+        }
+      ],
+      "returns": [
+        "table<string",
+        "string?"
+      ],
+      "returnDetails": [
+        {
+          "type": "table<string",
+          "name": "",
+          "description": "unknown>? values Owned field values keyed by the exact requested path."
+        },
+        {
+          "type": "string?",
+          "name": "reason",
+          "description": ""
+        }
+      ],
+      "description": "Read selected inline fields from one owned component snapshot, even when a sibling uses an unsupported container. Paths use reflected names, dot-separated nesting and one-based static indices, such as `dataStorage[1]`. Supports scalar/enum/Guid values and inline structs/static arrays containing only supported leaves. Does not follow or decode DS, Blob or ObjectReference descriptors. Enclosing descriptor overlaps are rejected. Requires runtime.ecs.read, an active ingame mod and a current generation-checked entity handle.",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "runtime.ecs.get_template",
+      "signature": "runtime.ecs.get_template(entity)",
+      "params": [
+        {
+          "name": "entity",
+          "type": "integer",
+          "description": "Current generation-checked entity handle."
+        }
+      ],
+      "returns": [
+        "Resource?",
+        "string?"
+      ],
+      "returnDetails": [
+        {
+          "type": "Resource?",
+          "name": "template",
+          "description": ""
+        },
+        {
+          "type": "string?",
+          "name": "reason",
+          "description": ""
+        }
+      ],
+      "description": "Resolve a current entity's original template UUID to its loaded TemplateResource. Requires runtime.ecs.read and a separately validated definition UUID layout. Returns the same ResourceService snapshot type as game.assets.get_loaded_resource. This identifies the template owner. It does not prove that every runtime field still aliases its configuration.",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeTemplateComponent.key",
+      "signature": "RuntimeTemplateComponent.key: string",
+      "params": [],
+      "returns": [
+        "string"
+      ],
+      "description": "Stable resource GUID/type/part plus concrete component name, for deduplication within session_id.",
+      "owner": "RuntimeTemplateComponent",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeTemplateComponent.type",
+      "signature": "RuntimeTemplateComponent.type: Type",
+      "params": [],
+      "returns": [
+        "Type"
+      ],
+      "description": "Concrete reflected configuration type. Distinct from the runtime storage type.",
+      "owner": "RuntimeTemplateComponent",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeTemplateComponent.scope",
+      "signature": "RuntimeTemplateComponent.scope: 'shared-template'",
+      "params": [],
+      "returns": [
+        "'shared-template'"
+      ],
+      "description": "Every entity using this template shares the configuration change.",
+      "owner": "RuntimeTemplateComponent",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "field",
+      "namespace": "runtime",
+      "name": "RuntimeTemplateComponent.session_id",
+      "signature": "RuntimeTemplateComponent.session_id: integer",
+      "params": [],
+      "returns": [
+        "integer"
+      ],
+      "description": "Original nonzero world session. Views never authorize another session.",
+      "owner": "RuntimeTemplateComponent",
+      "owner_description": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "RuntimeTemplateComponent:read_fields",
+      "signature": "RuntimeTemplateComponent:read_fields(paths)",
+      "params": [
+        {
+          "name": "paths",
+          "type": "string[]",
+          "description": "Nonempty dense array of distinct reflected field paths, at most 1024."
+        }
+      ],
+      "returns": [
+        "table<string",
+        "string?"
+      ],
+      "returnDetails": [
+        {
+          "type": "table<string",
+          "name": "",
+          "description": "number|string>? values Values keyed by the exact selected paths."
+        },
+        {
+          "type": "string?",
+          "name": "reason",
+          "description": ""
+        }
+      ],
+      "description": "Read fresh selected aligned 32-bit scalars from this exact shared template configuration. Paths are relative to the concrete component, such as fallDamageStartDistance. Requires an active mod with runtime.ecs.read. Missing or duplicate concrete variants return a reason.",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "RuntimeTemplateComponent:write_field",
+      "signature": "RuntimeTemplateComponent:write_field(path, value, expected, expected_fields)",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "description": "Reflected component-relative field path."
+        },
+        {
+          "name": "value",
+          "type": "number|string",
+          "description": "New scalar, or original enum name."
+        },
+        {
+          "name": "expected",
+          "type": "number|string",
+          "description": "Expected current scalar, or original enum name."
+        },
+        {
+          "name": "expected_fields",
+          "type": "table<string,",
+          "description": "number|string>? Nonempty map of at most 1024 component-relative expected scalars."
+        }
+      ],
+      "returns": [
+        "boolean",
+        "string?"
+      ],
+      "returnDetails": [
+        {
+          "type": "boolean",
+          "name": "ok",
+          "description": ""
+        },
+        {
+          "type": "string?",
+          "name": "reason",
+          "description": ""
+        }
+      ],
+      "description": "Compare and write one aligned 32-bit reflected scalar, with independent complete native readback under the original gates. Requires runtime.assets.write and the runtime.ecs.write authority gate in the original world session. expected is required. A mismatch writes nothing. References, descriptors and non-finite floats are rejected. The native gate compares the complete fresh resource snapshot before the single-scalar mutation. A later unlocked observation or world change does not reverse a confirmed native success. Future operations recheck the session. Optional expected_fields checks other component-relative inputs in the same fresh snapshot before that native CAS. The resource binding permits guarded restoration after the original entity disappears in the same session. Does not publish events or establish that this engine consumer observes later configuration changes. An 'uncertain' result stops further writes through this view and must never be blindly retried.",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "runtime.ecs.get_template_component",
+      "signature": "runtime.ecs.get_template_component(entity, component)",
+      "params": [
+        {
+          "name": "entity",
+          "type": "integer",
+          "description": "Current generation-checked entity handle."
+        },
+        {
+          "name": "component",
+          "type": "TypeSelector",
+          "description": "Original engine registration or its concrete template configuration type."
+        }
+      ],
+      "returns": [
+        "RuntimeTemplateComponent?",
+        "string?"
+      ],
+      "returnDetails": [
+        {
+          "type": "RuntimeTemplateComponent?",
+          "name": "component_view",
+          "description": ""
+        },
+        {
+          "type": "string?",
+          "name": "reason",
+          "description": ""
+        }
+      ],
+      "description": "Bind a current entity's original TemplateResource and one uniquely registered concrete configuration variant. Validates the live template role, entity UUID before/after lookup and the current world session. This is shared-template storage. It neither selects an entity runtime column nor allocates/replaces a template.",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
+      "name": "runtime.ecs.write_fields",
+      "signature": "runtime.ecs.write_fields(entity, component, changes, expected_fields)",
+      "params": [
+        {
+          "name": "entity",
+          "type": "integer",
+          "description": "Opaque entity handle returned by runtime.ecs.query.",
+          "description_de": "Opaker Entity-Handle aus runtime.ecs.query."
+        },
+        {
+          "name": "component",
+          "type": "TypeSelector",
+          "description": "Original registration or its actual runtime storage type."
+        },
+        {
+          "name": "changes",
+          "type": "table<string,",
+          "description": "unknown> Nonempty field-path/value map, at most 1024 entries. Static indices are one-based."
+        },
+        {
+          "name": "expected_fields",
+          "type": "table<string,",
+          "description": "unknown>? Nonempty field-path/value map checked before applying changes."
+        }
+      ],
+      "returns": [
+        "boolean",
+        "string?",
+        "table<string"
+      ],
+      "returnDetails": [
+        {
+          "type": "boolean",
+          "name": "ok",
+          "description": "True when values already agree or the guarded write succeeds."
+        },
+        {
+          "type": "string?",
+          "name": "reason",
+          "description": ""
+        },
+        {
+          "type": "table<string",
+          "name": "",
+          "description": "unknown>? confirmed Selected fields from the confirmed result, including original attribute calculations. No later unlocked read is used."
+        }
+      ],
+      "description": "Validate and write selected inline field values. Complete-component codec support is not required. Reads a fresh complete component snapshot inside this call, then compares it again in the validated engine execution phase before applying changes. A snapshot change rejects the write. Optional expected_fields also checks selected values from an earlier read. Only reflected value leaves are masked. Padding, siblings and external-storage descriptors are preserved. Dynamic/reference fields, overlapping selections and non-finite floats are rejected. Requires runtime.ecs.write, an active ingame mod, the native dispatcher and a current entity generation/layout. AttributeComponent subtypes run their original complete root calculation and also mask any changed derived scalars. Their headers are read-only. Does not publish engine events or establish replication and gameplay semantics.",
+      "errors": "",
+      "example": "",
+      "source": "shroudforge/v1/definitions/runtime.lua"
+    },
+    {
+      "kind": "function",
+      "namespace": "runtime",
       "name": "runtime.ecs.write",
       "signature": "runtime.ecs.write(entity, component, value)",
       "params": [
@@ -24172,7 +26799,7 @@
           "description": ""
         }
       ],
-      "description": "Write changed reflected fields from a value previously returned by `read`. Padding and concurrently updated fields are retained; the write is verified by readback and restored on failure. Returns `false, reason` until the current game build has a verified ECS provider.",
+      "description": "Write changed reflected fields from a value previously returned by `read`. Padding and unselected source fields are preserved. A changed complete source snapshot rejects the write. AttributeComponent subtypes preserve their headers and run the original complete root calculation before CAS. Writes are verified by readback. An unconfirmed rollback blocks further writes in the current native binding epoch. Returns `false, reason` until the current game build has a verified ECS provider.",
       "errors": "",
       "example": "",
       "source": "shroudforge/v1/definitions/runtime.lua"
@@ -24854,7 +27481,7 @@
           "description": ""
         }
       ],
-      "description": "Update a live prop's three scale values through the build-profiled native API. The game-thread write is read back and verified; a failed write is restored when possible.",
+      "description": "Update a live prop's three scale values through the build-profiled native API. The guarded write is read back and verified. A failed write is restored when possible.",
       "errors": "",
       "example": "",
       "source": "shroudforge/v1/definitions/runtime.lua"

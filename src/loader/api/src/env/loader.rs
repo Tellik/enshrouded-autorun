@@ -1484,7 +1484,6 @@ fn lua_ecs_get_catalog(
         let entry = lua.create_table()?;
         entry.raw_set("type", state.get_type(lua, metadata.index)?)?;
         entry.raw_set("qualified_name", metadata.qualified_name.clone())?;
-        entry.raw_set("qualified_hash", metadata.qualified_hash)?;
         entry.raw_set("size", metadata.size)?;
         let roles = registrations.get(metadata.qualified_name.as_str());
         let registered = roles.is_some();

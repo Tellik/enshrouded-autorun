@@ -1,6 +1,6 @@
 # Kontrollierte ResourceService-Scalarprobe
 
-**Vorbereitet, nicht installiert.** Separater temporärer Entwicklermod für den neuen `game.assets.write_loaded_field`-Pfad. Installation erst nach Review und mit dem passenden neuen Runtimebuild.
+**Diagnoseprobe, kein Release-Mod.** Der Quellcode liegt im Repository unter `diagnostic-mods/`. Installation und Aktivierung sind nur für einen gezielten Live-Test des `game.assets.write_loaded_field`-Pfads mit passendem Runtimebuild vorgesehen.
 
 ## Genaues Ziel
 

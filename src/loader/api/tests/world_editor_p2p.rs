@@ -4,7 +4,7 @@ use mlua::Lua;
 fn world_editor_p2p_transport() -> mlua::Result<()> {
     let lua = Lua::new();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
-    let module_dir = root.join("mods/world-editor/src");
+    let module_dir = root.join("reference-mods-0.9/world-editor/src");
     let factory: mlua::Value = lua
         .load(std::fs::read_to_string(module_dir.join("p2p.lua")).unwrap())
         .set_name("world-editor-p2p")
@@ -22,7 +22,7 @@ fn world_editor_p2p_transport() -> mlua::Result<()> {
 fn server_target_applies_and_undoes_through_native_world_api() -> mlua::Result<()> {
     let lua = Lua::new();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
-    let module_dir = root.join("mods/world-editor/src");
+    let module_dir = root.join("reference-mods-0.9/world-editor/src");
     let factory: mlua::Value = lua
         .load(std::fs::read_to_string(module_dir.join("p2p.lua")).unwrap())
         .set_name("world-editor-p2p")
@@ -61,7 +61,7 @@ fn blueprint_save_progress_confirms_write_and_library() -> mlua::Result<()> {
     // Debug upvalues are used only by this isolated regression fixture.
     let lua = unsafe { Lua::unsafe_new() };
     let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../mods/world-editor/src/mod.lua");
+        .join("../../../reference-mods-0.9/world-editor/src/mod.lua");
     lua.globals()
         .set("editor_source", std::fs::read_to_string(source).unwrap())?;
     lua.load(include_str!("world_editor_save_progress.lua"))

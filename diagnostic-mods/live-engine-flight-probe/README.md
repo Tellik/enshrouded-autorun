@@ -1,6 +1,6 @@
 # Kontrollierte Probe des originalen Engine-Flugzustands
 
-**Vorbereitet, nicht installiert.** Dieser temporäre Entwicklermod braucht den neuen optionalen vierten Parameter `expected_fields` von `runtime.ecs.write_fields`. Der bisherige Build R2 mit ausschließlich drei Argumenten reicht dafür nicht. Installation erst nach Review und passendem Build.
+**Diagnoseprobe, kein Release-Mod.** Der Quellcode liegt im Repository unter `diagnostic-mods/`. Diese Probe braucht den optionalen vierten Parameter `expected_fields` von `runtime.ecs.write_fields`. Installation und Aktivierung sind nur für einen gezielten Live-Test mit passendem Runtimebuild vorgesehen.
 
 ## Ziel und belegte Beziehung
 
