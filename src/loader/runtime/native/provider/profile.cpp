@@ -58,6 +58,22 @@ bool Load() {
         if (dos->e_magic != IMAGE_DOS_SIGNATURE) return false;
         const auto nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
         if (nt->Signature != IMAGE_NT_SIGNATURE || nt->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC) return false;
+        // Loaded-image identity belongs to discovery even when no compatible
+        // execution profile exists. Profiles only authorize engine adapters.
+        image_timestamp = nt->FileHeader.TimeDateStamp;
+        image_size = nt->OptionalHeader.SizeOfImage;
+        image_sha256 = process_hash;
+        image_target = process;
+        exact_build_match = false;
+        kfc_format = 0;
+        auto kfc_path = std::filesystem::path(process_path);
+        kfc_path.replace_extension(L".kfc");
+        std::ifstream kfc_file(kfc_path, std::ios::binary);
+        std::array<char, 4> kfc_header{};
+        if (kfc_file.read(kfc_header.data(), kfc_header.size()) &&
+            kfc_header[0] == 'K' && kfc_header[1] == 'F' && kfc_header[2] == 'C' &&
+            (kfc_header[3] == '3' || kfc_header[3] == '4'))
+            kfc_format = static_cast<std::uint8_t>(kfc_header[3] - '0');
         nlohmann::json exact_profile, fallback_profile;
         unsigned exact_count{}, fallback_count{};
         std::string requested_profile_id;
@@ -88,7 +104,11 @@ bool Load() {
                 if (!profile_file) continue;
                 auto candidate = nlohmann::json::parse(profile_file, nullptr, false);
                 if (!candidate.is_object() || !candidate.contains("ecsLayout") ||
-                    !candidate.contains("hooks") || !candidate.contains("components")) continue;
+                    !candidate.contains("hooks")) continue;
+                const auto component_resolution = candidate.find("componentResolution");
+                const bool live_components = component_resolution != candidate.end() &&
+                    component_resolution->is_string() && *component_resolution == "live-registration";
+                if (!candidate.contains("components") && !live_components) continue;
                 if (!id_filter.empty() && candidate.value("id", std::string{}) != id_filter) continue;
                 if (candidate.value("target", std::string{}) != process) continue;
                 loaded_profiles.push_back(std::move(candidate));
@@ -124,6 +144,10 @@ bool Load() {
             if (!candidate.contains("kfcFormat") || !candidate.at("kfcFormat").is_number_integer()) continue;
             const auto candidate_kfc_format = candidate.at("kfcFormat").get<int>();
             if (candidate_kfc_format != 3 && candidate_kfc_format != 4) continue;
+            // Structural revalidation stays within the actual asset format.
+            // KFC3 execution layouts cannot authorize a KFC4 process merely
+            // because one of their instruction guards still happens to match.
+            if (kfc_format && candidate_kfc_format != kfc_format) continue;
             // Generated profile drafts are developer artifacts. They must never
             // become active merely because the EXE identity happens to match.
             if (candidate.contains("provenance") &&
@@ -161,13 +185,9 @@ bool Load() {
         }
         const auto& selected = exact ? exact_profile : fallback_profile;
         exact_build_match = exact;
-        kfc_format = static_cast<std::uint8_t>(selected.at("kfcFormat").get<unsigned>());
+        if (!kfc_format) kfc_format = static_cast<std::uint8_t>(selected.at("kfcFormat").get<unsigned>());
         // Identity is a lookup hint. Both hooks still require unique executable
         // matches and exact overwritten instructions before any patch is made.
-        image_timestamp = nt->FileHeader.TimeDateStamp;
-        image_size = nt->OptionalHeader.SizeOfImage;
-        image_sha256 = process_hash;
-        image_target = process;
         const auto& layout = selected.at("ecsLayout");
         auto offset = [&](const char* key) {
             const auto value = layout.at(key).get<std::size_t>();

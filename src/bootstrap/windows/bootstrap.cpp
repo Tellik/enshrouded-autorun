@@ -222,10 +222,14 @@ std::string_view runtime_thread_state(std::string_view value) {
 std::string runtime_status_state(std::string_view status) {
     const auto registry = status_value(status, "registry=");
     const auto layout = status_value(status, "layout=");
+    const auto entity_access = status_value(status, "entity_access=");
+    const auto entity_realm = status_value(status, "entity_realm=");
     const auto game_thread = runtime_thread_state(status_value(status, "game_thread="));
     const auto voxel_context = status_value(status, "voxel_context=");
     return "registry=" + std::string(registry.empty() ? "unknown" : registry) +
         " layout=" + std::string(layout.empty() ? "unknown" : layout) +
+        " entity_access=" + std::string(entity_access.empty() ? "unavailable" : entity_access) +
+        " entity_realm=" + std::string(entity_realm.empty() ? "unknown" : entity_realm) +
         " game_thread=" + std::string(game_thread) +
         " voxel_context=" + std::string(voxel_context.empty() ? "unknown" : voxel_context);
 }

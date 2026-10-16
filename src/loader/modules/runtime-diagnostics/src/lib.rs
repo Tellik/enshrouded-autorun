@@ -191,10 +191,14 @@ impl Session {
         let mut report = json!({});
         if self.enabled("runtime") || self.enabled("queue") {
             let observed = native_snapshot();
-            // Preserve the provider's ECS operation counters and incremental
-            // query cursors. Filtering these out made a stuck scan look like
-            // a healthy dispatcher with no explanation for mods waiting.
-            let mut native = json!({"layoutReady":observed["layoutReady"],"layoutEpoch":observed["layoutEpoch"],"candidateTypeBreakdown":observed["candidateTypeBreakdown"],"componentDiscovery":observed["componentDiscovery"],"operations":observed["operations"],"worldOperations":observed["worldOperations"],"voxelContextActive":observed["voxelContextActive"],"entityContextReady":observed["entityContextReady"],"entityHookStatus":observed["entityHookStatus"],"activeQueryScan":observed["activeQueryScan"],"dispatcher":observed["dispatcher"],"error":observed["error"]});
+            // The provider owns the runtime report. Preserve its complete
+            // schema so profile, registry, world and resource evidence cannot
+            // disappear when the provider adds or changes diagnostic fields.
+            let mut native = if self.enabled("runtime") {
+                observed
+            } else {
+                json!({"dispatcher":observed["dispatcher"],"error":observed["error"]})
+            };
             if let Some(age) = native
                 .pointer("/dispatcher/lastDrainAgeMs")
                 .and_then(Value::as_u64)
@@ -205,9 +209,6 @@ impl Session {
                 native
                     .as_object_mut()
                     .map(|object| object.remove("dispatcher"));
-            }
-            if !self.enabled("runtime") {
-                native = json!({"dispatcher":native["dispatcher"],"worldOperations":native["worldOperations"],"voxelContextActive":native["voxelContextActive"],"entityContextReady":native["entityContextReady"],"entityHookStatus":native["entityHookStatus"],"error":native["error"]});
             }
             report["native"] = native;
         }

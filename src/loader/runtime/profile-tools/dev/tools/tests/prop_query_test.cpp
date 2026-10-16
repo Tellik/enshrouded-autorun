@@ -72,6 +72,9 @@ int main() {
     live_layout.entity_id = offsetof(Entity,id);
     live_layout.entity_generation = offsetof(Entity,generation);
     live_layout.component_bits = offsetof(Layout,bits);
+    live_layout.entity_definition = offsetof(Entity,definition);
+    live_layout.component_offsets = offsetof(Layout,offsets);
+    live_layout.component_strides = offsetof(Layout,strides);
     KfcRuntimeCompatibility::EnshroudedClient::entity_definition = offsetof(Entity,definition);
     KfcRuntimeCompatibility::EnshroudedClient::definition_uuid = 0;
     KfcRuntimeCompatibility::EnshroudedClient::component_offsets = offsetof(Layout,offsets);

@@ -68,16 +68,74 @@ KFC_RUNTIME_API size_t KFC_RUNTIME_CALL KfcRuntimeFunctions(char* buffer, size_t
  * At most 512 bytes, only from executable sections; zero means unavailable. */
 KFC_RUNTIME_API size_t KFC_RUNTIME_CALL KfcRuntimeFunctionCode(uint32_t rva, unsigned char* buffer, size_t capacity);
 
+/* Read-only access to ResourceService data. Resource IDs use the parser's
+   canonical GUID/type/part fields and static_hash value. The resource backend
+   is enabled only by an exact-image, read-validated profile. */
+typedef struct KfcRuntimeResourceId {
+    uint8_t guid[16];
+    uint32_t type_hash;
+    uint32_t part_index;
+} KfcRuntimeResourceId;
+KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeResourceReady(void);
+KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeResourcesByType(
+    uint32_t type_hash, KfcRuntimeResourceId* resources, size_t capacity, size_t* count);
+KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeResourceRead(
+    const KfcRuntimeResourceId* resource, uint32_t static_hash,
+    unsigned char* buffer, size_t capacity, size_t* actual);
+/* Optional ABI-12 scalar data update. Exact-image profile and registered
+   content-worker lifetime are required. Only aligned 32-bit values in the
+   private resource bulk are supported. Never changes executable pages.
+   Result: 0 rejected, 1 applied with protection restored, 2 CAS conflict,
+   3 outcome uncertain. Result 3 must not trigger a blind retry. */
+KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeResourceCanWrite(void);
+KFC_RUNTIME_API uint32_t KFC_RUNTIME_CALL KfcRuntimeResourceCompareExchangeScalar(
+    const KfcRuntimeResourceId* resource, uint32_t static_hash,
+    size_t resource_size, size_t offset, const void* expected,
+    const void* desired, size_t width);
+/* Optional ABI-12 session-bound extension. The nonzero expected session is
+   checked and pinned against the existing ECS binding while the original
+   LocalAuthority Scene and ResourceService lifetime guards protect the CAS.
+   expected points to resource_size bytes from the complete prior resource
+   snapshot. desired still points to width=4 bytes. The full snapshot, including
+   reflected descriptors, is compared under both guards before the scalar CAS.
+   Results match KfcRuntimeResourceCompareExchangeScalar. */
+KFC_RUNTIME_API uint32_t KFC_RUNTIME_CALL KfcRuntimeResourceCompareExchangeScalarForSession(
+    const KfcRuntimeResourceId* resource, uint32_t static_hash,
+    size_t resource_size, size_t offset, const void* expected,
+    const void* desired, size_t width, uint64_t expected_session);
+/* Complete JSON status. Returns required bytes including NUL and copies only
+   when the complete document fits. */
+KFC_RUNTIME_API size_t KFC_RUNTIME_CALL KfcRuntimeResourceStatus(char* buffer, size_t capacity);
+
+/* Named plain-data DI service views use the same original authority/Scene
+   lifetime gate. All accesses require the current world session. The provider
+   checks the original full registry name, type, mutable binding and both service
+   pointer selections. No engine function or ECS tracker is called.
+   CompareExchange result: 0 rejected, 1 applied/read back, 2 conflict,
+   3 uncertain. An uncertain result blocks service writes for that session. */
+KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeServiceRead(
+    const char* key, uint32_t type_hash, uint32_t size, uint64_t expected_session,
+    unsigned char* buffer, size_t capacity);
+KFC_RUNTIME_API uint32_t KFC_RUNTIME_CALL KfcRuntimeServiceCompareExchange(
+    const char* key, uint32_t type_hash, uint32_t size, uint64_t expected_session,
+    const void* expected, const void* mask, const void* desired);
+
 /* ECS values are opaque byte layouts described by the active game profile. */
 KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeEcsConfigure(
     const char* const* qualified_names, const uint32_t* sizes, size_t count);
 KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeEcsReady(void);
 KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeEcsPropQueryReady(void);
 KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeEcsCanWrite(void);
+// Current component policy, independent of a particular entity value.
+KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeEcsCanWriteComponent(const char* name);
 KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeEcsDescribe(
     const char* qualified_name, uint32_t* size);
 KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeEcsEntityIdentity(
     uint32_t entity_handle, uint32_t* entity_id);
+/* Optional ABI-12 entity-template owner link. Copies the original 16-byte GUID
+   only for a current generation/membership-checked entity and validated layout. */
+KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeEcsTemplateUuid(
+    uint32_t entity_handle, uint8_t* guid);
 /* Optional ABI-12 extensions. Registry JSON contains every engine registration,
  * including template-only entries. Returns required bytes including NUL; copies
  * only when the entire document fits. No partial JSON is returned. */
@@ -130,8 +188,9 @@ KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeEcsRead(
 KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeEcsWrite(
     uint32_t entity, const char* qualified_name, const void* mask,
     const void* value, size_t size);
-/* Optional ABI 12 extension: 0 rejected/failed, 1 written, 2 snapshot changed.
-   Comparison and masked write run in the same game-thread dispatch. */
+/* Optional ABI 12 extension: 0 rejected/failed, 1 written, 2 snapshot changed,
+   3 uncertain outcome after an unverified rollback. Comparison and masked write
+   share the approved dispatcher phase or original ECS lifetime/execution gates. */
 KFC_RUNTIME_API uint32_t KFC_RUNTIME_CALL KfcRuntimeEcsCompareExchange(
     uint32_t entity, const char* qualified_name, const void* expected,
     const void* mask, const void* value, size_t size);

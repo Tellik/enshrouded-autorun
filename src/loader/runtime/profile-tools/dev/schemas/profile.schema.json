@@ -7,13 +7,7 @@
     "id",
     "target",
     "kfcFormat",
-    "image",
-    "allowStructuralRevalidation",
-    "ecsLayout",
-    "entityDefinitionLayout",
-    "hooks",
-    "worldContexts",
-    "worldGrids"
+    "image"
   ],
   "properties": {
     "schemaVersion": {
@@ -59,22 +53,12 @@
     "provenance": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "status",
-        "generator",
-        "executableSha256",
-        "functionScan",
-        "componentCapture",
-        "runtimeLayoutValidated",
-        "componentMappingsValidated",
-        "functionSemanticsValidated",
-        "unresolvedComponentCount"
-      ],
       "properties": {
         "status": {
           "enum": [
             "draft-requires-live-review",
-            "approved"
+            "approved",
+            "read-validated"
           ]
         },
         "generator": {
@@ -129,8 +113,109 @@
           "items": {
             "type": "string"
           }
+        },
+        "resourceReadValidated": {
+          "const": true
+        },
+        "resourceAtomicScalarWriteValidated": {
+          "const": true
+        },
+        "servicePlainDataValidated": {
+          "const": true
+        },
+        "servicePlainDataEvidence": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resourceAtomicScalarWriteEvidence": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ecsReadValidated": {
+          "const": true
+        },
+        "ecsAuthorityReadValidated": {
+          "const": true
+        },
+        "systemDependenciesValidated": {
+          "const": true
+        },
+        "ecsOwnerChain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ownerChain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "limitations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "ecsWriteGateValidated": {
+          "const": true
+        },
+        "ecsChangeTrackingValidated": {
+          "type": "boolean"
+        },
+        "ecsWriteGateEvidence": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attributeCalculationEvidence": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ecsChangeTrackingEvidence": {
+          "type": "string",
+          "minLength": 1
         }
-      }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "status",
+            "generator",
+            "executableSha256",
+            "functionScan",
+            "componentCapture",
+            "runtimeLayoutValidated",
+            "componentMappingsValidated",
+            "functionSemanticsValidated",
+            "unresolvedComponentCount"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "draft-requires-live-review",
+                "approved"
+              ]
+            }
+          }
+        },
+        {
+          "required": [
+            "status",
+            "resourceReadValidated",
+            "source",
+            "ownerChain",
+            "limitations"
+          ],
+          "properties": {
+            "status": {
+              "const": "read-validated"
+            }
+          }
+        }
+      ]
     },
     "ecsLayout": {
       "type": "object",
@@ -726,6 +811,29 @@
               "maximum": 65536
             }
           }
+        },
+        "clientCursorRead": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "frameServiceViewOffset",
+            "serviceWorldOffset"
+          ],
+          "properties": {
+            "frameServiceViewOffset": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65536
+            },
+            "serviceWorldOffset": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65536
+            },
+            "evidence": {
+              "type": "string"
+            }
+          }
         }
       }
     },
@@ -833,27 +941,1241 @@
     },
     "componentResolution": {
       "const": "live-registration"
+    },
+    "serviceLayout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "source",
+        "recordsPointerOffset",
+        "recordCountOffset",
+        "recordStride",
+        "recordHashOffset",
+        "recordNormalPointerOffset",
+        "recordAlternatePointerOffset",
+        "mapBitsOffset",
+        "mapCapacityOffset",
+        "mapKeysOffset",
+        "mapValuesOffset",
+        "mapCountOffset",
+        "systemsOffset",
+        "systemCountOffset",
+        "systemStride",
+        "systemNormalBindingsOffset",
+        "systemAlternateBindingsOffset",
+        "systemNormalCountOffset",
+        "systemAlternateCountOffset",
+        "maximumRecords",
+        "maximumMapCapacity",
+        "maximumSystems",
+        "contracts"
+      ],
+      "properties": {
+        "id": {
+          "const": "engine-named-plain-services-v1"
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recordsPointerOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 268435456
+        },
+        "recordCountOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 268435456
+        },
+        "recordStride": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 268435456
+        },
+        "recordHashOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 268435456
+        },
+        "recordNormalPointerOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 268435456
+        },
+        "recordAlternatePointerOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 268435456
+        },
+        "mapBitsOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 268435456
+        },
+        "mapCapacityOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 268435456
+        },
+        "mapKeysOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 268435456
+        },
+        "mapValuesOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 268435456
+        },
+        "mapCountOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 268435456
+        },
+        "systemsOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 268435456
+        },
+        "systemCountOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 268435456
+        },
+        "systemStride": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 268435456
+        },
+        "systemNormalBindingsOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 268435456
+        },
+        "systemAlternateBindingsOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 268435456
+        },
+        "systemNormalCountOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 268435456
+        },
+        "systemAlternateCountOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 268435456
+        },
+        "maximumRecords": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 268435456
+        },
+        "maximumMapCapacity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 268435456
+        },
+        "maximumSystems": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 268435456
+        },
+        "contracts": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1024,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "key",
+              "qualifiedType",
+              "qualifiedHash",
+              "size",
+              "metadataRva",
+              "registrySlotRva",
+              "mutableSystemDescriptorRva",
+              "mutableSystemFunctionRva",
+              "plainData",
+              "scope"
+            ],
+            "properties": {
+              "key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 127
+              },
+              "qualifiedType": {
+                "type": "string",
+                "pattern": "^keen::"
+              },
+              "qualifiedHash": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4294967295
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65536
+              },
+              "metadataRva": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "registrySlotRva": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "mutableSystemDescriptorRva": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "mutableSystemFunctionRva": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "plainData": {
+                "const": true
+              },
+              "scope": {
+                "const": "host-world-shared"
+              }
+            }
+          }
+        }
+      }
+    },
+    "systemDependencyLayout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "source",
+        "recordBuilderRva",
+        "accessSetPackRva",
+        "compatibilityPredicateRva",
+        "slots"
+      ],
+      "properties": {
+        "id": {
+          "const": "ecs-system-dependencies-v1"
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recordBuilderRva": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "accessSetPackRva": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "compatibilityPredicateRva": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "slots": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "offset",
+              "storageRole",
+              "accessMode",
+              "systemRecordMaskOffset"
+            ],
+            "properties": {
+              "offset": {
+                "enum": [
+                  24,
+                  40,
+                  56,
+                  72,
+                  88,
+                  104
+                ]
+              },
+              "storageRole": {
+                "enum": [
+                  "runtime",
+                  "template"
+                ]
+              },
+              "accessMode": {
+                "enum": [
+                  "read",
+                  "write",
+                  "configuration-read"
+                ]
+              },
+              "systemRecordMaskOffset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65536
+              }
+            }
+          }
+        }
+      }
+    },
+    "ownerLayout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rootObjectRva",
+        "rootVtableRva",
+        "clientPointerOffset",
+        "clientVtableRva",
+        "controllerPointerOffset",
+        "controllerVtableRva",
+        "controllerClientBackPointerOffset",
+        "controllerMainOwnerOffset"
+      ],
+      "properties": {
+        "rootObjectRva": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "rootVtableRva": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "clientPointerOffset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "clientVtableRva": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "controllerPointerOffset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "controllerVtableRva": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "controllerClientBackPointerOffset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "controllerMainOwnerOffset": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "ecsReadLayout": {
+      "type": "object",
+      "additionalProperties": false,
+      "dependentRequired": {
+        "entityManagerOccupancy": ["entityManagerKeys"],
+        "entityManagerKeys": ["entityManagerOccupancy"]
+      },
+      "required": [
+        "mainExecutionOwnerOffset",
+        "executionRegistryOwnerOffset",
+        "executionEntityManagerOffset",
+        "entityManagerOwnerOffset",
+        "entityManagerCount",
+        "entityManagerTable",
+        "entityId",
+        "entityGeneration",
+        "entityLayout",
+        "entityStorage",
+        "entityDefinitionPointer",
+        "entityRow",
+        "componentBits",
+        "componentOffsets",
+        "componentStrides",
+        "maximumEntities"
+      ],
+      "properties": {
+        "clientSceneOwnerOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "entityDefinitionUuidOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "sceneEntriesPointerOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "sceneEntriesCountOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "sceneEntriesCapacityOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "sceneEntryStride": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536
+        },
+        "sceneEntryContextOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "sceneEntryUuidOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "sceneEntryStateOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "sceneEntryReadyState": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "maximumSceneEntries": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1024
+        },
+        "mainExecutionOwnerOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "executionRegistryOwnerOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "executionEntityManagerOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "entityManagerOwnerOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "entityManagerOccupancy": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536
+        },
+        "entityManagerKeys": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536
+        },
+        "entityManagerCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "entityManagerTable": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "entityId": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "entityGeneration": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "entityLayout": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "entityStorage": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "entityDefinitionPointer": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "entityRow": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "componentBits": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "componentOffsets": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "componentStrides": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "maximumEntities": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1048576
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "clientSceneOwnerOffset"
+            ]
+          },
+          "then": {
+            "required": [
+              "sceneEntriesPointerOffset",
+              "sceneEntriesCountOffset",
+              "sceneEntriesCapacityOffset",
+              "sceneEntryStride",
+              "sceneEntryContextOffset",
+              "sceneEntryUuidOffset",
+              "sceneEntryStateOffset",
+              "sceneEntryReadyState",
+              "maximumSceneEntries"
+            ]
+          }
+        }
+      ]
+    },
+    "resourceLayout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mainActiveContextOffset",
+        "contextItemRegistryOffset",
+        "itemRegistryServiceOffset",
+        "itemRegistryHandleOffset",
+        "itemRegistryResourcePointerOffset",
+        "resourceServiceReaderOffset",
+        "resourceServiceIdCallbackOffset",
+        "resourceServiceIdCallbackRva",
+        "resourceServiceHandleCallbackOffset",
+        "resourceServiceHandleCallbackRva",
+        "resourceServiceChunkTableOffset",
+        "resourceServiceChunkCountOffset",
+        "readerMetadataOffset",
+        "metadataMapOffset",
+        "map",
+        "valueEntry",
+        "chunkEntry",
+        "maximumEntries",
+        "maximumChunks",
+        "maximumResourceBytes"
+      ],
+      "properties": {
+        "mainActiveContextOffset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "contextItemRegistryOffset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "itemRegistryServiceOffset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "itemRegistryHandleOffset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "itemRegistryResourcePointerOffset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resourceServiceReaderOffset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resourceServiceIdCallbackOffset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resourceServiceIdCallbackRva": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "resourceServiceHandleCallbackOffset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resourceServiceHandleCallbackRva": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "resourceServiceChunkTableOffset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resourceServiceChunkCountOffset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "readerMetadataOffset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "metadataMapOffset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "map": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "bucketRel32Offset",
+            "bucketCountOffset",
+            "keysRel32Offset",
+            "keyCountOffset",
+            "valuesRel32Offset",
+            "valueCountOffset",
+            "headerSize",
+            "bucketStride",
+            "keyStride",
+            "resourceKeySize",
+            "valueStride"
+          ],
+          "properties": {
+            "bucketRel32Offset": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "bucketCountOffset": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "keysRel32Offset": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "keyCountOffset": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "valuesRel32Offset": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "valueCountOffset": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "headerSize": {
+              "type": "integer",
+              "minimum": 24
+            },
+            "bucketStride": {
+              "const": 8
+            },
+            "keyStride": {
+              "const": 32
+            },
+            "resourceKeySize": {
+              "const": 24
+            },
+            "valueStride": {
+              "const": 8
+            }
+          }
+        },
+        "valueEntry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "resourceOffsetOffset",
+            "packedSizeOffset",
+            "chunkIndexOffset",
+            "sizeMask"
+          ],
+          "properties": {
+            "resourceOffsetOffset": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "packedSizeOffset": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "chunkIndexOffset": {
+              "const": 7
+            },
+            "sizeMask": {
+              "const": 16777215
+            }
+          }
+        },
+        "chunkEntry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "stride",
+            "basePointerOffset",
+            "sizeOffset"
+          ],
+          "properties": {
+            "stride": {
+              "const": 16
+            },
+            "basePointerOffset": {
+              "const": 0
+            },
+            "sizeOffset": {
+              "const": 8
+            }
+          }
+        },
+        "maximumEntries": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1048576
+        },
+        "maximumChunks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536
+        },
+        "maximumResourceBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 268435456
+        }
+      }
+    },
+    "resourceWriteLayout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "enabled", "serviceThreadOffset", "threadName", "threadCallbackRva", "serviceInitializedOffset", "serviceInitializedValue", "servicePayloadPointerOffset", "servicePayloadSizeOffset"],
+      "properties": {
+        "id": {"const": "resource-atomic-scalar-v1"},
+        "enabled": {"type": "boolean"},
+        "serviceThreadOffset": {"type": "integer", "minimum": 1, "maximum": 65536},
+        "threadName": {"type": "string", "minLength": 1, "maxLength": 64},
+        "threadCallbackRva": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+        "serviceInitializedOffset": {"type": "integer", "minimum": 0, "maximum": 65536},
+        "serviceInitializedValue": {"const": 1},
+        "servicePayloadPointerOffset": {"type": "integer", "minimum": 0, "maximum": 65536},
+        "servicePayloadSizeOffset": {"type": "integer", "minimum": 0, "maximum": 65536}
+      }
+    },
+    "ecsWriteLayout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "threadRegistryLockRva",
+        "threadRegistryEntriesRva",
+        "threadRegistryCountRva",
+        "threadRegistryCapacity",
+        "threadRegistryEntryStride",
+        "registryEntryHandleOffset",
+        "registryEntryNamePointerOffset",
+        "registryEntryNameLengthOffset",
+        "threadInlineNameOffset",
+        "sceneThreadOffset",
+        "threadNamePointerOffset",
+        "threadNameLengthOffset",
+        "threadNameCapacityOffset",
+        "threadNameCapacity",
+        "threadHandleOffset",
+        "threadContextOffset",
+        "threadStopOffset",
+        "threadCallbackOffset",
+        "threadCallbackRva",
+        "threadName",
+        "sceneContextOffset",
+        "sceneLockOffset",
+        "sceneStateOffset",
+        "sceneRunningState",
+        "executionModeOffset",
+        "executionAuthorityMode",
+        "maximumWriteBytes",
+        "changeTrackerRva",
+        "changeTrackerBytes",
+        "changeTrackerContextOffset",
+        "changeTrackerManagerOffset",
+        "changeTrackerQueueBOffset",
+        "maximumTrackingQueueCapacity"
+      ],
+      "properties": {
+        "phaseValidated": {
+          "type": "boolean",
+          "default": false
+        },
+        "phasePolicy": {
+          "const": "untracked-components"
+        },
+        "changeTrackerRegistryAOffset": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536
+        },
+        "changeTrackerRegistryBOffset": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536
+        },
+        "id": {
+          "const": "ecs-native-thread-scene-gate-v1"
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "threadRegistryLockRva": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "threadRegistryEntriesRva": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "threadRegistryCountRva": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "threadRegistryCapacity": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256
+        },
+        "threadRegistryEntryStride": {
+          "type": "integer",
+          "minimum": 24,
+          "maximum": 256
+        },
+        "registryEntryHandleOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "registryEntryNamePointerOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "registryEntryNameLengthOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "threadInlineNameOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "sceneThreadOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "threadNamePointerOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "threadNameLengthOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "threadNameCapacityOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "threadNameCapacity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "threadHandleOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "threadContextOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "threadStopOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "threadCallbackOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "threadCallbackRva": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "threadName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "sceneContextOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "sceneLockOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "sceneStateOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "sceneRunningState": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "executionModeOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "executionAuthorityMode": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "maximumWriteBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536
+        },
+        "changeTrackerRva": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "changeTrackerBytes": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{66}$"
+        },
+        "changeTrackerContextOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "changeTrackerManagerOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "changeTrackerQueueBOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "maximumTrackingQueueCapacity": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1048576
+        }
+      }
     }
   },
   "oneOf": [
     {
       "required": [
-        "components"
+        "allowStructuralRevalidation",
+        "ecsLayout",
+        "entityDefinitionLayout",
+        "hooks",
+        "worldContexts",
+        "worldGrids"
+      ],
+      "oneOf": [
+        {
+          "required": [
+            "components"
+          ],
+          "not": {
+            "required": [
+              "componentResolution"
+            ]
+          }
+        },
+        {
+          "required": [
+            "componentResolution"
+          ],
+          "not": {
+            "required": [
+              "components"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "required": [
+        "ownerLayout",
+        "resourceLayout",
+        "provenance"
+      ],
+      "properties": {
+        "provenance": {
+          "properties": {
+            "status": {
+              "const": "read-validated"
+            },
+            "resourceReadValidated": {
+              "const": true
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "ecsReadLayout"
+            ]
+          },
+          "then": {
+            "properties": {
+              "provenance": {
+                "required": [
+                  "ecsReadValidated",
+                  "ecsOwnerChain"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "ecsReadLayout"
+            ],
+            "properties": {
+              "ecsReadLayout": {
+                "required": [
+                  "clientSceneOwnerOffset"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "provenance": {
+                "required": [
+                  "ecsAuthorityReadValidated"
+                ]
+              }
+            }
+          }
+        }
       ],
       "not": {
+        "anyOf": [
+          {
+            "required": [
+              "allowStructuralRevalidation"
+            ]
+          },
+          {
+            "required": [
+              "ecsLayout"
+            ]
+          },
+          {
+            "required": [
+              "entityDefinitionLayout"
+            ]
+          },
+          {
+            "required": [
+              "hooks"
+            ]
+          },
+          {
+            "required": [
+              "worldContexts"
+            ]
+          },
+          {
+            "required": [
+              "worldGrids"
+            ]
+          },
+          {
+            "required": [
+              "components"
+            ]
+          },
+          {
+            "required": [
+              "componentResolution"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "allOf": [
+    {
+      "if": {"required": ["resourceWriteLayout"]},
+      "then": {
+        "required": ["ownerLayout", "resourceLayout", "ecsWriteLayout", "provenance"],
+        "properties": {
+          "image": {"required": ["sha256"]},
+          "provenance": {"required": ["resourceAtomicScalarWriteValidated", "resourceAtomicScalarWriteEvidence"]}
+        }
+      }
+    },
+    {
+      "if": {
         "required": [
-          "componentResolution"
+          "systemDependencyLayout"
+        ]
+      },
+      "then": {
+        "required": [
+          "provenance"
+        ],
+        "properties": {
+          "image": {
+            "required": [
+              "sha256"
+            ]
+          },
+          "provenance": {
+            "required": [
+              "systemDependenciesValidated"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "ecsWriteLayout"
+        ]
+      },
+      "then": {
+        "required": [
+          "ownerLayout",
+          "ecsReadLayout",
+          "provenance"
+        ],
+        "properties": {
+          "image": {
+            "required": [
+              "sha256"
+            ]
+          },
+          "ecsReadLayout": {
+            "required": [
+              "clientSceneOwnerOffset"
+            ]
+          },
+          "provenance": {
+            "required": [
+              "ecsWriteGateValidated",
+              "ecsWriteGateEvidence"
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "ecsWriteLayout": {
+                  "required": [
+                    "enabled"
+                  ],
+                  "properties": {
+                    "enabled": {
+                      "const": true
+                    }
+                  }
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "ecsWriteLayout": {
+                  "required": ["phaseValidated", "phasePolicy", "changeTrackerRegistryAOffset", "changeTrackerRegistryBOffset"],
+                  "properties": {
+                    "phaseValidated": {"const": true}
+                  }
+                },
+                "provenance": {
+                  "required": [
+                    "ecsChangeTrackingValidated",
+                    "ecsChangeTrackingEvidence"
+                  ],
+                  "properties": {
+                    "ecsChangeTrackingValidated": {
+                      "const": true
+                    }
+                  }
+                }
+              }
+            }
+          }
         ]
       }
     },
     {
-      "required": [
-        "componentResolution"
-      ],
-      "not": {
-        "required": [
-          "components"
-        ]
+      "if": {"required": ["serviceLayout"]},
+      "then": {
+        "required": ["ownerLayout", "ecsReadLayout", "ecsWriteLayout", "provenance"],
+        "properties": {
+          "image": {"required": ["sha256"]},
+          "ecsWriteLayout": {"properties": {"enabled": {"const": true}}},
+          "provenance": {"required": ["servicePlainDataValidated", "servicePlainDataEvidence"]}
+        }
       }
     }
   ]

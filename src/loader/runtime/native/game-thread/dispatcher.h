@@ -21,8 +21,9 @@ std::string Status();
 std::string Diagnostics();
 bool WriteCode(std::uintptr_t address, const void* expected, const void* replacement, std::size_t size);
 
-// Execute immediately when already on the captured engine thread. Otherwise
+// Execute immediately only inside an active dispatcher callback. Otherwise
 // enqueue and wait until the continuous Keen update consumes the command.
+// Calls on the remembered engine thread outside that callback are rejected.
 // Jobs own all input/output storage, including after a caller times out.
 bool Invoke(Operation operation, std::shared_ptr<void> context, std::uint32_t timeout_ms = 75);
 }

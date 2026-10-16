@@ -37,8 +37,8 @@ inline std::uint32_t hash_name(const std::string& name) {
 
 // Layout v1, independently observed in client 1076226 and server 1024233.
 // No component names, indices, absolute addresses, or build hashes are input.
-inline bool Read(std::uintptr_t manager, std::uintptr_t image, std::size_t image_size,
-                 const Reader& read, Snapshot& output, std::string& error) {
+inline bool ReadOwner(std::uintptr_t owner, std::uintptr_t image, std::size_t image_size,
+                      const Reader& read, Snapshot& output, std::string& error) {
     auto fail = [&](const char* reason) { error = reason; return false; };
     auto scalar = [&]<class T>(std::uintptr_t address, T& value) {
         return address && read(address, &value, sizeof(value));
@@ -57,12 +57,18 @@ inline bool Read(std::uintptr_t manager, std::uintptr_t image, std::size_t image
     auto type = [&](std::uintptr_t address, Type& result) {
         if (!address) return true;
         if (!in_image(address, 0x90)) return false;
+        // One coherent descriptor read also keeps the external inspector from
+        // issuing a separate kernel call for each scalar metadata field.
+        std::uint8_t descriptor[0x90]{};
+        if (!read(address, descriptor, sizeof(descriptor))) return false;
         std::uintptr_t name{};
         std::uint64_t length{};
-        if (!scalar(address + 0x20, name) || !scalar(address + 0x28, length) ||
-            !text(name, length, result.name) || !result.name.starts_with("keen::ecs::") ||
-            !scalar(address + 0x40, result.size) || !result.size || result.size > (1u << 24) ||
-            !scalar(address + 0x50, result.hash) || result.hash != hash_name(result.name)) return false;
+        std::memcpy(&name, descriptor + 0x20, sizeof(name));
+        std::memcpy(&length, descriptor + 0x28, sizeof(length));
+        std::memcpy(&result.size, descriptor + 0x40, sizeof(result.size));
+        std::memcpy(&result.hash, descriptor + 0x50, sizeof(result.hash));
+        if (!text(name, length, result.name) || !result.name.starts_with("keen::ecs::") ||
+            !result.size || result.size > (1u << 24) || result.hash != hash_name(result.name)) return false;
         result.metadata_rva = static_cast<std::uint32_t>(address - image);
         return true;
     };
@@ -86,9 +92,10 @@ inline bool Read(std::uintptr_t manager, std::uintptr_t image, std::size_t image
         return false;
     };
     Snapshot snapshot;
+    snapshot.owner = owner;
     std::uint64_t count{}, capacity{}, sizes_count{}, types_count{}, callbacks_count{};
     std::uintptr_t sizes{}, types{}, callbacks{};
-    if (!scalar(manager, snapshot.owner) || !snapshot.owner ||
+    if (!snapshot.owner ||
         !scalar(snapshot.owner + 8, snapshot.records) ||
         !scalar(snapshot.owner + 16, count) || !count || count > 1024 ||
         !scalar(snapshot.owner + 24, capacity) || capacity < count || capacity > 4096 ||
@@ -142,11 +149,10 @@ inline bool Read(std::uintptr_t manager, std::uintptr_t image, std::size_t image
                 entry.callbacks.push_back({offset, static_cast<std::uint32_t>(u64(offset) - image), true});
         snapshot.entries.push_back(std::move(entry));
     }
-    std::uintptr_t owner_again{}, records_again{}, types_again{}, sizes_again{}, callbacks_again{};
+    std::uintptr_t records_again{}, types_again{}, sizes_again{}, callbacks_again{};
     std::uint64_t count_again{};
     std::vector<std::uint8_t> readback(records.size());
-    if (!scalar(manager, owner_again) || owner_again != snapshot.owner ||
-        !scalar(snapshot.owner + 8, records_again) || records_again != snapshot.records ||
+    if (!scalar(snapshot.owner + 8, records_again) || records_again != snapshot.records ||
         !scalar(snapshot.owner + 16, count_again) || count_again != count ||
         !scalar(snapshot.owner + 232, sizes_again) || sizes_again != sizes ||
         !scalar(snapshot.owner + 256, types_again) || types_again != types ||
@@ -164,6 +170,23 @@ inline bool Read(std::uintptr_t manager, std::uintptr_t image, std::size_t image
         return fail("parallel component storage arrays changed during capture");
     output = std::move(snapshot);
     error.clear();
+    return true;
+}
+
+inline bool Read(std::uintptr_t manager, std::uintptr_t image, std::size_t image_size,
+                 const Reader& read, Snapshot& output, std::string& error) {
+    std::uintptr_t owner{}, owner_again{};
+    if (!manager || !read(manager, &owner, sizeof(owner)) || !owner) {
+        error = "component registry manager owner is unreadable";
+        return false;
+    }
+    Snapshot snapshot;
+    if (!ReadOwner(owner, image, image_size, read, snapshot, error)) return false;
+    if (!read(manager, &owner_again, sizeof(owner_again)) || owner_again != owner) {
+        error = "component registry manager owner changed during capture";
+        return false;
+    }
+    output = std::move(snapshot);
     return true;
 }
 }

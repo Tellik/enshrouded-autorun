@@ -11,7 +11,8 @@
 
 namespace FunctionInventory {
 // Windows unwind metadata supplies code extents, never native call signatures.
-inline std::string Build(const std::uint8_t* image_override = nullptr, std::uintptr_t address_base = 0) {
+inline std::string Build(const std::uint8_t* image_override = nullptr, std::uintptr_t address_base = 0,
+                         const nlohmann::json& system_dependencies = nullptr) {
     using namespace KfcRuntimeCompatibility::EnshroudedClient;
     const auto* image = image_override ? image_override : reinterpret_cast<const std::uint8_t*>(GetModuleHandleW(nullptr));
     if (!image || !image_size) throw std::runtime_error("executable identity unavailable");
@@ -122,7 +123,7 @@ inline std::string Build(const std::uint8_t* image_override = nullptr, std::uint
         for (const auto& slot_value : group["pointer_slots"]) {
             const auto slot = slot_value.get<std::uint32_t>();
             if (slot < 16) continue;
-            std::uint64_t descriptor[13]{}, again[13]{};
+            std::uint64_t descriptor[15]{}, again[15]{};
             if (!read(slot - 16, descriptor, sizeof(descriptor))) continue;
             std::string name;
             if (!span(descriptor[0], descriptor[1], name) || name.size() < 3 || name.size() > 96 ||
@@ -131,7 +132,7 @@ inline std::string Build(const std::uint8_t* image_override = nullptr, std::uint
                 descriptor[2] != address_base + rva) continue;
             nlohmann::json dependencies = nlohmann::json::array();
             bool valid = true, populated = false;
-            for (unsigned index = 3; index <= 11 && valid; index += 2) {
+            for (unsigned index = 3; index <= 13 && valid; index += 2) {
                 const auto pointer = descriptor[index], dependency_count = descriptor[index + 1];
                 if (dependency_count > 256 || bool(pointer) != bool(dependency_count) || (dependency_count &&
                     (pointer < address_base || pointer - address_base >= image_size))) { valid = false; break; }
@@ -203,6 +204,7 @@ inline std::string Build(const std::uint8_t* image_override = nullptr, std::uint
         {"unwind_count",unwind_count}, {"pointer_target_count",pointer_targets.size()},
         {"engine_descriptor_count",named_descriptors},
         {"attribute_calculation_model",attribute_calculation_model},
+        {"system_dependency_layout",system_dependencies},
         {"pointer_slot_count",pointer_slots}, {"unreadable_pointer_pages",unreadable_pages},
         {"unknown_unwind_versions",unknown_versions}, {"complete_engine_api",false},
         {"limitations",{"unreferenced leaf and inlined functions can be absent", "code pointers can target internal labels; an entry point is not implied", "code extents do not establish function signatures"}},

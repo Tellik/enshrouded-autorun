@@ -33,6 +33,8 @@ struct Job {
 std::mutex queue_mutex;
 std::vector<std::shared_ptr<Job>> queue;
 std::atomic<bool> accepting{};
+std::atomic_flag draining = ATOMIC_FLAG_INIT;
+thread_local unsigned dispatch_depth{};
 std::atomic<bool> entity_context_hooks_ready{};
 std::atomic<std::uint32_t> engine_thread{};
 std::atomic<std::uintptr_t> entity_manager{};
@@ -190,6 +192,13 @@ bool write_code(std::uintptr_t address, const void* bytes, std::size_t size, con
 
 void __cdecl drain(void*, void*) {
     if (!accepting.load(std::memory_order_acquire)) return;
+    // Several engine contexts can enter the same system. A command batch must
+    // execute in one live callback, never concurrently on two worker threads.
+    if (draining.test_and_set(std::memory_order_acquire)) return;
+    struct CallbackScope {
+        CallbackScope() { ++dispatch_depth; }
+        ~CallbackScope() { --dispatch_depth; draining.clear(std::memory_order_release); }
+    } scope;
     engine_thread.store(GetCurrentThreadId(), std::memory_order_release);
     last_drain_ms.store(GetTickCount64(), std::memory_order_relaxed);
     drain_count.fetch_add(1, std::memory_order_relaxed);
@@ -513,6 +522,12 @@ std::string Status() {
 bool Invoke(Operation operation, std::shared_ptr<void> context, std::uint32_t timeout_ms) {
     if (!operation || !accepting.load(std::memory_order_acquire)) return false;
     if (engine_thread.load(std::memory_order_acquire) == GetCurrentThreadId()) {
+        // A remembered thread ID does not establish a current engine phase.
+        // Waiting here would also block the thread that must drain the queue.
+        if (!dispatch_depth) {
+            rejected_count.fetch_add(1, std::memory_order_relaxed);
+            return false;
+        }
         operation(context.get());
         return true;
     }
@@ -558,7 +573,8 @@ std::string Diagnostics() {
         {"drainCount", drain_count.load()}, {"completed", completed_count.load()},
         {"timeouts", timeout_count.load()}, {"rejected", rejected_count.load()},
         {"queueDepth", lock ? nlohmann::json(queue.size()) : nlohmann::json(nullptr)},
-        {"queueLimit",128}, {"batchLimit",8}, {"batchBudgetMs",2}
+        {"queueLimit",128}, {"batchLimit",8}, {"batchBudgetMs",2},
+        {"inlineRequiresActiveCallback",true}, {"serializedCallbackBatches",true}
     }).dump();
 }
 bool WriteCode(std::uintptr_t address, const void* expected, const void* replacement, std::size_t size) {

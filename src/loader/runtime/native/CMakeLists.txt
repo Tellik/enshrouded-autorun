@@ -10,14 +10,42 @@ enable_language(RC)
 file(GLOB_RECURSE profile_json_files CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/../profiles/*.json")
 set(runtime_profiles)
+set(resource_read_profiles)
 foreach(profile_file IN LISTS profile_json_files)
     file(READ "${profile_file}" profile_contents)
-    string(JSON profile_status ERROR_VARIABLE profile_status_error
-        GET "${profile_contents}" provenance status)
-    if(profile_status_error STREQUAL "NOTFOUND" AND NOT profile_status STREQUAL "approved")
-        message(FATAL_ERROR "Only approved profiles may be embedded: ${profile_file}")
+    string(JSON profile_provenance_type ERROR_VARIABLE profile_provenance_error
+        TYPE "${profile_contents}" provenance)
+    if(profile_provenance_error MATCHES "not found")
+        # Existing execution profiles predate provenance metadata. Keep their
+        # established runtime validation behavior while requiring provenance
+        # for newly introduced read-only resource profiles.
+        list(APPEND runtime_profiles "${profile_file}")
+    elseif(NOT profile_provenance_error STREQUAL "NOTFOUND" OR
+           NOT profile_provenance_type STREQUAL "OBJECT")
+        message(FATAL_ERROR "Profile provenance must be a JSON object: ${profile_file}")
+    else()
+        string(JSON profile_status ERROR_VARIABLE profile_status_error
+            GET "${profile_contents}" provenance status)
+        if(NOT profile_status_error STREQUAL "NOTFOUND")
+            message(FATAL_ERROR "Profile provenance status is required: ${profile_file}")
+        elseif(profile_status STREQUAL "approved")
+        list(APPEND runtime_profiles "${profile_file}")
+        elseif(profile_status STREQUAL "read-validated")
+            string(JSON resource_read_validated ERROR_VARIABLE resource_status_error
+                GET "${profile_contents}" provenance resourceReadValidated)
+            string(JSON resource_layout_type ERROR_VARIABLE resource_layout_error
+                TYPE "${profile_contents}" resourceLayout)
+            if(NOT resource_status_error STREQUAL "NOTFOUND" OR
+               NOT resource_read_validated OR
+               NOT resource_layout_error STREQUAL "NOTFOUND" OR
+               NOT resource_layout_type STREQUAL "OBJECT")
+                message(FATAL_ERROR "Read-validated profiles must contain a validated resourceLayout: ${profile_file}")
+            endif()
+            list(APPEND resource_read_profiles "${profile_file}")
+        else()
+            message(FATAL_ERROR "Unsupported profile provenance status: ${profile_file}")
+        endif()
     endif()
-    list(APPEND runtime_profiles "${profile_file}")
 endforeach()
 if(NOT runtime_profiles)
     message(FATAL_ERROR "No production profiles found under profiles/")
@@ -29,6 +57,7 @@ set(profile_resource_rc "${generated_dir}/embedded_profiles.rc")
 set(profile_resource_header "${generated_dir}/embedded_profile_ids.h")
 set(profile_rc_content "#include <windows.h>\n")
 set(profile_header_content "#pragma once\nnamespace KfcRuntimeEmbedded {\ninline constexpr int profile_resource_ids[] = {")
+set(resource_read_header_content "inline constexpr int resource_read_profile_ids[] = {")
 
 set(profile_resource_id 101)
 foreach(profile IN LISTS runtime_profiles)
@@ -37,20 +66,33 @@ foreach(profile IN LISTS runtime_profiles)
     string(APPEND profile_header_content "${profile_resource_id},")
     math(EXPR profile_resource_id "${profile_resource_id} + 1")
 endforeach()
-string(APPEND profile_header_content "};\n}")
+if(resource_read_profiles)
+    foreach(profile IN LISTS resource_read_profiles)
+        file(TO_CMAKE_PATH "${profile}" profile_rc_path)
+        string(APPEND profile_rc_content "${profile_resource_id} RCDATA \"${profile_rc_path}\"\n")
+        string(APPEND resource_read_header_content "${profile_resource_id},")
+        math(EXPR profile_resource_id "${profile_resource_id} + 1")
+    endforeach()
+else()
+    string(APPEND resource_read_header_content "0,")
+endif()
+string(APPEND profile_header_content "};\n${resource_read_header_content}};\n}")
 
 file(WRITE "${profile_resource_rc}" "${profile_rc_content}")
 file(WRITE "${profile_resource_header}" "${profile_header_content}")
 set_source_files_properties("${profile_resource_rc}" PROPERTIES
     GENERATED TRUE
-    OBJECT_DEPENDS "${runtime_profiles}")
+    OBJECT_DEPENDS "${runtime_profiles};${resource_read_profiles}")
 
 add_library(kfc-runtime SHARED
     ecs/ecs_runtime.cpp
     game-thread/dispatcher.cpp
+    provider/engine_context.cpp
     provider/profile.cpp
     provider/provider.cpp
     provider/steam_network.cpp
+    resource/resource_runtime.cpp
+    service/service_runtime.cpp
     world/world_runtime.cpp
     world/building_input.cpp
     patch/patch_runtime.cpp
@@ -63,6 +105,7 @@ target_include_directories(kfc-runtime PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/world"
     "${CMAKE_CURRENT_SOURCE_DIR}/patch"
     "${CMAKE_CURRENT_SOURCE_DIR}/provider"
+    "${CMAKE_CURRENT_SOURCE_DIR}/resource"
     "${CMAKE_CURRENT_SOURCE_DIR}/json/single_include")
 target_compile_features(kfc-runtime PRIVATE cxx_std_20)
 target_compile_definitions(kfc-runtime PRIVATE
@@ -79,12 +122,35 @@ if(MSVC)
 endif()
 
 # Development tools never run from the game or from the modloader.
+add_executable(kfc-runtime-test-resource EXCLUDE_FROM_ALL
+    ../profile-tools/dev/tools/tests/resource_runtime_test.cpp provider/engine_context.cpp)
+target_include_directories(kfc-runtime-test-resource PRIVATE
+    "${generated_dir}" "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/resource" "${CMAKE_CURRENT_SOURCE_DIR}/provider"
+    "${CMAKE_CURRENT_SOURCE_DIR}/json/single_include")
+target_compile_features(kfc-runtime-test-resource PRIVATE cxx_std_20)
+target_compile_definitions(kfc-runtime-test-resource PRIVATE KFC_RUNTIME_BUILD WIN32_LEAN_AND_MEAN NOMINMAX)
+set_property(TARGET kfc-runtime-test-resource PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 get_target_property(prop_test_sources kfc-runtime SOURCES)
 list(REMOVE_ITEM prop_test_sources ecs/ecs_runtime.cpp)
 add_executable(kfc-runtime-test-prop-query EXCLUDE_FROM_ALL
     ../profile-tools/dev/tools/tests/prop_query_test.cpp ${prop_test_sources})
+add_executable(kfc-runtime-test-ecs-read EXCLUDE_FROM_ALL
+    ../profile-tools/dev/tools/tests/ecs_read_test.cpp ${prop_test_sources})
+add_executable(kfc-runtime-test-service EXCLUDE_FROM_ALL
+    ../profile-tools/dev/tools/tests/service_runtime_test.cpp ${prop_test_sources})
 get_target_property(prop_test_includes kfc-runtime INCLUDE_DIRECTORIES)
 target_include_directories(kfc-runtime-test-prop-query PRIVATE ${prop_test_includes})
+target_include_directories(kfc-runtime-test-ecs-read PRIVATE ${prop_test_includes})
+target_include_directories(kfc-runtime-test-service PRIVATE ${prop_test_includes})
+target_compile_features(kfc-runtime-test-service PRIVATE cxx_std_20)
+target_compile_definitions(kfc-runtime-test-service PRIVATE KFC_RUNTIME_BUILD WIN32_LEAN_AND_MEAN NOMINMAX)
+target_link_libraries(kfc-runtime-test-service PRIVATE bcrypt)
+set_property(TARGET kfc-runtime-test-service PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+target_compile_features(kfc-runtime-test-ecs-read PRIVATE cxx_std_20)
+target_compile_definitions(kfc-runtime-test-ecs-read PRIVATE KFC_RUNTIME_BUILD WIN32_LEAN_AND_MEAN NOMINMAX)
+target_link_libraries(kfc-runtime-test-ecs-read PRIVATE bcrypt)
+set_property(TARGET kfc-runtime-test-ecs-read PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 target_compile_features(kfc-runtime-test-prop-query PRIVATE cxx_std_20)
 target_compile_definitions(kfc-runtime-test-prop-query PRIVATE KFC_RUNTIME_BUILD WIN32_LEAN_AND_MEAN NOMINMAX)
 target_link_libraries(kfc-runtime-test-prop-query PRIVATE bcrypt)

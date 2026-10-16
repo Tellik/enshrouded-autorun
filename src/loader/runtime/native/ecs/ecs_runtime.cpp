@@ -1,8 +1,10 @@
 #include "ecs_runtime.h"
 #include "component_registry.h"
+#include "registry_discovery.h"
 #include "dispatcher.h"
 #include <nlohmann/json.hpp>
 #include "profile.h"
+#include "engine_context.h"
 #include "world_runtime.h"
 #include "patch_runtime.h"
 
@@ -10,6 +12,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <bit>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -49,11 +52,16 @@ struct ComponentType {
 struct ResolvedLayout {
     std::uintptr_t count_address{};
     std::uintptr_t table_address{};
+    std::uintptr_t occupancy_address{};
+    std::uintptr_t keys_address{};
     std::size_t entity_layout{};
     std::size_t entity_storage{};
     std::size_t entity_row{};
     std::size_t entity_id{};
     std::size_t entity_generation{};
+    std::size_t entity_definition{};
+    std::size_t entity_definition_uuid{};
+    bool entity_definition_uuid_validated{};
     std::size_t component_bits{};
     std::size_t component_offsets{};
     std::size_t component_strides{};
@@ -66,7 +74,33 @@ struct EntityView {
     std::uint32_t row{};
     std::uint32_t id{};
     std::uint32_t generation{};
+    bool operator==(const EntityView&) const = default;
 };
+struct EntityPointer {
+    std::uintptr_t pointer{};
+    std::size_t table_index{};
+};
+bool compact_entity_pointers(const std::uintptr_t* slots, std::size_t count,
+                            const std::uint64_t* occupancy, std::size_t occupancy_count,
+                            std::vector<EntityPointer>& pointers) {
+    if ((!slots && count) || (occupancy && occupancy_count != (count + 63) / 64) ||
+        (!occupancy && occupancy_count)) return false;
+    pointers.clear();
+    if (occupancy) {
+        std::size_t occupied{};
+        for (std::size_t word = 0; word < occupancy_count; ++word)
+            occupied += std::popcount(occupancy[word]);
+        pointers.reserve(occupied);
+    } else {
+        pointers.reserve(count);
+    }
+    for (std::size_t index = 0; index < count; ++index) {
+        const bool active = !occupancy ||
+            (occupancy[index / 64] & (std::uint64_t{1} << (index % 64)));
+        if (active && slots[index]) pointers.push_back({slots[index], index});
+    }
+    return true;
+}
 struct ComponentSlot { std::uint16_t index{}, stride{}, offset{}; };
 struct TemplateLayoutSample {
     std::uint64_t uuid[2]{};
@@ -80,13 +114,18 @@ struct HandleRecord {
     std::uint32_t generation{};
     std::uint64_t epoch{};
     std::uintptr_t pointer{};
+    std::uintptr_t table_slot{};
 };
 
 std::mutex state_mutex;
+// Entity operations and lifecycle invalidation share this outer lock. Discovery
+// scans run outside it. Lock order is operation, discovery, then state.
+std::recursive_mutex operation_mutex;
 std::unordered_map<std::string, ComponentType> types;
 std::unordered_map<std::string, std::uint32_t> configured_types;
 ComponentRegistry::Snapshot component_registry;
 bool component_registry_ready{};
+bool component_registry_world_bound{};
 bool component_registry_seen{};
 std::string component_registry_error{"awaiting entity manager"};
 std::uint64_t component_registry_last_read{};
@@ -106,21 +145,26 @@ std::uint64_t discovery_layout_count{};
 std::uint64_t discovery_restarts{};
 bool discovery_complete{};
 std::mutex discovery_mutex;
+ComponentRegistry::Discovery registry_discovery;
 ResolvedLayout live_layout{};
 bool layout_ready{};
+bool read_only_binding{};
+EngineContext::EcsView read_only_view;
 std::uintptr_t live_table{};
 std::unordered_map<std::uint32_t, HandleRecord> handles;
 std::unordered_map<std::uint64_t, std::uint32_t> reverse_handles;
 struct QueryScanState {
     std::uint64_t epoch{};
     std::uint64_t touched_ms{};
-    std::vector<std::uintptr_t> pointers;
+    std::vector<EntityPointer> pointers;
     std::size_t cursor{};
     std::vector<std::uint32_t> matches;
+    std::unordered_set<std::uint64_t> seen;
 };
 struct QueryCacheEntry {
     std::uint64_t epoch{};
     std::uint64_t completed_ms{};
+    std::uint64_t touched_ms{};
     std::vector<std::uint32_t> matches;
 };
 std::unordered_map<std::string, QueryScanState> query_scans;
@@ -128,7 +172,7 @@ std::unordered_map<std::string, QueryCacheEntry> query_cache;
 struct ResolveScanState {
     std::uint64_t epoch{};
     std::uint64_t touched_ms{};
-    std::vector<std::uintptr_t> pointers;
+    std::vector<EntityPointer> pointers;
     std::size_t cursor{};
 };
 struct ResolveCacheEntry {
@@ -140,6 +184,11 @@ std::unordered_map<std::uint32_t, ResolveScanState> resolve_scans;
 std::unordered_map<std::uint32_t, ResolveCacheEntry> resolve_cache;
 std::uint32_t next_handle{1};
 std::uint64_t layout_epoch{1};
+// Protected by state_mutex. A confirmed new native binding epoch is the only
+// reset. Busy guards and ordinary expected-value conflicts never set this.
+std::uint64_t write_fault_epoch{};
+const char* write_fault_reason{};
+bool write_fault_active_locked() { return write_fault_epoch == layout_epoch && write_fault_reason; }
 std::mutex write_mutex;
 std::mutex prop_recipe_mutex;
 struct RegisteredPropRecipe { std::array<float, 6> bounds{}; std::uint32_t feedback{}; };
@@ -155,6 +204,7 @@ struct PropQueryResultCache {
 PropQueryResultCache prop_query_result_cache;
 std::atomic<bool> stop_requested{};
 std::uintptr_t image_base{};
+std::size_t image_size{};
 
 bool readable(std::uintptr_t address, std::size_t size) {
     if (!address || !size || address > UINTPTR_MAX - size) return false;
@@ -195,7 +245,7 @@ bool layout_snapshot(ResolvedLayout& result) {
     result = live_layout;
     return true;
 }
-bool entity_pointers(const ResolvedLayout& layout, std::vector<std::uintptr_t>& pointers) {
+bool entity_pointers(const ResolvedLayout& layout, std::vector<EntityPointer>& pointers) {
     std::uint64_t count{};
     std::uintptr_t table{};
     if (!read(layout.count_address, count) || !count || count > (1u << 20) ||
@@ -207,8 +257,65 @@ bool entity_pointers(const ResolvedLayout& layout, std::vector<std::uintptr_t>& 
         reverse_handles.clear();
         return false;
     }
-    pointers.resize(static_cast<std::size_t>(count));
-    return read_bytes(table, pointers.data(), pointers.size() * sizeof(pointers[0]));
+    std::vector<std::uintptr_t> slots(static_cast<std::size_t>(count));
+    if (!read_bytes(table, slots.data(), slots.size() * sizeof(slots[0]))) return false;
+    pointers.clear();
+    if (layout.occupancy_address) {
+        std::uintptr_t occupancy{};
+        if (!read(layout.occupancy_address, occupancy) || !occupancy) return false;
+        std::vector<std::uint64_t> bits((slots.size() + 63) / 64);
+        if (!read_bytes(occupancy, bits.data(), bits.size() * sizeof(bits[0]))) return false;
+        if (!compact_entity_pointers(slots.data(), slots.size(), bits.data(), bits.size(), pointers)) return false;
+        std::uintptr_t occupancy_again{}, table_again{};
+        std::uint64_t count_again{};
+        if (!read(layout.occupancy_address, occupancy_again) || occupancy_again != occupancy ||
+            !read(layout.table_address, table_again) || table_again != table ||
+            !read(layout.count_address, count_again) || count_again != count) return false;
+    } else {
+        if (!compact_entity_pointers(slots.data(), slots.size(), nullptr, 0, pointers)) return false;
+    }
+    return true;
+}
+// The original table contains non-null pointers in erased buckets. Match the
+// original ID hash lookup instead of treating these stale allocations as live
+// entities. Profiles without this independently validated table layout retain
+// their existing dispatcher-backed lookup contract.
+bool entity_registered(const EntityView& entity, const ResolvedLayout& layout) {
+    if (!layout.occupancy_address && !layout.keys_address) return true;
+    std::uint64_t count{};
+    std::uintptr_t table{}, occupancy{}, keys{};
+    if (!layout.occupancy_address || !layout.keys_address ||
+        !read(layout.count_address, count) || !count || count > (1u << 20) || (count & (count - 1)) ||
+        !read(layout.table_address, table) || !table ||
+        !read(layout.occupancy_address, occupancy) || !occupancy ||
+        !read(layout.keys_address, keys) || !keys) return false;
+    auto hash = entity.id;
+    hash = ((hash >> 16) ^ hash) * 0x45d9f3bu;
+    hash = ((hash >> 16) ^ hash) * 0x45d9f3bu;
+    hash = (hash >> 16) ^ hash;
+    auto slot = static_cast<std::size_t>(hash & (count - 1));
+    for (std::size_t visited = 0; visited < count; ++visited, slot = (slot + 1) & (count - 1)) {
+        std::uint64_t bits{};
+        std::uint32_t key{};
+        if (!read(occupancy + (slot / 64) * 8, bits) || !(bits & (std::uint64_t{1} << (slot % 64)))) return false;
+        if (!read(keys + slot * sizeof(key), key)) return false;
+        if (key != entity.id) continue;
+        std::uintptr_t current{};
+        std::uint64_t again{};
+        std::uint64_t count_again{};
+        std::uintptr_t table_again{}, occupancy_again{}, keys_again{};
+        std::uint32_t key_again{}, id_again{}, generation_again{};
+        return read(table + slot * sizeof(current), current) && current == entity.pointer &&
+            read(occupancy + (slot / 64) * 8, again) && (again & (std::uint64_t{1} << (slot % 64))) &&
+            read(keys + slot * sizeof(key_again), key_again) && key_again == entity.id &&
+            read(entity.pointer + layout.entity_id, id_again) && id_again == entity.id &&
+            read(entity.pointer + layout.entity_generation, generation_again) && generation_again == entity.generation &&
+            read(layout.count_address, count_again) && count_again == count &&
+            read(layout.table_address, table_again) && table_again == table &&
+            read(layout.occupancy_address, occupancy_again) && occupancy_again == occupancy &&
+            read(layout.keys_address, keys_again) && keys_again == keys;
+    }
+    return false;
 }
 bool entity_view(std::uintptr_t pointer, const ResolvedLayout& layout, EntityView& entity) {
     entity.pointer = pointer;
@@ -217,19 +324,24 @@ bool entity_view(std::uintptr_t pointer, const ResolvedLayout& layout, EntityVie
         !read(pointer + layout.entity_row, entity.row) || entity.row > (1u << 24) ||
         !read(pointer + layout.entity_id, entity.id) || !entity.id ||
         !read(pointer + layout.entity_generation, entity.generation)) return false;
-    read(pointer + KfcRuntimeCompatibility::EnshroudedClient::entity_definition, entity.definition);
-    return true;
+    read(pointer + layout.entity_definition, entity.definition);
+    return entity_registered(entity, layout);
+}
+bool component_present(const EntityView& entity, const ResolvedLayout& layout, const ComponentType& component) {
+    std::uint64_t bits{};
+    return component.index < max_components &&
+        read(entity.layout + layout.component_bits + (component.index / 64) * 8, bits) &&
+        (bits & (std::uint64_t{1} << (component.index % 64))) != 0;
 }
 bool component_address(const EntityView& entity, const ResolvedLayout& layout,
                        const ComponentType& component, std::uintptr_t& address, bool check_page = true) {
-    std::uint64_t bits{};
     std::uint16_t offset{}, stride{};
-    if (component.index >= max_components ||
-        !read(entity.layout + layout.component_bits + (component.index / 64) * 8, bits) ||
-        !(bits & (std::uint64_t{1} << (component.index % 64))) ||
-        !read(entity.layout + KfcRuntimeCompatibility::EnshroudedClient::component_offsets + component.index * 2, offset) ||
-        !read(entity.layout + KfcRuntimeCompatibility::EnshroudedClient::component_strides + component.index * 2, stride) || stride != component.size) return false;
-    address = entity.storage + offset + static_cast<std::uintptr_t>(entity.row) * stride;
+    if (!component_present(entity, layout, component) ||
+        !read(entity.layout + layout.component_offsets + component.index * 2, offset) ||
+        !read(entity.layout + layout.component_strides + component.index * 2, stride) || stride != component.size) return false;
+    const auto delta = offset + static_cast<std::uintptr_t>(entity.row) * stride;
+    if (entity.storage > UINTPTR_MAX - delta) return false;
+    address = entity.storage + delta;
     // Read-only scan callers immediately copy through guarded_copy (SEH).
     // Re-querying the page for every component doubles kernel transitions for
     // every prop in the world; writes and address-only queries keep the check.
@@ -246,46 +358,52 @@ bool resolve_component(const char* name, ComponentType& component) {
 std::uint64_t identity_key(std::uint32_t id, std::uint32_t generation) {
     return static_cast<std::uint64_t>(generation) << 32 | id;
 }
-std::uint32_t handle_for(const EntityView& entity) {
+std::uint32_t handle_for(const EntityView& entity, std::size_t table_index = SIZE_MAX) {
     std::scoped_lock lock(state_mutex);
+    const auto table_slot = read_only_binding && table_index != SIZE_MAX ?
+        read_only_view.entity_table + table_index * sizeof(std::uintptr_t) : std::uintptr_t{};
     const auto key = identity_key(entity.id, entity.generation);
     if (const auto found = reverse_handles.find(key); found != reverse_handles.end()) {
-        handles.at(found->second).pointer = entity.pointer;
+        auto& record = handles.at(found->second);
+        if (record.pointer != entity.pointer) record.table_slot = 0;
+        record.pointer = entity.pointer;
+        if (table_slot) record.table_slot = table_slot;
         return found->second;
     }
     // Never recycle an opaque handle during this process, including world changes.
     if (!next_handle) return 0;
     const auto handle = next_handle++;
-    handles.emplace(handle, HandleRecord{entity.id, entity.generation, layout_epoch, entity.pointer});
+    handles.emplace(handle, HandleRecord{entity.id, entity.generation, layout_epoch, entity.pointer, table_slot});
     reverse_handles.emplace(key, handle);
     return handle;
 }
 
 bool SnapshotEntityIds(std::vector<std::uint32_t>& ids) {
     ResolvedLayout layout{};
-    std::vector<std::uintptr_t> pointers;
+    std::vector<EntityPointer> pointers;
     if (!layout_snapshot(layout) || !entity_pointers(layout, pointers) || pointers.size() > (1u << 20)) return false;
     ids.clear();
     ids.reserve(pointers.size());
-    for (const auto pointer : pointers) {
-        std::uint32_t id{};
-        if (pointer && read(pointer + layout.entity_id, id) && id) ids.push_back(id);
+    for (const auto& pointer : pointers) {
+        EntityView entity{};
+        if (entity_view(pointer.pointer, layout, entity)) ids.push_back(entity.id);
     }
     return true;
 }
 
 bool ResolvePropEntityId(std::uint32_t entity_id, KfcRuntimePropRecord* prop) {
     if (!entity_id || !prop) return false;
+    { std::scoped_lock lock(state_mutex); if (read_only_binding) return false; }
     using namespace KfcRuntimeCompatibility::EnshroudedClient;
     ComponentType transform_component{}, item_component{};
     if (!resolve_component("keen::ecs::CurrentTransform", transform_component) || transform_component.size != 0x38 ||
         !resolve_component("keen::ecs::UsedItem", item_component) || item_component.size != sizeof(std::uint32_t)) return false;
     ResolvedLayout layout{};
-    std::vector<std::uintptr_t> pointers;
+    std::vector<EntityPointer> pointers;
     if (!layout_snapshot(layout) || !entity_pointers(layout, pointers) || pointers.size() > (1u << 20)) return false;
-    for (const auto pointer : pointers) {
+    for (const auto& pointer : pointers) {
         EntityView entity{};
-        if (!entity_view(pointer, layout, entity) || entity.id != entity_id) continue;
+        if (!entity_view(pointer.pointer, layout, entity) || entity.id != entity_id) continue;
         std::uintptr_t transform_address{}, item_address{};
         struct NativeTransform { std::int64_t position[3]; float rotation[4]; float scale[3]; std::uint32_t padding; } transform{};
         std::uint32_t item_id{};
@@ -297,7 +415,7 @@ bool ResolvePropEntityId(std::uint32_t entity_id, KfcRuntimePropRecord* prop) {
             !read_bytes(entity.definition + definition_uuid, template_uuid, sizeof(template_uuid)) ||
             !(template_uuid[0] || template_uuid[1])) return false;
         *prop = {};
-        prop->entity_handle = handle_for(entity);
+        prop->entity_handle = handle_for(entity, pointer.table_index);
         prop->entity_id = entity.id;
         prop->item_id = item_id;
         std::copy_n(transform.position, 3, prop->position);
@@ -311,11 +429,42 @@ bool ResolvePropEntityId(std::uint32_t entity_id, KfcRuntimePropRecord* prop) {
 }
 bool entity_for_handle(std::uint32_t handle, const ResolvedLayout& layout, EntityView& entity) {
     HandleRecord record{};
+    bool direct{};
+    std::uintptr_t bound_table{};
     {
         std::scoped_lock lock(state_mutex);
         const auto found = handles.find(handle);
         if (found == handles.end() || found->second.epoch != layout_epoch) return false;
         record = found->second;
+        direct = read_only_binding;
+        bound_table = read_only_view.entity_table;
+    }
+    if (direct) {
+        std::uint64_t count{};
+        std::uintptr_t table{}, pointer{};
+        if (!read(layout.count_address, count) || !count || count > (1u << 20) ||
+            !read(layout.table_address, table) || table != bound_table) return false;
+        const auto end = table + count * sizeof(std::uintptr_t);
+        if (record.table_slot < table || record.table_slot >= end ||
+            !read(record.table_slot, pointer) || pointer != record.pointer) {
+            // Discover the slot once, then validate it on every read. A readable
+            // object with an old ID is insufficient after entity removal.
+            std::array<std::uintptr_t, 256> batch{};
+            record.table_slot = 0;
+            for (std::size_t offset = 0; offset < count && !record.table_slot; offset += batch.size()) {
+                const auto size = (std::min)(batch.size(), static_cast<std::size_t>(count) - offset);
+                if (!read_bytes(table + offset * sizeof(pointer), batch.data(), size * sizeof(pointer))) return false;
+                for (std::size_t index = 0; index < size; ++index) if (batch[index] == record.pointer) {
+                    record.table_slot = table + (offset + index) * sizeof(pointer);
+                    break;
+                }
+            }
+            if (!record.table_slot || !read(record.table_slot, pointer) || pointer != record.pointer) return false;
+            std::scoped_lock lock(state_mutex);
+            const auto found = handles.find(handle);
+            if (found == handles.end() || found->second.epoch != record.epoch || found->second.pointer != record.pointer) return false;
+            found->second.table_slot = record.table_slot;
+        }
     }
     // Re-read the live identity and layout; never cache component addresses.
     // A moved/deleted entity is rediscovered by the next query, not a full-world
@@ -348,7 +497,7 @@ struct PropQueryOperation {
     bool exact_recipe_bounds{};
     std::vector<KfcRuntimePropRecord> output;
     std::size_t result{SIZE_MAX};
-    std::vector<std::uintptr_t> pointers;
+    std::vector<EntityPointer> pointers;
     std::unordered_set<std::uint64_t> seen;
     std::unordered_map<std::uint32_t, RegisteredPropRecipe> recipes;
     std::size_t cursor{};
@@ -370,12 +519,47 @@ std::uint64_t current_epoch() {
     std::scoped_lock lock(state_mutex);
     return layout_epoch;
 }
+bool invoke_read_operation(GameThreadDispatcher::Operation operation, const std::shared_ptr<void>& context,
+                           std::uint32_t timeout_ms = 75) {
+    bool direct{};
+    { std::scoped_lock lock(state_mutex); direct = read_only_binding; }
+    if (!direct) return GameThreadDispatcher::Invoke(operation, context, timeout_ms);
+    std::scoped_lock operation_lock(operation_mutex);
+    EngineContext::EcsView expected, before, after;
+    std::uint64_t epoch{};
+    {
+        std::scoped_lock lock(state_mutex);
+        if (!read_only_binding || !layout_ready || !component_registry_ready || !component_registry_world_bound) return false;
+        expected = read_only_view;
+        epoch = layout_epoch;
+    }
+    if (!EngineContext::ResolveEcs(before) || before != expected) return false;
+    operation(context.get());
+    return EngineContext::ResolveEcs(after) && after == before && current_epoch() == epoch;
+}
 void publish_query_result(QueryOperation& operation, const std::vector<std::uint32_t>& matches) {
     operation.result = matches.size();
     if (operation.entities && operation.capacity)
         std::copy_n(matches.begin(), (std::min)(operation.capacity, matches.size()), operation.entities);
 }
+void publish_current_query_result(QueryOperation& operation, const QueryCacheEntry& cached,
+                                  const ResolvedLayout& layout, const std::vector<ComponentType>& components) {
+    // Discovery is incremental, but a known entity need not disappear from every
+    // caller while that scan refreshes. Revalidate its real identity, live table
+    // membership and requested components. Never retain component addresses.
+    std::vector<std::uint32_t> matches;
+    matches.reserve(cached.matches.size());
+    for (const auto handle : cached.matches) {
+        EntityView entity{};
+        if (!entity_for_handle(handle, layout, entity)) continue;
+        if (std::all_of(components.begin(), components.end(), [&](const auto& component) {
+                return component_present(entity, layout, component);
+            })) matches.push_back(handle);
+    }
+    publish_query_result(operation, matches);
+}
 void query_on_game_thread(void* opaque) {
+    std::scoped_lock operation_lock(operation_mutex);
     auto& operation = *static_cast<QueryOperation*>(opaque);
     std::vector<ComponentType> components(operation.count);
     for (std::size_t index = 0; index < operation.count; ++index)
@@ -390,15 +574,21 @@ void query_on_game_thread(void* opaque) {
         else ++iterator;
     }
     for (auto iterator = query_cache.begin(); iterator != query_cache.end();) {
-        if (now_ms - iterator->second.completed_ms > 2000) iterator = query_cache.erase(iterator);
+        if (now_ms - iterator->second.touched_ms > 2000) iterator = query_cache.erase(iterator);
         else ++iterator;
     }
-    if (auto cached = query_cache.find(key); cached != query_cache.end()) {
-        if (cached->second.epoch == epoch && now_ms - cached->second.completed_ms <= 50) {
-            publish_query_result(operation, cached->second.matches);
+    auto cached = query_cache.find(key);
+    if (cached != query_cache.end()) {
+        if (cached->second.epoch != epoch) {
+            query_cache.erase(cached);
+            cached = query_cache.end();
+        } else {
+            cached->second.touched_ms = now_ms;
+        }
+        if (cached != query_cache.end() && now_ms - cached->second.completed_ms <= 50) {
+            publish_current_query_result(operation, cached->second, layout, components);
             return;
         }
-        query_cache.erase(cached);
     }
     auto scan = query_scans.find(key);
     if (scan == query_scans.end() || scan->second.epoch != epoch) {
@@ -418,13 +608,13 @@ void query_on_game_thread(void* opaque) {
     for (; progress.cursor < progress.pointers.size() && visited < 8192; ++progress.cursor, ++visited) {
         const auto pointer = progress.pointers[progress.cursor];
         EntityView entity{};
-        if (entity_view(pointer, layout, entity)) {
+        if (entity_view(pointer.pointer, layout, entity)) {
             bool include = true;
             for (const auto& component : components) {
-                std::uintptr_t address{};
-                if (!component_address(entity, layout, component, address)) { include = false; break; }
+                if (!component_present(entity, layout, component)) { include = false; break; }
             }
-            if (include) progress.matches.push_back(handle_for(entity));
+            if (include && progress.seen.insert(identity_key(entity.id, entity.generation)).second)
+                progress.matches.push_back(handle_for(entity, pointer.table_index));
         }
         if (std::chrono::steady_clock::now() >= deadline) {
             ++progress.cursor;
@@ -432,10 +622,12 @@ void query_on_game_thread(void* opaque) {
         }
     }
     if (progress.cursor < progress.pointers.size()) {
-        // The caller skips this update and retries on its next tick. This
-        // distinct sentinel keeps an incomplete scan from looking like an
-        // authoritative empty query result.
-        operation.result = SIZE_MAX - 1;
+        // Keep publishing validated members of the last complete discovery
+        // snapshot while advancing the next scan. Only the first scan is
+        // pending. New members become visible when discovery completes.
+        if (cached != query_cache.end())
+            publish_current_query_result(operation, cached->second, layout, components);
+        else operation.result = SIZE_MAX - 1;
         active_query_cursor.store(progress.cursor, std::memory_order_relaxed);
         active_query_total.store(progress.pointers.size(), std::memory_order_relaxed);
         active_query_matches.store(progress.matches.size(), std::memory_order_relaxed);
@@ -446,10 +638,13 @@ void query_on_game_thread(void* opaque) {
     active_query_matches.store(progress.matches.size(), std::memory_order_relaxed);
     auto completed = std::move(progress.matches);
     query_scans.erase(scan);
-    auto [cached, _] = query_cache.insert_or_assign(key, QueryCacheEntry{epoch, now_ms, std::move(completed)});
-    publish_query_result(operation, cached->second.matches);
+    const auto completed_ms = GetTickCount64();
+    auto [refreshed, _] = query_cache.insert_or_assign(key,
+        QueryCacheEntry{epoch, completed_ms, completed_ms, std::move(completed)});
+    publish_current_query_result(operation, refreshed->second, layout, components);
 }
 void query_bounds_on_game_thread(void* opaque) {
+    std::scoped_lock operation_lock(operation_mutex);
     auto& operation = *static_cast<BoundsQueryOperation*>(opaque);
     std::vector<ComponentType> components;
     components.reserve(operation.names.size());
@@ -464,19 +659,18 @@ void query_bounds_on_game_thread(void* opaque) {
     const auto component_index = static_cast<std::size_t>(transform_type - operation.names.begin());
     ResolvedLayout layout{};
     if (!layout_snapshot(layout)) return;
-    std::vector<std::uintptr_t> pointers;
+    std::vector<EntityPointer> pointers;
     if (!entity_pointers(layout, pointers) || pointers.size() > (1u << 20)) return;
     operation.output.clear();
     std::unordered_set<std::uint32_t> seen;
     seen.reserve(pointers.size());
-    for (const auto pointer : pointers) {
+    for (const auto& pointer : pointers) {
         EntityView entity{};
-        if (!entity_view(pointer, layout, entity)) continue;
+        if (!entity_view(pointer.pointer, layout, entity)) continue;
         if (!seen.insert(entity.id).second) continue;
         bool include = true;
         for (const auto& component : components) {
-            std::uintptr_t address{};
-            if (!component_address(entity, layout, component, address)) { include = false; break; }
+            if (!component_present(entity, layout, component)) { include = false; break; }
         }
         if (!include) continue;
         std::uintptr_t address{};
@@ -494,7 +688,7 @@ void query_bounds_on_game_thread(void* opaque) {
             if (!std::isfinite(world_position) || world_position < operation.bounds[axis] - margin ||
                 world_position >= operation.bounds[axis + 3] + margin) { inside = false; break; }
         }
-        if (inside) operation.output.push_back(handle_for(entity));
+        if (inside) operation.output.push_back(handle_for(entity, pointer.table_index));
     }
     operation.result = operation.output.size();
 }
@@ -568,7 +762,7 @@ void query_props_native(PropQueryOperation& operation) {
         const auto pointer = operation.pointers[operation.cursor++];
         ++visited;
         EntityView entity{};
-        if (!entity_view(pointer, layout, entity) || !operation.seen.insert(identity_key(entity.id, entity.generation)).second) continue;
+        if (!entity_view(pointer.pointer, layout, entity) || !operation.seen.insert(identity_key(entity.id, entity.generation)).second) continue;
         std::uintptr_t transform_address{}, item_address{};
         if (!component_address(entity, layout, transform_component, transform_address, false) ||
             !component_address(entity, layout, item_component, item_address, false)) continue;
@@ -604,7 +798,7 @@ void query_props_native(PropQueryOperation& operation) {
             }
             if (!inside) continue;
         }
-        prop.entity_handle = handle_for(entity);
+        prop.entity_handle = handle_for(entity, pointer.table_index);
         prop.entity_id = entity.id;
         if (prop.entity_handle) operation.output.push_back(prop);
     }
@@ -613,6 +807,7 @@ void query_props_native(PropQueryOperation& operation) {
 
 struct ResolveOperation { std::uint32_t entity_id{}, result{}; };
 void resolve_on_game_thread(void* opaque) {
+    std::scoped_lock operation_lock(operation_mutex);
     auto& operation = *static_cast<ResolveOperation*>(opaque);
     ResolvedLayout layout{};
     if (!layout_snapshot(layout)) return;
@@ -647,9 +842,9 @@ void resolve_on_game_thread(void* opaque) {
     std::size_t visited = 0;
     for (; progress.cursor < progress.pointers.size() && visited < 256; ++progress.cursor, ++visited) {
         EntityView candidate{};
-        if (entity_view(progress.pointers[progress.cursor], layout, candidate) &&
+        if (entity_view(progress.pointers[progress.cursor].pointer, layout, candidate) &&
             candidate.id == operation.entity_id) {
-            operation.result = handle_for(candidate);
+            operation.result = handle_for(candidate, progress.pointers[progress.cursor].table_index);
             resolve_cache.insert_or_assign(operation.entity_id,
                 ResolveCacheEntry{epoch, now_ms, operation.result});
             resolve_scans.erase(scan);
@@ -676,16 +871,49 @@ struct ReadOperation {
     std::vector<std::uint8_t> output;
 };
 void read_on_game_thread(void* opaque) {
+    std::scoped_lock operation_lock(operation_mutex);
     auto& operation = *static_cast<ReadOperation*>(opaque);
     ComponentType component{};
     ResolvedLayout layout{};
     EntityView entity{};
     std::uintptr_t address{};
-    operation.result = operation.value && resolve_component(operation.name, component) &&
+    if (!(operation.value && resolve_component(operation.name, component) &&
         component.size == operation.size && layout_snapshot(layout) &&
         entity_for_handle(operation.handle, layout, entity) &&
         component_address(entity, layout, component, address) &&
-        read_bytes(address, operation.value, operation.size);
+        read_bytes(address, operation.value, operation.size))) return;
+    // A non-dispatched read may race an archetype move or an engine update.
+    // Publish only equal payload copies belonging to the same current entity.
+    std::vector<std::uint8_t> again(operation.size);
+    EntityView current{};
+    std::uintptr_t current_address{};
+    operation.result = read_bytes(address, again.data(), again.size()) &&
+        std::memcmp(operation.value, again.data(), operation.size) == 0 &&
+        entity_for_handle(operation.handle, layout, current) && current == entity &&
+        component_address(current, layout, component, current_address) && current_address == address;
+}
+
+struct TemplateUuidOperation {
+    std::uint32_t handle{};
+    std::array<std::uint8_t, 16> uuid{};
+    bool result{};
+};
+void template_uuid_on_game_thread(void* opaque) {
+    std::scoped_lock operation_lock(operation_mutex);
+    auto& operation = *static_cast<TemplateUuidOperation*>(opaque);
+    ResolvedLayout layout{};
+    EntityView before{}, after{};
+    std::array<std::uint8_t, 16> again{};
+    if (!layout_snapshot(layout) || !layout.entity_definition_uuid_validated ||
+        !entity_for_handle(operation.handle, layout, before) || !before.definition ||
+        before.definition > UINTPTR_MAX - layout.entity_definition_uuid ||
+        before.definition + layout.entity_definition_uuid > UINTPTR_MAX - operation.uuid.size()) return;
+    const auto address = before.definition + layout.entity_definition_uuid;
+    if (!read_bytes(address, operation.uuid.data(), operation.uuid.size()) ||
+        std::all_of(operation.uuid.begin(), operation.uuid.end(), [](auto byte) { return byte == 0; }) ||
+        !read_bytes(address, again.data(), again.size()) || again != operation.uuid ||
+        !entity_for_handle(operation.handle, layout, after) || after != before) return;
+    operation.result = true;
 }
 
 struct WriteOperation {
@@ -694,52 +922,151 @@ struct WriteOperation {
     const void* mask{};
     const void* value{};
     std::size_t size{};
-    bool result{};
-    bool conflict{};
+    bool result{}, conflict{}, uncertain{}, direct{}, mutation_attempted{};
     std::string owned_name;
-    std::vector<std::uint8_t> mask_bytes, destination, expected;
-};
-void write_on_game_thread(void* opaque) {
-    if (stop_requested.load(std::memory_order_acquire)) return;
-    auto& operation = *static_cast<WriteOperation*>(opaque);
+    std::vector<std::uint8_t> mask_bytes, destination, expected, before, merged, verified;
     ComponentType component{};
     ResolvedLayout layout{};
+    HandleRecord record{};
+    EngineContext::EcsView owner;
+    std::uint64_t epoch{};
+    bool blocked_by_write_fault{};
+};
+std::atomic<const char*> last_write_reason{"not-attempted"};
+// Called with operation_mutex held, before any original engine gate. All maps,
+// buffers and host mutexes are prepared here, outside the short memory scope.
+bool prepare_write(WriteOperation& operation) {
+    if (stop_requested.load(std::memory_order_acquire) || !operation.mask || !operation.value ||
+        operation.before.size() != operation.size || operation.merged.size() != operation.size ||
+        operation.verified.size() != operation.size || !resolve_component(operation.name, operation.component) ||
+        operation.component.size != operation.size || !layout_snapshot(operation.layout)) return false;
+    std::scoped_lock lock(state_mutex);
+    if (write_fault_active_locked()) {
+        operation.blocked_by_write_fault = true;
+        return false;
+    }
+    const auto found = handles.find(operation.handle);
+    if (found == handles.end() || found->second.epoch != layout_epoch) return false;
+    operation.record = found->second;
+    operation.epoch = layout_epoch;
+    operation.direct = read_only_binding;
+    if (operation.direct) {
+        if (!component_registry_ready || !component_registry_world_bound ||
+            component_registry.owner != read_only_view.registry_owner || !operation.record.table_slot) return false;
+        operation.owner = read_only_view;
+    }
+    return true;
+}
+// No allocation, mutex acquisition or task dispatch in this body. The guarded
+// path records changes through the validated native tracker before mutation.
+// Direct callers own both original gates. Legacy callers own a dispatcher phase.
+void write_payload(WriteOperation& operation, const EngineContext::EcsWriteGuard* guard = nullptr) {
+    if (stop_requested.load(std::memory_order_acquire) || (guard && !guard->Validate())) return;
+    const auto& layout = operation.layout;
+    const auto& record = operation.record;
+    if (operation.direct) {
+        std::uint64_t count{};
+        std::uintptr_t table{}, pointer{};
+        if (!read(layout.count_address, count) || !count || count > (1u << 20) ||
+            !read(layout.table_address, table) || table != operation.owner.entity_table ||
+            table > UINTPTR_MAX - count * sizeof(pointer) || record.table_slot < table ||
+            record.table_slot >= table + count * sizeof(pointer) || (record.table_slot - table) % sizeof(pointer) ||
+            !read(record.table_slot, pointer) || pointer != record.pointer) return;
+    }
     EntityView entity{};
     std::uintptr_t address{};
-    if (!operation.mask || !operation.value || !resolve_component(operation.name, component) ||
-        component.size != operation.size || !layout_snapshot(layout) ||
-        !entity_for_handle(operation.handle, layout, entity) ||
-        !component_address(entity, layout, component, address)) return;
-    std::scoped_lock transaction(write_mutex);
-    if (stop_requested.load(std::memory_order_acquire)) return;
-    std::vector<std::uint8_t> before(operation.size), verified(operation.size);
-    if (!read_bytes(address, before.data(), operation.size)) return;
-    if (!operation.expected.empty() && before != operation.expected) {
+    if (!entity_view(record.pointer, layout, entity) || entity.id != record.id || entity.generation != record.generation ||
+        !component_address(entity, layout, operation.component, address, false) ||
+        !read_bytes(address, operation.before.data(), operation.size)) return;
+    if (!operation.expected.empty() && operation.before != operation.expected) {
         operation.conflict = true;
         return;
     }
-    auto merged = before;
+    std::copy(operation.before.begin(), operation.before.end(), operation.merged.begin());
     const auto* mask = static_cast<const std::uint8_t*>(operation.mask);
     const auto* value = static_cast<const std::uint8_t*>(operation.value);
-    for (std::size_t index = 0; index < operation.size; ++index) {
-        if (mask[index]) merged[index] = value[index];
-    }
-    if (merged == before) { operation.result = true; return; }
-    SIZE_T written{};
-    if (!WriteProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(address), merged.data(),
-            operation.size, &written) || written != operation.size ||
-        !read_bytes(address, verified.data(), operation.size) ||
-        std::memcmp(verified.data(), merged.data(), operation.size)) {
-        SIZE_T restored{};
-        WriteProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(address), before.data(),
-            operation.size, &restored);
+    for (std::size_t index = 0; index < operation.size; ++index)
+        if (mask[index]) operation.merged[index] = value[index];
+    if (guard && !guard->ComponentSupported(operation.component.index)) return;
+    if (operation.merged == operation.before) { operation.result = true; return; }
+    if (guard && !guard->TrackChange(entity.pointer, operation.component.index)) return;
+    operation.mutation_attempted = true;
+    if (!guarded_copy(reinterpret_cast<void*>(address), operation.merged.data(), operation.size) ||
+        !read_bytes(address, operation.verified.data(), operation.size) || operation.verified != operation.merged) {
+        guarded_copy(reinterpret_cast<void*>(address), operation.before.data(), operation.size);
+        // A failed copy can leave a partial mutation. Only a complete equal
+        // readback establishes rollback, even when the restore copy faulted on
+        // a read-only page that already contains the original payload.
+        operation.uncertain = !read_bytes(address, operation.verified.data(), operation.size) ||
+            operation.verified != operation.before;
         return;
     }
     operation.result = true;
 }
+void write_on_game_thread(void* opaque) {
+    std::scoped_lock operation_lock(operation_mutex);
+    auto& operation = *static_cast<WriteOperation*>(opaque);
+    if (!prepare_write(operation) || operation.direct) return;
+    std::scoped_lock transaction(write_mutex);
+    write_payload(operation);
+    if (operation.uncertain) {
+        std::scoped_lock lock(state_mutex);
+        if (layout_epoch == operation.epoch) {
+            write_fault_epoch = layout_epoch;
+            write_fault_reason = "ecs-write-outcome-uncertain-rollback-unverified";
+        }
+    }
+}
+bool invoke_write_operation(const std::shared_ptr<WriteOperation>& operation) {
+    bool direct{};
+    { std::scoped_lock lock(state_mutex); direct = read_only_binding; }
+    if (!direct) {
+        const bool completed = GameThreadDispatcher::Invoke(write_on_game_thread, operation);
+        if (completed && operation->uncertain)
+            last_write_reason.store("ecs-write-outcome-uncertain-rollback-unverified", std::memory_order_relaxed);
+        return completed;
+    }
+    std::scoped_lock operation_lock(operation_mutex);
+    if (!prepare_write(*operation) || !operation->direct) {
+        last_write_reason.store(operation->blocked_by_write_fault ?
+            "ecs-writes-disabled-after-uncertain-rollback" : "ecs-write-handle-or-layout-invalid", std::memory_order_relaxed);
+        return false;
+    }
+    std::scoped_lock transaction(write_mutex);
+    EcsRuntime::SessionGuard session;
+    if (!session.TryAcquire(operation->epoch + 1) || session.View() != operation->owner || !session.WritesAllowed()) {
+        last_write_reason.store("ecs-write-session-changed-or-disabled", std::memory_order_relaxed);
+        return false;
+    }
+    EngineContext::EcsWriteGuard guard;
+    const char* reason{};
+    if (!guard.TryAcquire(operation->owner, &reason)) {
+        last_write_reason.store(reason, std::memory_order_relaxed);
+        return false;
+    }
+    if (operation->size > guard.MaximumBytes()) {
+        guard.Release();
+        last_write_reason.store("ecs-write-size-exceeds-gate-budget", std::memory_order_relaxed);
+        return false;
+    }
+    write_payload(*operation, &guard);
+    if (!guard.Validate()) {
+        operation->result = false;
+        operation->uncertain = operation->uncertain || operation->mutation_attempted;
+    }
+    if (operation->uncertain) {
+        session.MarkWriteUncertain("ecs-write-outcome-uncertain-rollback-unverified");
+    }
+    guard.Release();
+    last_write_reason.store(operation->uncertain ? "ecs-write-outcome-uncertain-rollback-unverified" :
+        operation->result ? "success" : operation->conflict ? "compare-conflict" :
+        "ecs-write-identity-or-memory-check-failed", std::memory_order_relaxed);
+    return true;
+}
 
 void reset_component_discovery() {
     std::scoped_lock lock(discovery_mutex);
+    registry_discovery.Reset();
     observed_indices_by_size.clear();
     discovered_layouts.clear();
     discovered_layout_components.clear();
@@ -846,10 +1173,28 @@ void publish_discovered_component_indices() {
 
 void read_component_registry(std::uintptr_t manager) {
     const auto now = GetTickCount64();
+    if (!manager) {
+        std::scoped_lock operation_lock(operation_mutex);
+        std::scoped_lock lock(state_mutex);
+        if (component_registry_manager || layout_ready ||
+            !handles.empty() || !reverse_handles.empty()) {
+            ++layout_epoch;
+            handles.clear();
+            reverse_handles.clear();
+        }
+        component_registry_world_bound = false;
+        read_only_binding = false;
+        read_only_view = {};
+        component_registry_manager = 0;
+        live_layout = {};
+        layout_ready = false;
+        live_table = 0;
+    }
     std::unordered_map<std::string, std::uint32_t> contract;
     {
         std::scoped_lock lock(state_mutex);
-        if (manager == component_registry_manager && now - component_registry_last_read < 1000) return;
+        if (manager && manager == component_registry_manager && now - component_registry_last_read < 1000) return;
+        if (manager != component_registry_manager) component_registry_world_bound = false;
         component_registry_manager = manager;
         component_registry_last_read = now;
         contract = configured_types;
@@ -857,8 +1202,32 @@ void read_component_registry(std::uintptr_t manager) {
     if (contract.empty()) return;
     ComponentRegistry::Snapshot snapshot;
     std::string error;
-    bool valid = ComponentRegistry::Read(manager, image_base,
-        KfcRuntimeCompatibility::EnshroudedClient::image_size, read_bytes, snapshot, error);
+    const auto validate_contract = [&](const ComponentRegistry::Snapshot& candidate, std::string& reason) {
+        for (const auto& entry : candidate.entries) {
+            for (const auto* type : {&entry.storage, &entry.configuration}) {
+                if (type->name.empty()) continue;
+                const auto found = contract.find(type->name);
+                if (found == contract.end() || found->second != type->size) {
+                    reason = "engine registration disagrees with the parser type contract: " + type->name;
+                    return false;
+                }
+            }
+        }
+        return true;
+    };
+    bool valid{};
+    if (manager) {
+        valid = ComponentRegistry::Read(manager, image_base, image_size, read_bytes, snapshot, error);
+    } else {
+        // Registration metadata has its own original owner. Resolving it does
+        // not require an execution hook or establish an active ECS world.
+        std::scoped_lock discovery_lock(discovery_mutex);
+        valid = registry_discovery.Tick(image_base, image_size, read_bytes,
+            validate_contract, snapshot);
+        const auto& progress = registry_discovery.Status();
+        if (!valid && progress.available) return; // cached catalog, revalidation is throttled
+        if (!valid) error = progress.reason;
+    }
     std::unordered_map<std::string, ComponentType> resolved;
     nlohmann::json entries = nlohmann::json::array();
     auto type_json = [](const ComponentRegistry::Type& type) -> nlohmann::json {
@@ -866,17 +1235,8 @@ void read_component_registry(std::uintptr_t manager) {
         return {{"qualified_name",type.name},{"qualified_hash",type.hash},
             {"size",type.size},{"metadata_rva",type.metadata_rva}};
     };
+    if (valid) valid = validate_contract(snapshot, error);
     if (valid) for (const auto& entry : snapshot.entries) {
-        for (const auto* type : {&entry.storage, &entry.configuration}) {
-            if (type->name.empty()) continue;
-            const auto found = contract.find(type->name);
-            if (found == contract.end() || found->second != type->size) {
-                valid = false;
-                error = "engine registration disagrees with the parser type contract: " + type->name;
-                break;
-            }
-        }
-        if (!valid) break;
         if (!entry.storage.name.empty())
             resolved.emplace(entry.storage.name, ComponentType{entry.index, entry.size});
         nlohmann::json callbacks = nlohmann::json::array();
@@ -884,7 +1244,7 @@ void read_component_registry(std::uintptr_t manager) {
             std::array<std::uint8_t, 512> code{};
             std::string code_hex;
             const auto code_address = image_base + callback.function_rva;
-            if (callback.function_rva <= KfcRuntimeCompatibility::EnshroudedClient::image_size - code.size() &&
+            if (image_size >= code.size() && callback.function_rva <= image_size - code.size() &&
                 read_bytes(code_address, code.data(), code.size())) {
                 static constexpr char digits[] = "0123456789abcdef";
                 for (const auto byte : code) { code_hex += digits[byte >> 4]; code_hex += digits[byte & 15]; }
@@ -903,12 +1263,14 @@ void read_component_registry(std::uintptr_t manager) {
             {"storage",entry.storage.name.empty() ? "template-only" : "entity"},
             {"callbacks",std::move(callbacks)}});
     }
+    std::scoped_lock operation_lock(operation_mutex);
     std::scoped_lock lock(state_mutex);
     if (configured_types != contract) return;
     component_registry_error = error;
     if (!valid) {
         if (component_registry_ready) types.clear();
         component_registry_ready = false;
+        component_registry_world_bound = false;
         component_registry_json.clear();
         return;
     }
@@ -917,16 +1279,19 @@ void read_component_registry(std::uintptr_t manager) {
     types = std::move(resolved);
     component_registry = std::move(snapshot);
     component_registry_ready = true;
+    component_registry_world_bound = manager != 0;
     component_registry_seen = true;
     component_registry_json = nlohmann::json({{"schema_version",1},{"layout_version",1},
         {"available",true},{"source","live-engine-registration"},{"count",entries.size()},
+        {"discovery",manager ? "active-world-manager" : "resident-private-memory"},
+        {"manager_bound",component_registry_world_bound},
         {"runtime_type_count",types.size()},{"entries",std::move(entries)}}).dump();
     if (changed) {
         ++layout_epoch;
         handles.clear();
         reverse_handles.clear();
-        query_scans.clear();
-        query_cache.clear();
+        // Dispatcher scans invalidate their own epoch lazily. Clearing these
+        // maps from this discovery thread races an active engine callback.
     }
 }
 
@@ -984,11 +1349,58 @@ void component_discovery_tick(std::uintptr_t manager) {
 }
 
 namespace EcsRuntime {
+struct SessionGuard::State {
+    std::unique_lock<std::mutex> lock{state_mutex};
+    EngineContext::EcsView view;
+    std::uint64_t epoch{};
+};
+SessionGuard::SessionGuard() = default;
+SessionGuard::~SessionGuard() = default;
+bool SessionGuard::TryAcquire(std::uint64_t expected_session) {
+    if (state_ || !expected_session) return false;
+    auto state = std::make_unique<State>();
+    if (stop_requested.load(std::memory_order_acquire) || !read_only_binding || !layout_ready ||
+        !component_registry_ready || !component_registry_world_bound || expected_session != layout_epoch + 1 ||
+        read_only_view.role != EngineContext::EcsRole::LocalAuthority ||
+        component_registry.owner != read_only_view.registry_owner ||
+        component_registry_manager != read_only_view.manager) return false;
+    EngineContext::EcsView current;
+    std::uint64_t count{};
+    std::uintptr_t table{};
+    if (!EngineContext::ResolveEcs(current) || current != read_only_view ||
+        live_layout.count_address != current.manager + current.layout.manager_count ||
+        live_layout.table_address != current.manager + current.layout.manager_table ||
+        !read(live_layout.count_address, count) || !count || count > (1u << 20) ||
+        !read(live_layout.table_address, table) || !table || table != live_table ||
+        table != current.entity_table) return false;
+    state->view = current;
+    state->epoch = layout_epoch;
+    state_ = std::move(state);
+    return true;
+}
+const EngineContext::EcsView& SessionGuard::View() const { return state_->view; }
+bool SessionGuard::WritesAllowed() const { return state_ && !write_fault_active_locked(); }
+void SessionGuard::MarkWriteUncertain(const char* reason) {
+    if (!state_ || !reason) return;
+    write_fault_epoch = state_->epoch;
+    write_fault_reason = reason;
+    last_write_reason.store(reason, std::memory_order_relaxed);
+}
 bool EntityIdentity(std::uint32_t handle, std::uint32_t* entity_id) {
     if (!handle || !entity_id) return false;
+    std::scoped_lock operation_lock(operation_mutex);
+    bool direct{};
+    EngineContext::EcsView expected, before, after;
+    {
+        std::scoped_lock lock(state_mutex);
+        direct = read_only_binding;
+        expected = read_only_view;
+    }
+    if (direct && (!EngineContext::ResolveEcs(before) || before != expected)) return false;
     ResolvedLayout layout{};
     EntityView entity{};
     if (!layout_snapshot(layout) || !entity_for_handle(handle, layout, entity)) return false;
+    if (direct && (!EngineContext::ResolveEcs(after) || after != before)) return false;
     *entity_id = entity.id;
     return entity.id != 0;
 }
@@ -1009,25 +1421,45 @@ bool ResolvePropEntityId(std::uint32_t entity_id, KfcRuntimePropRecord* prop) {
     return ::ResolvePropEntityId(entity_id, prop);
 }
 bool Initialize() {
-    if (!KfcRuntimeCompatibility::EnshroudedClient::Load()) return false;
+    const bool execution_profile = KfcRuntimeCompatibility::EnshroudedClient::Load();
     image_base = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
     if (!image_base) return false;
     const auto dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(image_base);
     if (dos->e_magic != IMAGE_DOS_SIGNATURE) return false;
     const auto nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(image_base + dos->e_lfanew);
     if (nt->Signature != IMAGE_NT_SIGNATURE) return false;
+    image_size = nt->OptionalHeader.SizeOfImage;
     stop_requested.store(false, std::memory_order_release);
-    return GameThreadDispatcher::Initialize();
+    if (execution_profile) GameThreadDispatcher::Initialize();
+    // Metadata discovery remains available when a build lacks proven native
+    // execution adapters. Original-owner entity reads do not authorize writes.
+    return true;
 }
 void Tick() {
-    const auto manager = GameThreadDispatcher::EntityManager();
-    if (!manager) return;
-    const auto count_address = manager + KfcRuntimeCompatibility::EnshroudedClient::entity_manager_count;
-    const auto table_address = manager + KfcRuntimeCompatibility::EnshroudedClient::entity_manager_table;
+    if (stop_requested.load(std::memory_order_acquire)) return;
+    auto manager = GameThreadDispatcher::EntityManager();
+    EngineContext::EcsView owners;
+    const bool direct_read = (!manager || !GameThreadDispatcher::Ready()) && EngineContext::ResolveEcs(owners);
+    if (direct_read) manager = owners.manager;
+    read_component_registry(manager);
+    if (!manager) {
+        std::scoped_lock operation_lock(operation_mutex);
+        std::scoped_lock lock(state_mutex);
+        if (layout_ready) {
+            layout_ready = false;
+            ++layout_epoch;
+            handles.clear();
+            reverse_handles.clear();
+        }
+        return;
+    }
+    const auto count_address = manager + (direct_read ? owners.layout.manager_count : KfcRuntimeCompatibility::EnshroudedClient::entity_manager_count);
+    const auto table_address = manager + (direct_read ? owners.layout.manager_table : KfcRuntimeCompatibility::EnshroudedClient::entity_manager_table);
     std::uint64_t count{};
     std::uintptr_t table{};
     if (!read(count_address, count) || !count || count > (1u << 20) ||
         !read(table_address, table) || !readable(table, sizeof(std::uintptr_t))) {
+        std::scoped_lock operation_lock(operation_mutex);
         std::scoped_lock lock(state_mutex);
         if (layout_ready) {
             layout_ready = false;
@@ -1038,42 +1470,46 @@ void Tick() {
         return;
     }
     {
+        std::scoped_lock operation_lock(operation_mutex);
         std::scoped_lock lock(state_mutex);
         if (!layout_ready || live_table != table || live_layout.count_address != count_address ||
-            live_layout.table_address != table_address) {
+            live_layout.table_address != table_address || read_only_binding != direct_read ||
+            (direct_read && read_only_view != owners)) {
             live_layout = {};
             live_table = table;
+            read_only_binding = direct_read;
+            read_only_view = direct_read ? owners : EngineContext::EcsView{};
             live_layout.count_address = count_address;
             live_layout.table_address = table_address;
-            live_layout.entity_id = KfcRuntimeCompatibility::EnshroudedClient::entity_id;
-            live_layout.entity_generation = KfcRuntimeCompatibility::EnshroudedClient::entity_generation;
-            live_layout.entity_layout = KfcRuntimeCompatibility::EnshroudedClient::entity_layout;
-            live_layout.entity_storage = KfcRuntimeCompatibility::EnshroudedClient::entity_storage;
-            live_layout.entity_row = KfcRuntimeCompatibility::EnshroudedClient::entity_row;
-            live_layout.component_bits = KfcRuntimeCompatibility::EnshroudedClient::component_bits;
-            live_layout.component_offsets = KfcRuntimeCompatibility::EnshroudedClient::component_offsets;
-            live_layout.component_strides = KfcRuntimeCompatibility::EnshroudedClient::component_strides;
+            live_layout.occupancy_address = direct_read && owners.layout.manager_occupancy ? manager + owners.layout.manager_occupancy : 0;
+            live_layout.keys_address = direct_read && owners.layout.manager_keys ? manager + owners.layout.manager_keys : 0;
+            live_layout.entity_id = direct_read ? owners.layout.entity_id : KfcRuntimeCompatibility::EnshroudedClient::entity_id;
+            live_layout.entity_generation = direct_read ? owners.layout.entity_generation : KfcRuntimeCompatibility::EnshroudedClient::entity_generation;
+            live_layout.entity_layout = direct_read ? owners.layout.entity_layout : KfcRuntimeCompatibility::EnshroudedClient::entity_layout;
+            live_layout.entity_storage = direct_read ? owners.layout.entity_storage : KfcRuntimeCompatibility::EnshroudedClient::entity_storage;
+            live_layout.entity_definition = direct_read ? owners.layout.entity_definition : KfcRuntimeCompatibility::EnshroudedClient::entity_definition;
+            live_layout.entity_definition_uuid = direct_read ? owners.layout.entity_definition_uuid : 0;
+            live_layout.entity_definition_uuid_validated = direct_read && owners.layout.entity_definition_uuid_validated;
+            live_layout.entity_row = direct_read ? owners.layout.entity_row : KfcRuntimeCompatibility::EnshroudedClient::entity_row;
+            live_layout.component_bits = direct_read ? owners.layout.component_bits : KfcRuntimeCompatibility::EnshroudedClient::component_bits;
+            live_layout.component_offsets = direct_read ? owners.layout.component_offsets : KfcRuntimeCompatibility::EnshroudedClient::component_offsets;
+            live_layout.component_strides = direct_read ? owners.layout.component_strides : KfcRuntimeCompatibility::EnshroudedClient::component_strides;
             layout_ready = true;
             ++layout_epoch;
             handles.clear();
             reverse_handles.clear();
         }
     }
-    read_component_registry(manager);
-    component_discovery_tick(manager);
+    if (!direct_read) component_discovery_tick(manager);
 }
 std::string Status() {
     std::scoped_lock discovery_lock(discovery_mutex);
     std::scoped_lock lock(state_mutex);
-    std::size_t dynamic_candidates{};
-    for (const auto& [name, size] : configured_types) {
-        (void)size;
-        if (name.starts_with("keen::ecs::Dynamic")) ++dynamic_candidates;
-    }
-    const auto component_candidates = configured_types.size() - dynamic_candidates;
     std::ostringstream text;
     text << "types=" << types.size() << '/' << configured_types.size()
-         << "{other_ecs_types=" << component_candidates << ",dynamic_name_types=" << dynamic_candidates << '}'
+         << "{reflected_ecs_types=" << configured_types.size()
+         << ",registered_storage_types=" << types.size()
+         << ",registrations=" << (component_registry_ready ? component_registry.entries.size() : 0) << '}'
          << " component_index_discovery=" << (discovery_complete ? "complete" : "scanning")
          << '(' << discovery_cursor << '/' << discovery_entities.size()
          << ",layouts=" << discovered_layouts.size()
@@ -1087,7 +1523,18 @@ std::string Status() {
     text << " voxel_context=" << (WorldRuntime::ActiveContextAvailable() ? "ready" : "waiting");
     text << " context_probe{" << WorldRuntime::ContextStatus() << '}';
     if (types.empty()) return text.str() + " registry=unresolved layout=unavailable";
-    if (!layout_ready) return text.str() + " registry=ready layout=discovering";
+    text << " registry=ready";
+    if (!layout_ready || (component_registry_ready && !component_registry_world_bound))
+        return text.str() + " layout=unavailable entity_access=unavailable(dispatcher-or-world-layout)";
+    if (read_only_binding) {
+        EngineContext::EcsView current;
+        if (!EngineContext::ResolveEcs(current) || current != read_only_view)
+            return text.str() + " layout=unavailable entity_access=unavailable(engine-owner-changed)";
+        text << " entity_access=" << (EngineContext::EcsWriteConfigured() &&
+            read_only_view.role == EngineContext::EcsRole::LocalAuthority ? "guarded-read-write" : "read-only")
+            << " entity_realm=" << EngineContext::RoleName(read_only_view.role);
+    } else text << " entity_access=" << (GameThreadDispatcher::Ready() ? "read-write" : "unavailable")
+        << " entity_realm=engine-observed";
     text << " layout=ready"
          << " entity{id=0x" << std::hex << live_layout.entity_id
          << ",generation=0x" << live_layout.entity_generation
@@ -1103,6 +1550,9 @@ std::string Status() {
 std::string Diagnostics() {
     std::scoped_lock discovery_lock(discovery_mutex);
     std::scoped_lock lock(state_mutex);
+    EngineContext::EcsView current_read_view;
+    const bool current_read_binding = !read_only_binding ||
+        (EngineContext::ResolveEcs(current_read_view) && current_read_view == read_only_view);
     std::size_t observed_indices{};
     for (const auto& entry : observed_indices_by_size) observed_indices += entry.second.size();
     nlohmann::json resolved_mappings = nlohmann::json::array();
@@ -1116,6 +1566,11 @@ std::string Diagnostics() {
     std::unordered_map<std::uint32_t, std::vector<std::string>> names_by_size;
     std::unordered_set<std::string> profile_names;
     std::size_t dynamic_candidates{};
+    std::size_t template_types{}, template_only{};
+    if (component_registry_ready) for (const auto& entry : component_registry.entries) {
+        template_types += !entry.configuration.name.empty();
+        template_only += entry.storage.name.empty();
+    }
     for (const auto& component : KfcRuntimeCompatibility::EnshroudedClient::runtime_components)
         profile_names.insert(component.qualified_name);
     for (const auto& [name, size] : configured_types) {
@@ -1136,7 +1591,8 @@ std::string Diagnostics() {
         for (const auto& name : names) {
             if (types.contains(name)) continue;
             const auto candidates = candidate_set == observed_indices_by_size.end() ? 0 : candidate_set->second.size();
-            const auto reason = names.size() != 1 ? "shared-reflected-size" :
+            const auto reason = component_registry_ready ? "reflected-type-without-entity-storage" :
+                names.size() != 1 ? "shared-reflected-size" :
                 candidates == 0 ? "no-live-archetype-observed" :
                 candidates != 1 ? "multiple-live-indices-for-size" : "index-conflict";
             unresolved_types.push_back({{"name",name},{"size",size},{"reason",reason}});
@@ -1161,8 +1617,11 @@ std::string Diagnostics() {
             {"otherEcsTypes",configured_types.size() - dynamic_candidates},
             {"dynamicNameTypes",dynamic_candidates},
             {"engineRegistrations",component_registry_ready ? component_registry.entries.size() : 0},
+            {"registeredStorageTypes",component_registry_ready ? types.size() : 0},
+            {"registeredTemplateTypes",template_types}, {"templateOnlyRegistrations",template_only},
             {"resolved",types.size()},
-            {"unresolved",configured_types.size() - types.size()}
+            {"unresolved",component_registry_ready ? 0 : configured_types.size() - types.size()},
+            {"reflectedWithoutEntityStorage",configured_types.size() - types.size()}
         }},
         {"worldOperations",std::move(world_operations)},
         {"voxelContextActive",WorldRuntime::ActiveContextAvailable()},
@@ -1171,6 +1630,30 @@ std::string Diagnostics() {
         {"entityHookStatus",WorldRuntime::EntityHookStatus()},
         {"configuredTypes",configured_types.size()}, {"resolvedTypes",types.size()},
         {"layoutReady",layout_ready}, {"layoutEpoch",layout_epoch},
+        {"registryAvailable",component_registry_ready}, {"registryManagerBound",component_registry_world_bound},
+        {"entityReadSource",read_only_binding ? "original-engine-owner-chain" : "game-thread-dispatcher"},
+        {"entityReadRole",read_only_binding ? EngineContext::RoleName(read_only_view.role) : "engine-observed"},
+        {"originalWriteGateConfigured",EngineContext::EcsWriteConfigured()},
+        {"originalWriteGateLastReason",last_write_reason.load(std::memory_order_relaxed)},
+        {"writeFault",write_fault_active_locked()},
+        {"writeFaultReason",write_fault_active_locked() ? write_fault_reason : "none"},
+        {"registryDiscovery",nlohmann::json{
+            {"source","resident-private-memory"},
+            {"scanning",registry_discovery.Status().scanning},
+            {"available",registry_discovery.Status().available},
+            {"reason",registry_discovery.Status().reason},
+            {"scannedBytes",registry_discovery.Status().scanned_bytes},
+            {"skippedNonresidentBytes",registry_discovery.Status().skipped_nonresident_bytes},
+            {"validationBytes",registry_discovery.Status().validation_bytes},
+            {"budgetLimitedSteps",registry_discovery.Status().budget_limited_steps},
+            {"completedPasses",registry_discovery.Status().completed_passes},
+            {"distinctRegistries",registry_discovery.Status().distinct_registries},
+            {"distinctCatalogs",registry_discovery.Status().distinct_catalogs},
+            {"entityAccessAuthorized",false}
+        }},
+        {"entityAccessReady",layout_ready && !types.empty() &&
+            (read_only_binding ? current_read_binding && component_registry_ready && component_registry_world_bound :
+                GameThreadDispatcher::Ready() && (!component_registry_ready || component_registry_world_bound))},
         {"componentDiscovery",nlohmann::json{
             {"complete",discovery_complete},
             {"scannedEntities",discovery_scanned_entities},
@@ -1187,7 +1670,8 @@ std::string Diagnostics() {
             {"registrationReady",component_registry_ready}, {"registrationReason",component_registry_error},
             {"registrationCount",component_registry.entries.size()},
             {"resolved",std::move(resolved_mappings)},
-            {"unresolved",std::move(unresolved_types)},
+            {"unresolved",component_registry_ready ? nlohmann::json::array() : unresolved_types},
+            {"reflectedWithoutEntityStorage",component_registry_ready ? std::move(unresolved_types) : nlohmann::json::array()},
             {"strideCandidates",std::move(stride_candidates)}
         }},
         {"activeQueryScan",nlohmann::json{
@@ -1217,17 +1701,21 @@ std::string Diagnostics() {
 void Shutdown() {
     stop_requested.store(true, std::memory_order_release);
     GameThreadDispatcher::Shutdown();
+    std::scoped_lock operation_lock(operation_mutex);
     reset_component_discovery();
     std::scoped_lock lock(state_mutex);
     types.clear();
     configured_types.clear();
     component_registry = {};
     component_registry_ready = false;
+    component_registry_world_bound = false;
     component_registry_seen = false;
     component_registry_json.clear();
     component_registry_error = "runtime stopped";
     live_layout = {};
     layout_ready = false;
+    read_only_binding = false;
+    read_only_view = {};
     handles.clear();
     reverse_handles.clear();
     query_scans.clear();
@@ -1248,12 +1736,14 @@ extern "C" bool __cdecl KfcRuntimeEcsConfigure(const char* const* names,
         if (!name.starts_with("keen::ecs::")) return false;
         contract.emplace(name, sizes[index]);
     }
+    std::scoped_lock operation_lock(operation_mutex);
     {
         std::scoped_lock lock(state_mutex);
         if (configured_types == contract) return true;
         configured_types = std::move(contract);
         component_registry = {};
         component_registry_ready = false;
+        component_registry_world_bound = false;
         component_registry_seen = false;
         component_registry_last_read = 0;
         component_registry_json.clear();
@@ -1265,12 +1755,11 @@ extern "C" bool __cdecl KfcRuntimeEcsConfigure(const char* const* names,
         }
         live_layout = {};
         layout_ready = false;
+        read_only_binding = false;
+        read_only_view = {};
+        ++layout_epoch;
         handles.clear();
         reverse_handles.clear();
-        query_scans.clear();
-        query_cache.clear();
-        resolve_scans.clear();
-        resolve_cache.clear();
     }
     reset_component_discovery();
     return true;
@@ -1278,11 +1767,15 @@ extern "C" bool __cdecl KfcRuntimeEcsConfigure(const char* const* names,
 
 extern "C" std::uint64_t __cdecl KfcRuntimeWorldSessionId() {
     std::scoped_lock lock(state_mutex);
-    const auto manager = GameThreadDispatcher::EntityManager();
+    if (read_only_binding) {
+        EngineContext::EcsView current;
+        if (!EngineContext::ResolveEcs(current) || current != read_only_view) return 0;
+    }
+    const auto manager = read_only_binding ? component_registry_manager : GameThreadDispatcher::EntityManager();
     std::uint64_t count{};
     std::uintptr_t table{};
     if (!manager || !layout_ready ||
-        live_layout.count_address != manager + KfcRuntimeCompatibility::EnshroudedClient::entity_manager_count ||
+        live_layout.count_address != manager + (read_only_binding ? read_only_view.layout.manager_count : KfcRuntimeCompatibility::EnshroudedClient::entity_manager_count) ||
         !read(live_layout.count_address, count) || !count || count > (1u << 20) ||
         !read(live_layout.table_address, table) || !table || table != live_table) return 0;
     // Conservative identity: rebuilding ECS layouts also invalidates old journals.
@@ -1290,9 +1783,15 @@ extern "C" std::uint64_t __cdecl KfcRuntimeWorldSessionId() {
 }
 extern "C" bool __cdecl KfcRuntimeEcsReady() {
     std::scoped_lock lock(state_mutex);
-    return GameThreadDispatcher::Ready() && layout_ready && !types.empty();
+    if (!layout_ready || types.empty()) return false;
+    if (!read_only_binding) return GameThreadDispatcher::Ready() &&
+        (!component_registry_ready || component_registry_world_bound);
+    EngineContext::EcsView current;
+    return component_registry_ready && component_registry_world_bound &&
+        EngineContext::ResolveEcs(current) && current == read_only_view;
 }
 extern "C" bool __cdecl KfcRuntimeEcsPropQueryReady() {
+    { std::scoped_lock lock(state_mutex); if (read_only_binding) return false; }
     ResolvedLayout layout{};
     if (!layout_snapshot(layout)) return false;
     ComponentType transform{}, item{};
@@ -1301,7 +1800,25 @@ extern "C" bool __cdecl KfcRuntimeEcsPropQueryReady() {
 }
 extern "C" bool __cdecl KfcRuntimeEcsCanWrite() {
     std::scoped_lock lock(state_mutex);
-    return GameThreadDispatcher::Ready() && layout_ready && !types.empty();
+    if (!layout_ready || types.empty() || write_fault_active_locked()) return false;
+    if (!read_only_binding) return GameThreadDispatcher::Ready() &&
+        (!component_registry_ready || component_registry_world_bound);
+    EngineContext::EcsView current;
+    return component_registry_ready && component_registry_world_bound &&
+        read_only_view.role == EngineContext::EcsRole::LocalAuthority && EngineContext::EcsWriteConfigured() &&
+        EngineContext::ResolveEcs(current) && current == read_only_view;
+}
+extern "C" bool __cdecl KfcRuntimeEcsCanWriteComponent(const char* name) {
+    std::scoped_lock operation_lock(operation_mutex);
+    ComponentType component{};
+    if (!KfcRuntimeEcsCanWrite() || !resolve_component(name, component)) return false;
+    EngineContext::EcsView owner;
+    {
+        std::scoped_lock lock(state_mutex);
+        if (!read_only_binding) return true;
+        owner = read_only_view;
+    }
+    return EngineContext::EcsComponentWriteSupported(owner, component.index);
 }
 extern "C" bool __cdecl KfcRuntimeEcsDescribe(const char* name, std::uint32_t* size) {
     ComponentType component{};
@@ -1362,7 +1879,7 @@ extern "C" std::size_t __cdecl KfcRuntimeEcsQuery(const char* const* names, std:
     operation->output.resize(capacity);
     operation->entities = operation->output.data();
     operation->capacity = capacity;
-    if (!GameThreadDispatcher::Invoke(query_on_game_thread, operation)) {
+    if (!invoke_read_operation(query_on_game_thread, operation)) {
         operation_counters.query_failures.fetch_add(1, std::memory_order_relaxed);
         return SIZE_MAX;
     }
@@ -1397,13 +1914,14 @@ extern "C" std::size_t __cdecl KfcRuntimeEcsQueryBounds(const char* const* names
     has_transform = std::find(operation->names.begin(), operation->names.end(), "keen::ecs::CurrentTransform") != operation->names.end();
     if (!has_transform) return SIZE_MAX;
     operation->capacity = capacity;
-    if (!GameThreadDispatcher::Invoke(query_bounds_on_game_thread, operation, 500)) return SIZE_MAX;
+    if (!invoke_read_operation(query_bounds_on_game_thread, operation, 500)) return SIZE_MAX;
     if (operation->result == SIZE_MAX) return SIZE_MAX;
     if (entities) std::copy_n(operation->output.begin(), (std::min)(capacity, operation->output.size()), entities);
     return operation->result;
 }
 extern "C" std::size_t __cdecl KfcRuntimeWorldEntityQueryProps(const double* bounds, double padding,
                                                                   KfcRuntimePropRecord* props, std::size_t capacity) {
+    { std::scoped_lock lock(state_mutex); if (read_only_binding) return SIZE_MAX; }
     if (!bounds || !std::isfinite(padding) || padding < 0 || capacity > (1u << 20) || (!props && capacity)) return SIZE_MAX;
     auto operation = std::make_shared<PropQueryOperation>();
     operation->padding = padding;
@@ -1419,6 +1937,7 @@ extern "C" std::size_t __cdecl KfcRuntimeWorldEntityQueryProps(const double* bou
 }
 extern "C" std::size_t __cdecl KfcRuntimeWorldEntityQueryPropsInBounds(
     const double* bounds, KfcRuntimePropRecord* props, std::size_t capacity) {
+    { std::scoped_lock lock(state_mutex); if (read_only_binding) return SIZE_MAX; }
     if (!bounds || capacity > (1u << 20) || (!props && capacity)) return SIZE_MAX;
     std::unique_lock query_lock(prop_query_call_mutex, std::try_to_lock);
     if (!query_lock.owns_lock()) return SIZE_MAX - 1;
@@ -1519,6 +2038,7 @@ extern "C" bool __cdecl KfcRuntimeWorldEntityGetPropRecipe(
     return true;
 }
 extern "C" bool __cdecl KfcRuntimeWorldEntityGetTransform(std::uint32_t handle, KfcRuntimePropRecord* prop) {
+    { std::scoped_lock lock(state_mutex); if (read_only_binding) return false; }
     if (!handle || !prop) return false;
     HandleRecord record{};
     {
@@ -1533,16 +2053,17 @@ extern "C" bool __cdecl KfcRuntimeWorldEntityGetTransform(std::uint32_t handle, 
     ComponentType transform_component{}, item_component{};
     if (!resolve_component("keen::ecs::CurrentTransform", transform_component) || transform_component.size != 0x38 ||
         !resolve_component("keen::ecs::UsedItem", item_component) || item_component.size != 4) return false;
-    std::vector<std::uintptr_t> pointers;
+    std::vector<EntityPointer> pointers;
     if (!entity_pointers(layout, pointers) || pointers.size() > (1u << 20)) return false;
     // Keep table membership and live id/generation validation, but inspect the
     // captured pointer first. Undo used to decode every preceding world entity
     // again for each prop and each verification pass (O(props * world entities)).
-    const auto cached = std::find(pointers.begin(), pointers.end(), record.pointer);
+    const auto cached = std::find_if(pointers.begin(), pointers.end(),
+        [&](const EntityPointer& entry) { return entry.pointer == record.pointer; });
     if (cached != pointers.end()) std::iter_swap(pointers.begin(), cached);
-    for (const auto pointer : pointers) {
+    for (const auto& pointer : pointers) {
         EntityView entity{};
-        if (!entity_view(pointer, layout, entity) || entity.id != record.id || entity.generation != record.generation) continue;
+        if (!entity_view(pointer.pointer, layout, entity) || entity.id != record.id || entity.generation != record.generation) continue;
         std::uintptr_t transform_address{}, item_address{};
         struct NativeTransform { std::int64_t position[3]; float rotation[4]; float scale[3]; std::uint32_t padding; } transform{};
         std::uint32_t item_id{};
@@ -1550,7 +2071,7 @@ extern "C" bool __cdecl KfcRuntimeWorldEntityGetTransform(std::uint32_t handle, 
             !component_address(entity, layout, item_component, item_address) ||
             !read_bytes(transform_address, &transform, sizeof(transform)) ||
             !read_bytes(item_address, &item_id, sizeof(item_id)) || !item_id) return false;
-        const auto current_handle = handle_for(entity);
+        const auto current_handle = handle_for(entity, pointer.table_index);
         if (current_handle != handle) return false;
         *prop = {};
         prop->entity_handle = handle;
@@ -1573,6 +2094,7 @@ struct SetEntityScaleOperation {
     bool result{};
 };
 void set_entity_scale_on_game_thread(void* opaque) {
+    std::scoped_lock operation_lock(operation_mutex);
     auto& operation = *static_cast<SetEntityScaleOperation*>(opaque);
     using namespace KfcRuntimeCompatibility::EnshroudedClient;
     ComponentType component{};
@@ -1600,7 +2122,7 @@ void set_entity_scale_on_game_thread(void* opaque) {
     operation.result = true;
 }
 extern "C" bool __cdecl KfcRuntimeWorldEntitySetScale(std::uint32_t handle, const double* scale) {
-    if (!handle || !scale || !GameThreadDispatcher::Ready()) return false;
+    if (!handle || !scale || !KfcRuntimeEcsCanWrite()) return false;
     auto operation = std::make_shared<SetEntityScaleOperation>();
     operation->handle = handle;
     for (int axis = 0; axis < 3; ++axis) {
@@ -1617,7 +2139,7 @@ extern "C" std::uint32_t __cdecl KfcRuntimeEcsResolve(std::uint32_t entity_id) {
     }
     auto operation = std::make_shared<ResolveOperation>();
     operation->entity_id = entity_id;
-    if (!GameThreadDispatcher::Invoke(resolve_on_game_thread, operation)) {
+    if (!invoke_read_operation(resolve_on_game_thread, operation)) {
         operation_counters.resolve_failures.fetch_add(1, std::memory_order_relaxed);
         return 0;
     }
@@ -1639,12 +2161,20 @@ extern "C" bool __cdecl KfcRuntimeEcsRead(std::uint32_t handle, const char* name
     operation->output.resize(size);
     operation->value = operation->output.data();
     operation->size = size;
-    if (!GameThreadDispatcher::Invoke(read_on_game_thread, operation) || !operation->result) {
+    if (!invoke_read_operation(read_on_game_thread, operation) || !operation->result) {
         operation_counters.read_failures.fetch_add(1, std::memory_order_relaxed);
         return false;
     }
     std::memcpy(value, operation->output.data(), size);
     operation_counters.read_successes.fetch_add(1, std::memory_order_relaxed);
+    return true;
+}
+extern "C" bool __cdecl KfcRuntimeEcsTemplateUuid(std::uint32_t handle, std::uint8_t* uuid) {
+    if (!handle || !uuid || !KfcRuntimeEcsReady()) return false;
+    auto operation = std::make_shared<TemplateUuidOperation>();
+    operation->handle = handle;
+    if (!invoke_read_operation(template_uuid_on_game_thread, operation) || !operation->result) return false;
+    std::memcpy(uuid, operation->uuid.data(), operation->uuid.size());
     return true;
 }
 extern "C" bool __cdecl KfcRuntimeEcsWrite(std::uint32_t handle, const char* name,
@@ -1666,7 +2196,10 @@ extern "C" bool __cdecl KfcRuntimeEcsWrite(std::uint32_t handle, const char* nam
     operation->mask = operation->mask_bytes.data();
     operation->value = operation->destination.data();
     operation->size = size;
-    const bool written = GameThreadDispatcher::Invoke(write_on_game_thread, operation) && operation->result;
+    operation->before.resize(size);
+    operation->merged.resize(size);
+    operation->verified.resize(size);
+    const bool written = invoke_write_operation(operation) && operation->result;
     if (written) operation_counters.write_successes.fetch_add(1, std::memory_order_relaxed);
     else operation_counters.write_failures.fetch_add(1, std::memory_order_relaxed);
     return written;
@@ -1687,8 +2220,11 @@ extern "C" std::uint32_t __cdecl KfcRuntimeEcsCompareExchange(std::uint32_t hand
     operation->mask = operation->mask_bytes.data();
     operation->value = operation->destination.data();
     operation->size = size;
-    if (!GameThreadDispatcher::Invoke(write_on_game_thread, operation)) return 0;
-    return operation->result ? 1 : operation->conflict ? 2 : 0;
+    operation->before.resize(size);
+    operation->merged.resize(size);
+    operation->verified.resize(size);
+    if (!invoke_write_operation(operation)) return 0;
+    return operation->uncertain ? 3 : operation->result ? 1 : operation->conflict ? 2 : 0;
 }
 
 extern "C" bool __cdecl KfcRuntimeEcsEntityIdentity(std::uint32_t handle, std::uint32_t* entity_id) {
