@@ -26,7 +26,7 @@ jobs:
       - name: Build documentation
         run: npm run site:check
       - name: Verify documentation sources stay unchanged
-        run: git diff --exit-code -- website
+        run: git diff --exit-code -- docs
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

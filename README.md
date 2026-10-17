@@ -167,43 +167,38 @@ The release build validates each mod's manifest, ID, Lua entry point, and Lua sy
 
 The source tree currently contains the two release mods listed above. The earlier reference and diagnostic package directories have been removed. See the [architecture guide](docs/sf/Architecture.md) for current source locations and concrete build actions.
 
-## Find or build something in the repository
+## Repository structure
 
-Find the action you want to change, then open the file with that name. For example, **modules/modloader/save_mod_settings.rs** contains the mod-setting save operation. Its UI lives in the same module. See the [action and file guide](docs/sf/Architecture.md) and the [module owners](modules/README.md).
+Product code is grouped by responsibility under `modules/`. Each module owns its behavior and its UI where needed. The [module guide](modules/README.md) and [code ownership guide](docs/development/code-ownership.en.md) describe the current boundaries.
 
-Run these commands from the repository root:
+~~~text
+modules/
+  entrypoints/loader/       # Loader application and startup entrypoints
+  modloader/                # Find, validate, configure, and order mods
+  mod-runtime/              # Prepare and run mods, Lua APIs, callbacks, and reloads
+  game-files/               # Game-file backups, status, and asset transactions
+  game-runtime/             # Native game access, Rust bridge, compatibility, and profiles
+  runtime-diagnostics/      # Runtime diagnostic jobs and measurements
+  updater/                  # System updates and mod package updates
+  transport/                # Steam networking
+  world-editor/             # World editing features
+  commands/                 # Command-line actions
+  debug-console/            # In-game log and diagnostics window
+  loader-config/            # Loader settings and game paths
+  logging/                  # Log writing and display
+  notifications/            # News events and notifications
+  ui-resources/             # Shared UI resources and translations
+.github/                    # GitHub workflows
+dev/                        # Build actions, parser setup, tests, and profile tools
+docs/                       # Guides, examples, evidence, and website source
+mods/                       # Mod source included with the repository
+kfc-parser/                 # Direct Git submodule for the KFC parser
+assets/                     # Repository images and branding
+build/                      # Generated build and website output
+target/                     # Cargo build output
+~~~
 
-Initialize the Git submodules before building. For a direct Rust-only build, first run `./dev/prepare_parser.ps1` once to apply the recorded parser integration. The complete `build.ps1` sequence already performs this preparation.
-
-| What you want to do | Command |
-| --- | --- |
-| Build the Modloader and its UI | `./dev/build_modloader.ps1` |
-| Build the native runtime | `./dev/build_runtime.ps1` |
-| Build and validate the website | `./dev/build_website.ps1` |
-| Package existing build outputs | `./dev/package_release.ps1` |
-| Build the complete release without running tests | `./build.ps1 -SkipTests` |
-
-Executable inspection, captures and profile preparation belong to [dev/profiles/](dev/profiles/README.md). The [starter mod](docs/modding/starter-mod/README.md) and [small Lua examples](docs/modding/examples/) belong to the documentation. Build outputs are generated under **build/** and **target/**. Installed loader state is separate from the repository source.
-
-## Development roadmap
-
-This table describes the current state of ShroudForge itself. **Proven** means the workflow has been verified for the stated scope. **Beta** means it is available but still has known reliability or coverage limits. **Open** means implementation or validation remains.
-
-| Area | Current state | Status |
-| --- | --- | --- |
-| **Release build and mod checks** | Release packaging checks each mod's manifest, ID, Lua entry point, and Lua syntax. | ✅ Proven |
-| **Build profiles** | Profiles are maintained per Enshrouded build and target. The current client profile is for build **1076226**. Supporting another build requires reviewing its profile and the operations it enables. | ✅ Proven |
-| **Asset changes before launch** | Supported asset edits are prepared before the game starts. Coverage depends on the resource and game build. Client and server may need matching settings. | ✅ Proven |
-| **Runtime hooks and gameplay mods** | The included gameplay mods use profile-backed hooks, patches, or asset changes. Their multiplayer effect depends on which process handles the action and has not been verified end to end for every mod. | 🚧 Beta |
-| **KFC runtime and ECS** | Native runtime and ECS operations are available, but live world-context detection and some read/write paths still have reliability limits. | 🚧 Beta |
-| **World Editor: capture and placement** | Blueprint capture and local placement are available. Dedicated Server placement over Steam P2P has been observed. Saving and persistence still need separate live-session checks. | 🚧 Beta |
-| **World Editor: prop undo** | Undo can fail when the native runtime cannot remove a placed prop. Preserve the undo journal and report the operation as incomplete. Do not describe prop undo as proven. | 🕓 Open |
-| **World Editor: automatic world targeting** | The client selects the local or Dedicated Server route from the detected world context. Startup, reconnect, and world-switch cases need continued live validation. | 🚧 Beta |
-| **EML mod support** | ShroudForge supports documented EML-style package and API flows. Compatibility depends on the APIs and native behavior used by each mod. | 🚧 Beta |
-| **Mod discovery and updater** | The Modloader can find and install catalog mods, queue mod updates, and stage ShroudForge updates with backups. Broader recovery scenarios still need validation. | 🚧 Beta |
-| **Client-server loader and mod compatibility** | Steam P2P `PING`/`PONG` checks connectivity only. ShroudForge validates mod targets, dependency version ranges, and ShroudForge API requirements locally, but does not compare loader/API versions or installed mod IDs and versions when a client joins a server. Add a compatibility handshake that reports missing or mismatched mods and defines whether each mismatch warns or blocks the session; validate it with client and Dedicated Server builds. | 🕓 Open |
-| **More game builds and server profiles** | Add and validate profiles for further Enshrouded builds and targets. | 🕓 Open |
-| **Stable ECS-backed mod API** | Make world-context detection and ECS access dependable, then document supported operations based on live verification. | 🕓 Open |
+The `modules/game-runtime/` directory contains the native runtime and its Rust bridge. `modules/mod-runtime/` runs ShroudForge mods through that bridge. The actual mod source lives under `mods/`.
 
 ## License and support
 

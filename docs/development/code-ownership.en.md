@@ -1,0 +1,220 @@
+# How ShroudForge is organized
+
+This guide is for people exploring or changing the ShroudForge source code. For an illustrated introduction, see [what ShroudForge does](https://bonsaibauer.github.io/shroudforge/en/#workings) and [how the Lua and KFC runtimes work](https://bonsaibauer.github.io/shroudforge/en/#runtime). For installing mods or getting started as a player, use the [website quickstart](https://bonsaibauer.github.io/shroudforge/en/#play).
+
+## The short version
+
+ShroudForge is a Windows loader for Enshrouded. It finds mod folders, checks their information, prepares changes that need to happen before the game starts, and runs other mod features at the right time. The Modloader, Debug Console, updater, commands, diagnostics, and native runtime are parts of the same product.
+
+### A few useful words
+
+- **Mod package:** the installed folder containing one mod.
+- **Manifest:** the mod's information file, **mod.json**.
+- **Capability:** a permission a mod must list before it can use certain features.
+- **Runtime:** work performed while the game is running.
+- **Profile:** reviewed information about one game build, used by supported native operations.
+- **ABI:** the agreed set of low-level calls used when two compiled parts talk to each other.
+
+## Where the code lives
+
+~~~text
+modules/                       # Product modules and application entrypoints
+  entrypoints/                # Loader application and Windows DLL entrypoints
+  modloader/                  # Find, read, check and configure mods
+    ui/                       # Modloader window and its views
+  updater/                    # Check, download and install updates
+    ui/                       # Its update views
+  loader-config/              # Read and save loader settings and state
+  logging/                    # Write logs and display activity
+  notifications/              # News, saved events, read state and toasts
+  runtime-diagnostics/        # Selectable, time-limited runtime diagnostic jobs
+    diagnostics-jobs/         # Built-in collectors and operation measurements
+  debug-console/              # Separate log window
+  world-editor/               # Separate editor window
+  commands/                   # Existing command mode
+  transport/                  # Steam messages and network health
+  ui-resources/               # Shared display elements and translations
+  mod-runtime/                # Mod sessions, startup actions, callbacks and Lua bindings
+    session/                  # Own session state, assets and native mod handles
+    startup/                  # Prepare and commit game-file mod changes
+    ingame/                   # Start, update, reload and stop running mods
+  game-files/                 # Original game files, restoration and asset transactions
+    originals/                # Check, capture and restore immutable original files
+    ui/                       # Game-file backup view
+  game-runtime/               # Native game access, ABI, Rust bridge and shipped profiles
+    bridge/                   # Rust adapters grouped by native operation
+    native/                   # C++ owners, ECS, resources, hooks and game-thread queue
+    profiles/                 # Complete approved profiles for individual game builds
+kfc-parser/                   # Direct parser Git submodule
+mods/                         # sf-survival and sf-unlimited-flight
+dev/
+  build/                      # Product, runtime, website, and complete dev/release build actions
+  parser/                     # Prepare the pinned parser submodule integration
+  tests/                      # Workspace test action
+  profiles/
+    cli/                      # Native kfc-runtime-dev command implementation
+    capture/                  # Collect executable and live-process evidence
+    inspect/                  # Read executable, reflection, and KFC resources
+    compare/                  # Compare captures from different builds
+    analyze/                  # Index and trace captured evidence
+    verify/                   # Check profile and runtime evidence
+    checks/                   # Explicit native and Python technical checks
+    tests/                    # Tests for the profile development tools
+    catalogs/                 # Maintained build catalogs and indexes
+    schemas/                  # Profile and catalog data contracts
+    captures/                 # Ignored local originals and capture results
+docs/
+  pages/                       # Bilingual Markdown pages published on the website
+  website/                     # Website shell, shared code, page integrations, and build tools
+  development/                 # Current code ownership and developer workflows
+  modding/                     # Mod package and multiplayer guides
+  runtime/                     # Runtime API, profiles, and update guides
+  examples/                    # Starter mod and reference examples
+  evidence/                    # Dated investigations and archived material
+build/                         # Generated build and publication output
+~~~
+
+The KFC parser is directly mounted at **kfc-parser/**. Cargo consumers use its local crates. Format helpers, schema projection and snapshot export live inside that submodule. Game asset file transactions live under **modules/game-files/**. See [parser integration](integrate-kfc-parser.en.md) for the selected parser revision and integration details.
+
+## What happens when a mod loads?
+
+Installed mods are unpacked folders. A download archive is extracted by the installer. Its **mod.json** tells the loader its name, version, dependencies, and declared permissions. An optional **extended.mod.json** holds ShroudForge settings and extra details.
+
+~~~mermaid
+flowchart TD
+    A[Find an installed mod folder] --> B[Read mod.json]
+    B --> C[Read optional extended.mod.json]
+    C --> D[Check files, permissions, target, and dependencies]
+    D --> E[Choose when each part can run]
+    E --> F{What does the mod do?}
+    F -->|Prepare game files| G[Make changes before the game starts]
+    F -->|Use exported files| H[Use the allowed export folder]
+    F -->|Work while playing| I[Check runtime and game support]
+    I --> J[Start src/mod.lua in a separate Lua environment]
+    J --> K[Run load, update, and unload callbacks]
+    G --> L[Show the result and any problem]
+    H --> L
+    K --> L
+~~~
+
+The manifest access declarations are **patch**, **export**, **runtime**, and **runtime-register-dll**. A mod lists the access it needs in **mod.json**. ShroudForge's in-game runtime APIs use **runtime**. **runtime-register-dll** schedules an EML mod that registers a package-local native DLL for the runtime. The registration API checks the current phase and package path, but does not check this specific capability.
+
+Runtime mods have separate Lua environments. The loader selects a matching profile automatically or uses the player's selected profile. When the detected build differs, it reports a warning and enables operations that resolve against the live executable. When a mod stops, the loader asks it to clean up and releases its runtime handles.
+
+## The two mod information files
+
+- **mod.json** follows the EML format. It contains the mod's identity, version, dependencies, and permissions.
+- **extended.mod.json** is an optional ShroudForge file. It contains the enabled state, setting values, groups, actions, links, short update notes, and optional `launcher` provenance (`EML` or `SF`).
+
+The UI treats a package without **extended.mod.json** as EML; ShroudForge mods always include the extension. If ShroudForge adds an extension to an EML package, it writes `launcher: "EML"` so the package keeps its original identity. When an extension exists, only that explicit marker is shown as EML; a missing or non-EML marker is shown as SF. The loader checks the extension against its schema before accepting the package.
+
+Player changes are saved into the package's **extended.mod.json**. Updating the package can replace those choices. Setting migration is not supported. See the [mod package guide](../modding/create-mod-package.en.md) for examples and the exact schemas.
+
+An EML package may not have **extended.mod.json**. `ensure_eml_extension.rs` creates that compatibility file when the player first changes the package in ShroudForge. `update_mod_configuration.rs` owns the shared revision check, validation, and write used by settings and enabled-state actions. It reads an existing ShroudForge extension directly and uses the EML compatibility action only when an EML package has no extension yet. Keep this action distinct from downloading or installing a mod package.
+
+## Lua functions and compatibility
+
+Lua declarations and mod execution belong to **modules/mod-runtime/lua/**. EML v1 and ShroudForge v1 keep their versioned contracts. Runtime calls use the standalone **modules/game-runtime/bridge/** crate. The transport module owns its own Lua transport binding. These boundaries keep the same public mod API.
+
+The [API reference](https://bonsaibauer.github.io/shroudforge/en/#api) is generated from the current function definitions. EML v1 keeps its established names and behavior. A breaking change to the ShroudForge API requires affected mods to be updated.
+
+## Find a change by its action
+
+A file contains the implementation of the action named by that file. Related helpers stay beside that action. Each module owns its UI. The Modloader window supplies inputs and displays results.
+
+| What you want to change | Open this file |
+| --- | --- |
+| Find installed mods | `modules/modloader/find_installed_mods.rs` |
+| Read a mod's information | `modules/modloader/read_mod_manifest.rs` |
+| Save mod settings | `modules/modloader/save_mod_settings.rs` |
+| Change a mod's enabled state | `modules/modloader/set_mod_enabled.rs` |
+| Create a missing EML compatibility extension | `modules/modloader/ensure_eml_extension.rs` |
+| Check the revision, validate, and write changed mod configuration | `modules/modloader/update_mod_configuration.rs` |
+| Check conflicting mods | `modules/modloader/check_mod_conflicts.rs` |
+| Select the mod load order | `modules/modloader/plan_mod_load_order.rs` |
+| Read or save loader settings | `modules/loader-config/read_loader_settings.rs`, `save_loader_settings.rs` |
+| Write a log entry | `modules/logging/append_log.rs` |
+| Mark news as read | `modules/notifications/mark_news_read.rs` |
+| Display a short result message | `modules/notifications/ui/show-toasts.tsx` |
+| Check for a system update | `modules/updater/check_system_update.rs` |
+| Start in-game mod execution | `modules/mod-runtime/ingame/start_ingame_runtime.rs` |
+| Run update callbacks | `modules/mod-runtime/ingame/update_mod_callbacks.rs` |
+| Read original game-file backup status | `modules/game-files/originals/read_original_backups.rs` |
+| Capture original game files | `modules/game-files/originals/capture_original_game_files.rs` |
+| Restore verified original game files | `modules/game-files/originals/restore_original_game_files.rs` |
+| Publish or recover a changed game-file set | `modules/game-files/game_file_transaction.rs` |
+| Apply game-file mods before startup | `modules/entrypoints/loader/asset_preparation/prepare_startup_assets.rs` |
+| Select and run a runtime diagnostics job | `modules/runtime-diagnostics/diagnostics-jobs/` |
+| Measure runtime operations | `modules/runtime-diagnostics/diagnostics-jobs/operation_timings.rs` |
+| Report connection health | `modules/transport/report_network_health.rs` |
+
+The module guide is [modules/README.md](../../modules/README.md). Public entry points assemble these actions. A UI command does not carry its own second implementation of mod validation, saving or update installation.
+
+## The native runtime and game profiles
+
+The native C++ runtime is built and shipped with the loader. It is not a separate player download. The Windows bridge checks the runtime interface version before using it.
+
+A **profile** is reviewed information for a particular Enshrouded build and target, such as the client. It tells supported native operations which game structures to use. Approved profiles are under **modules/game-runtime/profiles/** and are included in the runtime during the build.
+
+See [Lua and native runtime](../runtime/native-runtime-and-game-profiles.en.md) for the runtime, interface, and profile workflow.
+
+## Files in a player installation
+
+The release ZIP contains these main program files:
+
+| Installed file | What it is for |
+| --- | --- |
+| **winmm.dll** | Starts the ShroudForge bridge beside Enshrouded. |
+| **shroudforge/shroudforge-runtime.dll** | Loader library used by the bridge. |
+| **shroudforge/shroudforge.exe** | Main program: launcher, command-line tools, and linked ShroudForge modules. |
+| **shroudforge/shroudforge-updater.exe** | Helper that installs a queued ShroudForge update after the game closes. |
+| **shroudforge/kfc-runtime.dll** | Native runtime used for approved in-game operations. |
+| **shroudforge/version.json** | Release version and list of files managed by system updates. |
+| **shroudforge/config/modloader-config.json** | Loader and module settings, including custom storage locations. |
+| **mods/<id>/** | Mod packages included in the release. |
+
+ShroudForge also creates or updates these working files as you use it:
+
+| Installed path | What it is for |
+| --- | --- |
+| **shroudforge/state.json** | Saved loader, mod, update, and diagnostic status. |
+| **shroudforge/logs/shroudforge-client.log** / **shroudforge/logs/shroudforge-server.log** | Current client or dedicated-server ShroudForge log; each process writes to its role-specific file and rotated logs use timestamped names in this folder. |
+| **shroudforge/ui/** | Mod downloads, queued actions, and removed-mod storage. |
+| **shroudforge/updates/** | Update downloads, queued work, and backups. |
+| **shroudforge/runtime/** | Runtime status and requests shared with the running game. |
+| **shroudforge/runtime/diagnostics/jobs/** | User-defined diagnostic job manifests. This folder follows a custom Runtime storage path when configured. |
+| **shroudforge/cache/** | Saved parser and Lua type information used to speed up work. |
+| **shroudforge/exports/** | Files created by mods that use the export feature. |
+
+The Settings → Storage locations page can redirect the mods, status, logs, cache, exports, updates, UI-data, and runtime-data folders. Those paths resolve through `modules/loader-config/resolve_installation_paths.rs`; modules should use that resolver instead of constructing paths themselves. The game install root, configuration file, and injected DLL locations stay fixed because the Windows bootstrap needs them before the configurable storage paths can be read. Selecting a folder changes where new files are written; it does not copy existing files. A custom mods folder outside the game directory may not be discovered by EML.
+
+System updates manage the program files and bundled mods. They do not replace **modloader-config.json**, the selected status file, or the write lock. Bundled mod files are installed under the configured mods folder.
+
+## Build and development actions
+
+Run commands from the repository root. Each PowerShell file performs the action named by its filename and contains its actual build or package steps.
+
+Initialize the Git submodules before building. The pinned parser revision includes the recorded integration, checked with `./dev/parser/prepare_parser.ps1`. The script can also prepare the legacy revision from its recorded patch. Both GitHub workflows run the same full build, tests, and packaging through `dev/build/dev_build.ps1` or `dev/build/release_build.ps1`. A version-branch push publishes a prerelease. Manually running the release workflow publishes a regular release and marks it latest. Both scripts run this preparation step themselves.
+
+| Action | File | What it does |
+| --- | --- | --- |
+| Build the Modloader and its UI | `./dev/build/build_modloader.ps1` | Builds the Rust workspace and copies the Modloader binaries. |
+| Build only the Modloader UI | `./dev/build/build_modloader_frontend.ps1` | Builds the Modloader frontend. |
+| Build the native runtime | `./dev/build/build_kfc_runtime.ps1` | Configures and builds `kfc-runtime.dll`. |
+| Build the Windows bootstrap | `./dev/build/build_windows_bootstrap.ps1` | Builds the Windows bootstrap project. |
+| Build Windows proxies | `./dev/build/build_windows_proxies.ps1` | Builds the EML-compatible proxy DLLs. |
+| Locate Visual Studio | `./dev/build/find_visual_studio.ps1` | Finds the installed x64 C++ toolchain for native builds. |
+| Prepare the parser submodule | `./dev/parser/prepare_parser.ps1` | Accepts the pinned parser integration or applies the recorded patch to the legacy revision. |
+| Package existing build outputs | `./dev/build/package_release.ps1` | Stages product files, writes the version manifest, and creates the ZIP and checksum. |
+| Run workspace tests | `./dev/tests/run_workspace_tests.ps1` | Runs the bootstrap checks and Rust workspace tests. |
+| Build for the automatic dev prerelease | `./dev/build/dev_build.ps1` | Runs the same full build, tests, and packaging as the release entry point. |
+| Build for a manual release | `./dev/build/release_build.ps1` | Runs the same full build, tests, and packaging as the dev entry point. |
+| Build and validate the website | `./dev/build/check_website.ps1` | Runs the website build and validation command. |
+
+`dev/build/find_visual_studio.ps1` is a shared helper called by the native runtime and Windows bootstrap build actions. It locates the installed C++ toolchain and is not a separate product build.
+
+Both build entry points run the same full build sequence and call the concrete build actions. Tests are an explicit action, `dev/tests/run_workspace_tests.ps1`. Nothing in these instructions creates a second game installation.
+
+For executable inspection, captures and profile preparation, start with [dev/profiles/README.md](../../dev/profiles/README.md). Sources, capture inputs and generated outputs have separate owners. Approved runtime profiles remain in **modules/game-runtime/profiles/**. Local captures remain in **dev/profiles/captures/**. Generated release and website files belong in **build/**.
+
+The **shroudforge/** folder in a player installation is generated product data. It is not a source-code component of this repository. Its installed storage locations are described above and remain configurable through the loader settings.

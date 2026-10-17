@@ -1,0 +1,37 @@
+---
+{
+  "id": "field-enabled",
+  "locale": "de",
+  "title": "Feld `enabled`",
+  "summary": "Gespeicherter Aktivierungszustand für diesen Mod.",
+  "navigation": {
+    "path": [
+      "extended.mod.json"
+    ]
+  }
+}
+---
+
+# Feld `enabled`
+
+Gespeicherter Aktivierungszustand für diesen Mod.
+
+## Datentyp und Pflicht
+
+`boolean` · erforderlich
+
+## Erlaubte Werte und Grenzen
+
+Keine zusätzlichen Werte oder Grenzen im Schema angegeben.
+
+## Beispiel
+
+```json
+{
+  "enabled": false
+}
+```
+
+## Quelle
+
+Schema: [extended.mod.json](https://github.com/bonsaibauer/shroudforge/blob/HEAD/modules/modloader/manifest/extended.mod.schema.json). Der Paketleser prüft zusätzliche Beziehungen zwischen Feldern.
