@@ -1,6 +1,6 @@
 # SF Survival
 
-SF Survival uses the public [typed runtime API](../../docs/sf/runtime-registry.md).
+SF Survival uses the public [typed runtime API](../../docs/runtime/runtime-registry-api.en.md).
 Its Lua code contains no process addresses, gameplay patches or native modifier
 bindings. All settings start disabled and can be changed while the mod is active.
 

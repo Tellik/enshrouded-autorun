@@ -1,0 +1,16 @@
+{
+  "$schema": "../../packages/manifest/manifest.schema.json",
+  "id": "sf-unlock-blueprints",
+  "name": "SF Unlock Blueprints",
+  "version": "1.0.2",
+  "description": "Unlocks all blueprints after restart, regardless of their original recipe unlock requirements. Warning: Reverting this change requires resetting all affected unlock progress. Therefore, this option is disabled by default.",
+  "authors": [
+    "bonsaibauer"
+  ],
+  "license": null,
+  "icon": "icon.svg",
+  "dependencies": [],
+  "capabilities": [
+    "patch"
+  ]
+}

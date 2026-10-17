@@ -27,7 +27,7 @@
   },
   "workspace": {
     "library": [
-      "../../execution/lua/"
+      "../../modules/mod-runtime/lua/"
     ]
   }
 }
