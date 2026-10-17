@@ -1,0 +1,307 @@
+name: ShroudForge Dev Build
+
+on:
+  push:
+    branches:
+      - "*.*.*"
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shroudforge-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security:
+    name: Trivy filesystem scan
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Scan source and dependencies with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          vuln-type: os,library
+          severity: MEDIUM,HIGH,CRITICAL
+          ignore-unfixed: true
+          skip-dirs: .git,target,build,x64
+          format: sarif
+          output: trivy-results.sarif
+          exit-code: "0"
+
+      - name: Upload Trivy SARIF to GitHub Code Scanning
+        if: >-
+          always() && hashFiles('trivy-results.sarif') != '' &&
+          (github.event_name != 'pull_request' ||
+          github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-filesystem
+
+      - name: Summarize Trivy findings
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f trivy-results.sarif ]]; then
+            total=$(jq '[.runs[].results[]?] | length' trivy-results.sarif)
+            errors=$(jq '[.runs[].results[]? | select((.level // "" | ascii_downcase) == "error")] | length' trivy-results.sarif)
+            warnings=$(jq '[.runs[].results[]? | select((.level // "" | ascii_downcase) == "warning")] | length' trivy-results.sarif)
+            notes=$(jq '[.runs[].results[]? | select((.level // "" | ascii_downcase) == "note")] | length' trivy-results.sarif)
+          else
+            total=0
+            errors=0
+            warnings=0
+            notes=0
+          fi
+
+          {
+            echo "## Trivy filesystem scan"
+            echo
+            echo "| Total findings | Errors | Warnings | Notes |"
+            echo "|---:|---:|---:|---:|"
+            echo "| ${total} | ${errors} | ${warnings} | ${notes} |"
+            echo
+            echo "Trivy findings do not block this workflow. SARIF is uploaded to Code Scanning when the event token permits it."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save Trivy SARIF report
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-sarif-${{ github.run_number }}
+          path: trivy-results.sarif
+          if-no-files-found: warn
+          retention-days: 14
+
+  release-check:
+    name: Check whether this event builds a release
+    runs-on: ubuntu-latest
+    outputs:
+      build_release: ${{ steps.check.outputs.build_release }}
+    steps:
+      - name: Check event and branch name
+        id: check
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "build_release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "build_release=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    if: needs.release-check.outputs.build_release == 'true'
+    needs: release-check
+    permissions:
+      contents: read
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set version from branch
+        id: version
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}"
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "The selected branch must be a version such as 1.0.0. Current branch: $version"
+          }
+          Set-Content -LiteralPath VERSION -Value $version -Encoding ascii
+          "value=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Build, test and package
+        shell: pwsh
+        run: .\dev\build\dev_build.ps1 -BuildNumber "${{ github.run_id }}"
+
+      - name: Scan release packages for malware with Microsoft Defender
+        shell: pwsh
+        run: |
+          try {
+            Update-MpSignature -ErrorAction Stop
+            Write-Host 'Microsoft Defender signature update completed.'
+          } catch {
+            Write-Warning "Microsoft Defender signature update failed; scanning with the signatures already present on the runner. Other malware scans remain required. $($_.Exception.Message)"
+          }
+
+          $archives = @(Get-ChildItem -LiteralPath 'build' -Filter 'shroudforge-*.zip' -File)
+          if ($archives.Count -eq 0) {
+            throw 'No release ZIPs were found for malware scanning.'
+          }
+
+          $scanRoot = Join-Path $env:RUNNER_TEMP 'shroudforge-release-scan'
+          Remove-Item -LiteralPath $scanRoot -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $scanRoot | Out-Null
+
+          foreach ($archive in $archives) {
+            $destination = Join-Path $scanRoot ([IO.Path]::GetFileNameWithoutExtension($archive.Name))
+            Expand-Archive -LiteralPath $archive.FullName -DestinationPath $destination
+          }
+
+          $scanStartedAt = Get-Date
+          Start-MpScan -ScanType CustomScan -ScanPath $scanRoot
+
+          $detections = @(Get-MpThreatDetection | Where-Object {
+            $_.InitialDetectionTime -ge $scanStartedAt -and
+            (($_.Resources -join "`n") -match [regex]::Escape($scanRoot))
+          })
+          if ($detections.Count -gt 0) {
+            $detections | Format-List * | Out-String | Write-Host
+            throw "Microsoft Defender detected malware in the release payload ($($detections.Count) detection(s))."
+          }
+
+          Write-Host "Microsoft Defender found no malware in $($archives.Count) release ZIP(s)."
+
+      - name: Upload release packages for malware scan
+        uses: actions/upload-artifact@v7
+        with:
+          name: shroudforge-release-${{ github.run_id }}
+          path: |
+            build/shroudforge-*.zip
+            build/shroudforge-*.zip.sha256
+          if-no-files-found: error
+
+  clamav:
+    name: Scan built release with Trivy and ClamAV
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Download release packages
+        uses: actions/download-artifact@v7
+        with:
+          name: shroudforge-release-${{ github.run_id }}
+          path: build
+
+      - name: Expand release packages for scanning
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends unzip
+          shopt -s nullglob
+          archives=(build/*.zip)
+          if (( ${#archives[@]} == 0 )); then
+            echo "No release ZIPs were downloaded." >&2
+            exit 1
+          fi
+
+          mkdir -p scanned-release
+          for archive in "${archives[@]}"; do
+            destination="scanned-release/$(basename "${archive%.zip}")"
+            mkdir -p "$destination"
+            unzip -q "$archive" -d "$destination"
+          done
+
+      - name: Scan built release packages with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: scanned-release
+          scanners: vuln,secret,misconfig
+          vuln-type: os,library
+          severity: MEDIUM,HIGH,CRITICAL
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-release.sarif
+          # Findings are reported to Code Scanning; malware scans below gate publishing.
+          exit-code: "0"
+
+      - name: Upload release Trivy SARIF to GitHub Code Scanning
+        if: always() && hashFiles('trivy-release.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-release.sarif
+          category: trivy-release
+
+      - name: Save release Trivy SARIF report
+        if: always() && hashFiles('trivy-release.sarif') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: trivy-release-sarif-${{ github.run_number }}
+          path: trivy-release.sarif
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Install ClamAV and update signatures
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends clamav clamav-freshclam
+          sudo systemctl stop clamav-freshclam.service 2>/dev/null || true
+          sudo freshclam
+
+      - name: Scan packaged release files for malware
+        run: |
+          shopt -s nullglob
+          archives=(build/*.zip)
+          if (( ${#archives[@]} == 0 )); then
+            echo "No release ZIPs were downloaded." >&2
+            exit 1
+          fi
+
+          clamscan --recursive --infected \
+            --log=clamav.log \
+            build scanned-release
+
+      - name: Save ClamAV scan report
+        if: always() && hashFiles('clamav.log') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: clamav-release-report-${{ github.run_number }}
+          path: clamav.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  publish:
+    name: Publish scanned release packages
+    needs: [build, clamav, security]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download scanned release packages
+        uses: actions/download-artifact@v7
+        with:
+          name: shroudforge-release-${{ github.run_id }}
+          path: build
+
+      - name: Publish development prerelease
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.build.outputs.version }}-dev.${{ github.run_id }}
+          name: Dev v${{ needs.build.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          files: |
+            build/shroudforge-*.zip
+            build/shroudforge-*.zip.sha256
+          generate_release_notes: true
+          prerelease: true
+          make_latest: false
+

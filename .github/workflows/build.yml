@@ -1,10 +1,6 @@
-name: ShroudForge CI and Release
+name: ShroudForge Release Build
 
 on:
-  push:
-    branches:
-      - "*.*.*"
-  pull_request:
   workflow_dispatch:
     inputs:
       required_release:
@@ -100,7 +96,7 @@ jobs:
         id: check
         shell: bash
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" || ( "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ) ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
             echo "build_release=true" >> "$GITHUB_OUTPUT"
           else
             echo "build_release=false" >> "$GITHUB_OUTPUT"
@@ -132,7 +128,7 @@ jobs:
 
       - name: Build, test and package
         shell: pwsh
-        run: .\build.ps1 -BuildNumber "${{ github.run_id }}"
+        run: .\dev\build\release_build.ps1 -BuildNumber "${{ github.run_id }}"
 
       - name: Scan release packages for malware with Microsoft Defender
         shell: pwsh
@@ -296,20 +292,6 @@ jobs:
         with:
           name: shroudforge-release-${{ github.run_id }}
           path: build
-
-      - name: Publish development prerelease
-        if: github.event_name == 'push'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ needs.build.outputs.version }}-dev.${{ github.run_id }}
-          name: Dev v${{ needs.build.outputs.version }}
-          target_commitish: ${{ github.sha }}
-          files: |
-            build/shroudforge-*.zip
-            build/shroudforge-*.zip.sha256
-          generate_release_notes: true
-          prerelease: true
-          make_latest: false
 
       - name: Publish release build
         if: github.event_name == 'workflow_dispatch'

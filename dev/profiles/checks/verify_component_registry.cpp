@@ -1,9 +1,9 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <tlhelp32.h>
-#include "../../../kfc-runtime/native/ecs/registry/component_registry.h"
-#include "../../../kfc-runtime/native/ecs/registry/discovery.h"
-#include "../../../kfc-runtime/native/code-inventory/function_inventory.h"
+#include "../../../modules/game-runtime/native/ecs/registry/read_component_registry.h"
+#include "../../../modules/game-runtime/native/ecs/registry/find_component_registry.h"
+#include "../../../modules/game-runtime/native/code-inventory/inspect_game_functions.h"
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <iostream>

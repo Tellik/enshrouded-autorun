@@ -4,9 +4,9 @@ import struct
 import sys
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from component_registry import read_registry
-from read_executable_reflection import fnv
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from dev.profiles.capture.discover_component_registry import read_registry
+from dev.profiles.inspect.extract_executable_reflection import fnv
 
 
 class Memory:

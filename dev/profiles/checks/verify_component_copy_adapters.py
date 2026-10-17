@@ -7,9 +7,9 @@ import random
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from pe_image import PE
+from dev.profiles.inspect.read_pe_image import PE
 
 
 def main():

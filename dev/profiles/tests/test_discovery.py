@@ -1,4 +1,3 @@
-import importlib.util
 import json
 from pathlib import Path
 import struct
@@ -6,13 +5,13 @@ import sys
 import tempfile
 import unittest
 
-TOOLS = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(TOOLS))
-from pe_image import PE
-from read_executable_reflection import extract, fnv
-from discover_executable_functions import discover, mask_rip_displacement
-from read_system_descriptors import discover as discover_systems
-from trace_function_anchors import trace_anchors
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from dev.profiles.analyze import find_runtime_type as runtime_type
+from dev.profiles.analyze.trace_function_anchors import trace_anchors
+from dev.profiles.inspect.read_pe_image import PE
+from dev.profiles.inspect.extract_executable_reflection import extract, fnv
+from dev.profiles.inspect.discover_executable_functions import discover, mask_rip_displacement
+from dev.profiles.inspect.read_system_descriptors import discover as discover_systems
 
 
 def fixture():
@@ -171,17 +170,14 @@ class DiscoveryTest(unittest.TestCase):
             self.load(data)
 
     def test_lookup_retains_every_collision_and_rejects_mixed_builds(self):
-        spec = importlib.util.spec_from_file_location('inspect_runtime', TOOLS / 'lookup_runtime_type.py')
-        inspect = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(inspect)
         pe = self.load(fixture())
         directory = pe.path.parent
         (directory / 'reflection.json').write_text(json.dumps(dict(image=pe.identity(), **extract(pe))))
-        result = inspect.lookup(directory, '777', 'internalHash')
+        result = runtime_type.lookup(directory, '777', 'internalHash')
         self.assertEqual(result['matchCount'], 2)
         (directory / 'functions.json').write_text(json.dumps(dict(image={'sha256': 'wrong'})))
         with self.assertRaisesRegex(ValueError, 'mixes executable identities'):
-            inspect.checked_reports(directory)
+            runtime_type.checked_reports(directory)
 
     def anchor_fixture(self):
         data = fixture()

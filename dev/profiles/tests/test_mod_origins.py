@@ -1,15 +1,9 @@
 import copy
-import importlib.util
 from pathlib import Path
 import sys
 import unittest
-
-TOOLS = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(TOOLS))
-spec = importlib.util.spec_from_file_location('origins', TOOLS / 'verify_runtime_origins.py')
-origins = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(origins)
-
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from dev.profiles.verify import verify_runtime_origins as origins
 
 class ModOriginsTest(unittest.TestCase):
     def test_rejects_the_old_server_flight_rip_displacement(self):
