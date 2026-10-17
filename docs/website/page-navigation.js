@@ -6,11 +6,11 @@ export function createNavigation({ locale, state, pageIds, docPageByRoute, integ
       const order = page.sourceOrder ?? page.id;
       if (!groups.has(label)) groups.set(label, { label, order, items: [] });
       const group = groups.get(label);
-      if (order.localeCompare(group.order, "en") < 0) group.order = order;
+      if (order.localeCompare(group.order, "en") > 0) group.order = order;
       group.items.push({ id: page.route, label: (page.navLabel?.[locale] || page.title[locale]).replaceAll("`", ""), order });
     }
-    return [...groups.values()].sort((left, right) => left.order.localeCompare(right.order, "en"))
-      .map(group => ({ ...group, items: group.items.sort((left, right) => left.order.localeCompare(right.order, "en")) }));
+    return [...groups.values()].sort((left, right) => right.order.localeCompare(left.order, "en"))
+      .map(group => ({ ...group, items: group.items.sort((left, right) => right.order.localeCompare(left.order, "en")) }));
   }
 
   function setPage(page, updateHash = true) {
