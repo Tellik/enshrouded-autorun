@@ -1,0 +1,12 @@
+mod query_props;
+pub use query_props::world_entity_query_props;
+mod query_props_in_bounds;
+pub use query_props_in_bounds::world_entity_query_props_in_bounds;
+mod read_entity_transform;
+pub use read_entity_transform::world_entity_get_transform;
+mod read_prop_query_readiness;
+pub use read_prop_query_readiness::world_entity_query_props_ready;
+mod register_prop_recipes;
+pub use register_prop_recipes::world_entity_register_prop_recipes;
+mod set_entity_scale;
+pub use set_entity_scale::world_entity_set_scale;

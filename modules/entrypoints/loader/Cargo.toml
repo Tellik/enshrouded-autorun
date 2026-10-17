@@ -1,0 +1,41 @@
+[package]
+name = "shroudforge-modloader"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+path = "embedded.rs"
+
+[[bin]]
+name = "shroudforge"
+path = "main.rs"
+
+[dependencies]
+shroudforge-logging.workspace = true
+shroudforge-loader-config.workspace = true
+kfc = { path = "../../../kfc-parser/crates/kfc", features = ["resource"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+semver.workspace = true
+tracing = "0.1"
+shroudforge-game-assets = { path = "../../game-files" }
+shroudforge-compatibility = { path = "../../game-runtime/compatibility" }
+shroudforge-api = { path = "../../mod-runtime" }
+shroudforge-package.workspace = true
+shroudforge-commands = { path = "../../commands" }
+shroudforge-debug-console = { path = "../../debug-console" }
+shroudforge-world-editor-ui = { path = "../../world-editor" }
+shroudforge-modloader-ui = { path = "../../modloader/ui" }
+shroudforge-runtime-diagnostics = { path = "../../runtime-diagnostics" }
+shroudforge-updater = { path = "../../updater" }
+mlua = { version = "0.11.2", features = ["lua54", "vendored"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_UI_WindowsAndMessaging"] }
+
+[dev-dependencies]
+kfc = { path = "../../../kfc-parser/crates/kfc", features = ["resource"] }

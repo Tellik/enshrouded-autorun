@@ -1,0 +1,13 @@
+[package]
+name = "shroudforge-compatibility"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+serde.workspace = true
+kfc = { path = "../../../kfc-parser/crates/kfc", features = ["resource"] }

@@ -1,0 +1,94 @@
+use super::*;
+impl AppState {
+    pub(crate) fn set_runtime_mod_active(&self, id: &str, active: bool) {
+        let native_dll_state = self.native_dll_state(id);
+        let mut active_mods = self.runtime_active_mods.borrow_mut();
+        if active {
+            active_mods.insert(id.to_owned());
+        } else {
+            active_mods.remove(id);
+        }
+        drop(active_mods);
+        if !active {
+            self.loaded_resource_indexes.borrow_mut().remove_owner(id);
+        }
+        if let Some(state) = native_dll_state {
+            let detail = match state {
+                "loading" => "native DLL is still loading",
+                _ => "native DLL remains loaded for this game session",
+            };
+            self.report_runtime_effect(id, state, detail);
+        } else {
+            let mut effects = self.runtime_effects.borrow_mut();
+            if effects
+                .get(id)
+                .is_some_and(|effect| effect["state"] != "restart-required")
+            {
+                effects.remove(id);
+            }
+        }
+    }
+
+    pub(crate) fn runtime_mod_is_active(&self, id: &str) -> bool {
+        self.runtime_active_mods.borrow().contains(id)
+    }
+
+    pub(crate) fn runtime_ownership(
+        &self,
+    ) -> Rc<RefCell<crate::lua::ingame::overrides::claim_runtime_storage::OwnershipStore>> {
+        self.runtime_ownership.clone()
+    }
+
+    pub(crate) fn runtime_write_fault(&self) -> Option<String> {
+        let session = crate::lua::ingame::runtime_provider::world_session_id();
+        self.runtime_write_fault
+            .borrow()
+            .as_ref()
+            .filter(|(original, _)| session != 0 && *original == session)
+            .map(|(_, reason)| reason.clone())
+    }
+
+    pub(crate) fn record_uncertain_runtime_write(&self, session: u64, reason: &str) {
+        if session == 0 {
+            return;
+        }
+        let mut fault = self.runtime_write_fault.borrow_mut();
+        if fault
+            .as_ref()
+            .is_some_and(|(original, _)| *original == session)
+        {
+            return;
+        }
+        *fault = Some((session, reason.to_owned()));
+    }
+
+    pub(crate) fn report_runtime_effect(&self, id: &str, state: &str, detail: &str) {
+        let value = serde_json::json!({
+            "state": state,
+            "processTarget": if self.is_server() { "server" } else { "client" },
+            "scope": "this-process",
+            "detail": detail.chars().take(240).collect::<String>(),
+            "updatedAt": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+        });
+        let mut effects = self.runtime_effects.borrow_mut();
+        if effects.get(id).is_some_and(|previous| {
+            previous["state"] == value["state"] && previous["detail"] == value["detail"]
+        }) {
+            return;
+        }
+        effects.insert(id.to_owned(), value);
+    }
+
+    pub(crate) fn runtime_effects(&self) -> serde_json::Value {
+        serde_json::Value::Object(
+            self.runtime_effects
+                .borrow()
+                .iter()
+                .map(|(id, value)| (id.clone(), value.clone()))
+                .collect(),
+        )
+    }
+}

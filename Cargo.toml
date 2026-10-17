@@ -1,14 +1,14 @@
 [workspace]
 resolver = "2"
 members = [
-    "entrypoints/loader",
-    "kfc-runtime/compatibility",
-    "kfc-runtime/bridge",
-    "execution",
+    "modules/entrypoints/loader",
+    "modules/game-runtime/compatibility",
+    "modules/game-runtime/bridge",
+    "modules/mod-runtime",
     "modules/loader-config",
     "modules/logging",
     "modules/ui-resources",
-    "game-assets",
+    "modules/game-files",
     "modules/commands",
     "modules/debug-console",
     "modules/modloader",
@@ -36,7 +36,7 @@ shroudforge-package = { path = "modules/modloader" }
 
 shroudforge-loader-config = { path = "modules/loader-config" }
 shroudforge-logging = { path = "modules/logging" }
-shroudforge-game-assets = { path = "game-assets" }
+shroudforge-game-assets = { path = "modules/game-files" }
 shroudforge-news = { path = "modules/notifications" }
 shroudforge-ui-resources = { path = "modules/ui-resources" }
 shroudforge-updater = { path = "modules/updater" }
