@@ -1,3 +1,0 @@
-# Double the grappling hook's pull distance.
-enabled=true
-pullDistanceMultiplier=2

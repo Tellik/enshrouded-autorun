@@ -1,0 +1,3 @@
+for r,n in [(0x9c16d0,0x380),(0xa0c100,0x220)]:
+ print('\nFUNCTION',hex(r))
+ for i in c.disasm(p.read(r,n),r): print(hex(i.address),i.mnemonic,i.op_str)

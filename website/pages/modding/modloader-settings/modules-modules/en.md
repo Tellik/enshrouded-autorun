@@ -34,4 +34,4 @@ This is a partial config snippet. Keep the other entries in your file.
 
 `shroudforge/config/modloader-config.json`, JSON path `/modules/modules`. This configures the loader and is not copied into a mod package.
 
-Source: `src/loader/package/src/config/loader.schema.json` and `loader.default.json`.
+Source: `modules/loader-config/loader.schema.json` and `loader.default.json`.

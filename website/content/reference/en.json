@@ -1,0 +1,405 @@
+{
+  "mod-json-guide.navGroup.en.1": [
+    "mod.json"
+  ],
+  "mod-json-guide.titleEn.2": [
+    "mod.json, your mod's information card"
+  ],
+  "mod-json-guide.summaryEn.3": [
+    "This file declares the mod ID, name, version, and requested capabilities. It belongs in the root folder of your mod."
+  ],
+  "mod-json-guide.bodyEn.4": [
+    "# mod.json, your mod's information card\n\nEvery mod needs a `mod.json`. ShroudForge reads it before preparing or starting a mod. The file describes the mod and the capabilities it requests.\n\n## Required fields\n\n`id`, `name`, and `version` are required. Every other field is optional. Each property has its own page in this group.\n\n## The file described here\n\nThe canonical schema is [manifest.schema.json](../../../schemas/manifest.schema.json). The loader also checks dependencies and runtime conditions in [read_mod_manifest.rs](https://github.com/bonsaibauer/shroudforge/blob/HEAD/modules/modloader/read_mod_manifest.rs).\n\n## A small example\n\n```json\n{\n  \"id\": \"example.hello-ember\",\n  \"name\": \"Hello Ember\",\n  \"version\": \"1.0.0\",\n  \"authors\": [\"Your Name\"],\n  \"capabilities\": [\"runtime\"],\n  \"dependencies\": []\n}\n```\n\n## Related topics\n\n- [The optional extended.mod.json](#doc-extended-mod-json-guide) holds settings and Modloader actions.\n- [Build a mod step by step](#first) walks through a complete small package.\n- [Understand and migrate EML mods](#doc-eml-migration) explains provenance and differences."
+  ],
+  "extended-mod-json-guide.navGroup.en.5": [
+    "extended.mod.json"
+  ],
+  "extended-mod-json-guide.titleEn.6": [
+    "extended.mod.json, settings and the Modloader page"
+  ],
+  "extended-mod-json-guide.summaryEn.7": [
+    "This optional file describes Modloader settings, groups, actions, links, target processes, and the saved enabled state."
+  ],
+  "extended-mod-json-guide.bodyEn.8": [
+    "# extended.mod.json\n\n`extended.mod.json` extends the mod information card. Use it when your mod needs player-facing values in Modloader or needs to save its enabled state. Each field has its own page in this navigation.\n\n## The essentials\n\n- `schemaVersion` is currently `1`.\n- `enabled` stores whether the mod is switched on.\n- `targets` selects the process that loads the mod. It does not replicate changes over the network.\n- `settings` stores mod-specific values.\n- `groups` organizes values in the Modloader. Ungrouped settings also appear, under a default group.\n- `launcher` preserves the origin of an imported EML mod.\n\n## Example\n\n```json\n{\n  \"$schema\": \"https://bonsaibauer.github.io/shroudforge/schemas/extended.mod.schema.json\",\n  \"schemaVersion\": 1,\n  \"enabled\": false,\n  \"targets\": [\"client\"],\n  \"settings\": {\n    \"greeting\": {\n      \"value\": \"Hello from my mod\",\n      \"label\": \"Greeting\",\n      \"control\": \"text\"\n    }\n  }\n}\n```\n\nThe mod setting `greeting` is read in Lua by using that exact key. See [Settings and controls](#doc-setting-controls).\n\n## Source of the rules\n\n[extended.mod.schema.json](../../../schemas/extended.mod.schema.json) defines the structure and data types. The package reader also checks that groups point to existing settings and choice values are valid.\n\n[Try the live mod settings builder](#manifests)."
+  ],
+  "setting-controls.navGroup.en.9": [
+    "Settings"
+  ],
+  "setting-controls.titleEn.10": [
+    "Settings and controls"
+  ],
+  "setting-controls.summaryEn.11": [
+    "Each setting has a key and starting value. Metadata controls its label, help text, input, limits, and choices."
+  ],
+  "setting-controls.bodyEn.12": [
+    "# Settings and controls\n\nAn entry under `settings` has a mod-specific key. That key connects `extended.mod.json` to your Lua code.\n\n## Simple and detailed values\n\nA boolean, string, number, or list can be written as a direct value. The object form adds metadata:\n\n```json\n{\n  \"settings\": {\n    \"flightSpeed\": {\n      \"value\": 1.0,\n      \"label\": \"Flight speed\",\n      \"description\": \"How quickly the character moves.\",\n      \"control\": \"slider\",\n      \"min\": 0.2,\n      \"max\": 3.0,\n      \"step\": 0.1\n    }\n  }\n}\n```\n\n## All twelve controls\n\nThe individual pages explain when a control fits and which values it expects. A boolean usually becomes a toggle, text becomes a text field, and numbers become a number field. Set `control` to choose a specific presentation.\n\n- Toggles: [toggle](#doc-control-toggle) and [checkbox](#doc-control-checkbox).\n- Text: [text](#doc-control-text) and [textarea](#doc-control-textarea).\n- Numbers: [number](#doc-control-number) and [slider](#doc-control-slider).\n- Choices: [select](#doc-control-select), [radio](#doc-control-radio), [segmented](#doc-control-segmented), and [multiselect](#doc-control-multiselect).\n- Special inputs: [keybind](#doc-control-keybind) and [color](#doc-control-color).\n\n## Read values in Lua\n\n`shroudforge.settings.get(\"flightSpeed\", 1.0)` reads the current saved value. Use the exact key and a fallback with the same type. Read it inside a callback when the current value should reflect changes during the session. See [Read settings in Lua](#doc-api-settings).\n\n## Groups are optional\n\nUse `groups[].settings` to choose the order. A setting not listed there appears in the default group, it is not hidden. Modloader saves changes into the same `extended.mod.json`."
+  ],
+  "setting-groups-actions.navGroup.en.13": [
+    "Settings"
+  ],
+  "setting-groups-actions.titleEn.14": [
+    "Groups and action buttons"
+  ],
+  "setting-groups-actions.summaryEn.15": [
+    "Groups organize mod settings. Action buttons call a named function in your Lua mod."
+  ],
+  "setting-groups-actions.bodyEn.16": [
+    "# Groups and action buttons\n\nA group has a visible label and can contain setting keys and actions. Groups do not change the mod's access permissions.\n\n## Assign settings\n\n`groups[].settings` contains keys from `settings`. A key may only be grouped once. The Modloader shows ungrouped values in a default group.\n\n## Connect an action to Lua\n\nThe key `groups[].actions[].id` must exactly match the name passed to `shroudforge.ui.on_action`. Example:\n\n```json\n{\n  \"groups\": [{\n    \"label\": \"Tools\",\n    \"settings\": [\"enabledFeature\"],\n    \"actions\": [{\"id\": \"resetFeature\", \"label\": \"Reset\", \"style\": \"secondary\"}]\n  }]\n}\n```\n\n```lua\nshroudforge.ui.on_action(\"resetFeature\", function()\n  shroudforge.log.info(\"Feature settings reset\")\nend)\n```\n\nThe mod needs `runtime` in `mod.json`. `style` only changes the appearance. `confirm` asks the player before calling the action. See [UI actions in Lua](#doc-api-ui-actions)."
+  ],
+  "eml-migration.navGroup.en.17": [
+    "Understand and migrate EML"
+  ],
+  "eml-migration.titleEn.18": [
+    "Understand and migrate EML mods"
+  ],
+  "eml-migration.summaryEn.19": [
+    "ShroudForge can load EML packages. This page separates legacy manifest data from ShroudForge extensions and explains the differences that matter."
+  ],
+  "eml-migration.bodyEn.20": [
+    "# Understand and migrate EML mods\n\n`mod.json` is based on the EML manifest format. ShroudForge continues to use its mod ID, name, version, dependencies, and capability declarations. ShroudForge-specific values belong in `extended.mod.json`.\n\n## Origin and launcher badge\n\nAn EML package without an extension file is treated as a legacy EML package. When ShroudForge creates an extension while saving it, it writes `launcher: \"EML\"` to preserve that origin. ShroudForge mods may omit `launcher`.\n\n## Client and server\n\nEML packages without explicit `targets` default to client and server, including packages whose extension declares `launcher: \"EML\"`. New ShroudForge packages default to client. Set `targets` explicitly when another process is needed. Process targets do not guarantee network replication. See [targets](#doc-targets).\n\n## Capabilities\n\nCheck which capabilities the mod actually uses. `runtime-register-dll` refers to a DLL included in the mod package, not ShroudForge's built-in `kfc-runtime.dll`. It schedules EML DLL registration for the runtime phase.\n\n## A cautious migration\n\n1. Back up the mod folder.\n2. Leave `mod.json` unchanged unless a verified adjustment is needed.\n3. Add the optional `extended.mod.json` for ShroudForge settings.\n4. Set `launcher: \"EML\"` and the intended `targets` explicitly.\n5. Check the mod in Modloader and in the matching client or server log.\n\nA valid package does not automatically mean every EML feature or native operation is compatible with every game build. The [searchable API reference](#api) distinguishes EML and ShroudForge functions."
+  ],
+  "api-guides.navGroup.en.21": [
+    "Lua API guides"
+  ],
+  "api-guides.titleEn.22": [
+    "Lua API, guides by feature"
+  ],
+  "api-guides.summaryEn.23": [
+    "The API reference lists every available symbol. These guides explain common tasks with their flow, prerequisites, and complete examples."
+  ],
+  "api-guides.bodyEn.24": [
+    "# Lua API, guides by feature\n\nThe [searchable API reference](#api) is the complete index of implemented functions and types. These guides explain common tasks with context and working examples.\n\n## Common tasks\n\n- [Publish Modloader notices](#doc-api-notifications) explains `shroudforge.notifications.publish` and how notices appear in the Modloader.\n- [Read mod settings](#doc-api-settings) connects `extended.mod.json` to `shroudforge.settings.get`.\n- [Connect Modloader actions](#doc-api-ui-actions) connects an action ID to `shroudforge.ui.on_action`.\n- [Write log messages](#doc-api-logging) explains levels and useful messages.\n- [Files and exports](#doc-api-files) explains package files and export capabilities.\n- [Runtime and game features](#doc-api-runtime) explains lifecycle, client/server targets, and native support.\n\n## What each API article covers\n\nEach guide explains purpose, when to use it, required capabilities, arguments, and results. Use the API search for the remaining functions, it links back to the Lua source contract. API functions may be EML-specific or ShroudForge-specific."
+  ],
+  "api-notifications.navGroup.en.25": [
+    "Lua API guides"
+  ],
+  "api-notifications.titleEn.26": [
+    "Publish Modloader notices"
+  ],
+  "api-notifications.summaryEn.27": [
+    "Notices tell players about meaningful mod events. They are stored locally and are published only when your mod calls the function."
+  ],
+  "api-notifications.bodyEn.28": [
+    "# Publish Modloader notices\n\n`shroudforge.notifications.publish` adds a mod-authored notice to the local Modloader feed. It is not sent to other players. Call it deliberately, for example after a meaningful change or a completed step.\n\n## Example\n\n```lua\nshroudforge.notifications.publish({\n  id = \"world-ready\",\n  title = \"World is ready\",\n  message = \"Your world data has been checked.\",\n  level = \"info\"\n})\n```\n\nThe exact payload and accepted levels are in the [API reference](#api). The mod needs the matching runtime feature and `runtime` in `mod.json`.\n\n## IDs and repeated notices\n\nThe ID is stable within the mod's namespace. Reusing it updates the existing notice, while a new ID creates another entry. The feed is stored locally in the configured state location. The function does not schedule, repeat, or distribute notices automatically.\n\n## When to publish\n\nReport confirmed events. Do not call it per frame or in a tight loop. Use [mod logging](#doc-api-logging) for technical diagnostics. The stored format is described in [modloader-content.md](https://github.com/bonsaibauer/shroudforge/blob/HEAD/docs/sf/modloader-content.md)."
+  ],
+  "api-settings.navGroup.en.29": [
+    "Lua API guides"
+  ],
+  "api-settings.titleEn.30": [
+    "Read mod settings in Lua"
+  ],
+  "api-settings.summaryEn.31": [
+    "The key in extended.mod.json is the same key your Lua code passes to shroudforge.settings.get."
+  ],
+  "api-settings.bodyEn.32": [
+    "# Read mod settings in Lua\n\nThe description and starting value live in `extended.mod.json`. Lua reads the current value with `shroudforge.settings.get(key, fallback)`.\n\n```lua\nlocal speed = shroudforge.settings.get(\"flightSpeed\", 1.0)\n```\n\nThe key must match exactly. The fallback should have the same type as `value`. Call `get` inside a callback when a player's change should take effect without restarting. A local value read once during loading does not update by itself.\n\nA mod using this runtime function needs `runtime` in `mod.json`. The function does not save settings, Modloader does. See [Settings and controls](#doc-setting-controls)."
+  ],
+  "api-ui-actions.navGroup.en.33": [
+    "Lua API guides"
+  ],
+  "api-ui-actions.titleEn.34": [
+    "Connect Modloader buttons to Lua"
+  ],
+  "api-ui-actions.summaryEn.35": [
+    "An action ID in the mod file connects a visible button to a callback in your mod."
+  ],
+  "api-ui-actions.bodyEn.36": [
+    "# Connect Modloader buttons to Lua\n\nAn action is declared under `groups[].actions[]`. Its `id` is passed to `shroudforge.ui.on_action`. The two IDs must match exactly.\n\n```lua\nshroudforge.ui.on_action(\"resetFeature\", function()\n  shroudforge.log.info(\"Reset action requested\")\nend)\n```\n\nThe mod needs `runtime`. Register the callback while the mod runtime loads. `label` and `style` describe the visible button, while `confirm` adds an optional prompt.\n\nThe action only calls your callback. It does not guarantee a game change succeeded. Check return values and log the outcome. See the [API reference](#api) for function details."
+  ],
+  "api-logging.navGroup.en.37": [
+    "Lua API guides"
+  ],
+  "api-logging.titleEn.38": [
+    "Write useful mod log messages"
+  ],
+  "api-logging.summaryEn.39": [
+    "Logs should show what the mod is doing, which phase it reached, and whether the action was confirmed or failed."
+  ],
+  "api-logging.bodyEn.40": [
+    "# Write useful mod log messages\n\nUse `shroudforge.log` for technical mod activity. A useful message names the action and result, while an error also explains why it failed. The shared policy is in [Logging for mods and the loader](https://github.com/bonsaibauer/shroudforge/blob/HEAD/docs/sf/logging.md).\n\n```lua\nshroudforge.log.info(\"Blueprint export started\")\nshroudforge.log.warn(\"Blueprint export paused, destination is unavailable\")\nshroudforge.log.error(\"Blueprint export failed, write verification did not match\")\n```\n\nUse `INFO` for important operations and confirmed results, `WARN` for blocked or uncertain flows, and `ERROR` for actual failures. Use `DEBUG` and `TRACE` for diagnostic values and detailed traces. Do not silently suppress a duplicate failure, explain the role of each message when more than one layer is involved.\n\nClient and Dedicated Server write separate ShroudForge logs. The effective minimum level controls what gets saved. The Debug Console filter only hides or shows lines that are already stored."
+  ],
+  "api-files.navGroup.en.41": [
+    "Lua API guides"
+  ],
+  "api-files.titleEn.42": [
+    "Read files and save exports"
+  ],
+  "api-files.summaryEn.43": [
+    "Package files and exported files use different locations and permissions. Choose the matching API surface."
+  ],
+  "api-files.bodyEn.44": [
+    "# Read files and save exports\n\nThe global `io` API separates bundled package files from player exports. A mod should not assume that these areas use the same path or write permission.\n\n## Capability\n\nExport functions require `export` in `mod.json`. Check the API result before reporting success. Use the [API reference](#api) to look up exact functions and arguments.\n\n## Typical flow\n\n1. Choose a relative export path.\n2. Create bytes with the matching buffer or serialization function.\n3. Call the export function.\n4. Check its result and log a useful success or failure message.\n\nThe loader keeps paths inside the mod's permitted area. Export is not unrestricted access to arbitrary files on the computer."
+  ],
+  "api-runtime.navGroup.en.45": [
+    "Lua API guides"
+  ],
+  "api-runtime.titleEn.46": [
+    "Runtime, client, and server"
+  ],
+  "api-runtime.summaryEn.47": [
+    "Runtime mods start in a selected game process. Native game operations also depend on the game build and a supported profile."
+  ],
+  "api-runtime.bodyEn.48": [
+    "# Runtime, client, and server\n\nThe Lua runtime runs `src/mod.lua` in the process selected by `targets`. Client means the player's game process, server means the Dedicated Server process. See [targets](#doc-targets).\n\n## A process target is not multiplayer synchronization\n\n`targets` selects where code runs. It does not send values to other clients or replicate a world edit. Network behavior needs suitable APIs and explicit server-side handling.\n\n## Runtime callbacks and native support\n\nA mod declares required runtime capabilities in `mod.json`. Some game operations use KFC Runtime, ShroudForge's built-in native module. These calls need a matching client or server build and a supported profile. A successful Lua start does not confirm that every native action is available.\n\nStart with [Lua and KFC Runtime](#runtime), then search for specific symbols in the [API reference](#api)."
+  ],
+  "api-network.navGroup.en.49": [
+    "Lua API guides"
+  ],
+  "api-network.titleEn.50": [
+    "Steam P2P messages between mod processes"
+  ],
+  "api-network.summaryEn.51": [
+    "runtime.network provides a separate Steam messaging channel. It does not send normal Enshrouded game packets."
+  ],
+  "api-network.bodyEn.52": [
+    "# Steam P2P messages between mod processes\n\n`runtime.network` sends messages between mod runtimes on a client and a Dedicated Server. It is a separate Steam Networking Messages transport, not an Enshrouded game packet. See [targets](#doc-targets) as well.\n\n## Messages for a specific mod\n\n`send_mod` sends UTF-8 text to one SteamID64 and mod ID. The receiving mod reads it with `receive_mod`. Use this when both sides install the same mod. There is no broadcast.\n\n## Raw channels\n\n`send` and `receive` use binary-safe Lua strings. Public channels are 0 through 65534. Channel 65535 is reserved for the internal health probe. Both sides must use the same channel.\n\n## Server authorization and SteamID64\n\nThe Dedicated Server accepts only players Enshrouded has currently authenticated and connected. An optional allowlist under Modloader Settings → Network can further restrict this set. An empty list means all currently authenticated players. The client learns the server SteamID64 from live world context and the health probe. `serverSteamId` is a fallback for remote servers.\n\n## Check the result\n\nA successful `send` call means Steam accepted the send request. It does not confirm that the other process received or handled the message. Validate the protocol, sender, mod ID, and permissions on the receiving side. The API index documents payload limits and return values."
+  ],
+  "api-game-data.navGroup.en.53": [
+    "Lua API guides"
+  ],
+  "api-game-data.titleEn.54": [
+    "Game assets, ECS, and reflected data types"
+  ],
+  "api-game-data.summaryEn.55": [
+    "Asset and runtime functions operate in different phases and need the right capabilities or a supported game profile."
+  ],
+  "api-game-data.bodyEn.56": [
+    "# Game assets, ECS, and reflected data types\n\nThe Lua API has several areas with different timing and access behavior. The [API reference](#api) lists all functions and types.\n\n## Prepare assets\n\n`game.assets` reads and changes supported game resources during preparation. Changes are prepared for a later game start. They do not update an already running world immediately. Declare the matching `patch` or `export` capability and check resource types available in the active profile.\n\n## Runtime and ECS\n\n`runtime.ecs` works with supported components while the game is running. The loader checks the profile, types, and execution phase. Use documented query and write functions and inspect their result status. A confirmed memory operation is not independent proof of the visible gameplay effect.\n\n## Types and values\n\n`game.types` and `runtime.types` expose reflected type information from the active game profile. `runtime.values` can read or create owned byte strings according to a known type. Dereferencing arbitrary engine pointers is not part of this safe value access.\n\n## Why game updates matter\n\nAvailable types and operations depend on the installed Enshrouded build and profile. A mod can be present and loaded while one native access is unsupported. Check `runtime.has(feature)` and the status of the specific function."
+  ],
+  "api-lifecycle.navGroup.en.57": [
+    "Lua API guides"
+  ],
+  "api-lifecycle.titleEn.58": [
+    "Runtime callbacks"
+  ],
+  "api-lifecycle.summaryEn.59": [
+    "on_load, on_update, and on_unload control when your Lua mod runs during a game session."
+  ],
+  "api-lifecycle.bodyEn.60": [
+    "# Runtime callbacks\n\nA runtime mod returns a table of callback functions. The loader calls them at the matching time. Declare `runtime` in `mod.json`.\n\n```lua\nruntime.require(\"runtime.lifecycle\")\n\nreturn {\n  on_load = function()\n    shroudforge.log.info(\"Mod runtime started\")\n  end,\n  on_update = function(delta_seconds)\n    -- Read current settings or process queued work here\n  end,\n  on_unload = function()\n    shroudforge.log.info(\"Mod runtime stopped\")\n  end,\n  update_interval_ms = 100\n}\n```\n\n`on_load` runs when the mod runtime starts. `on_update` receives elapsed time in seconds. `on_unload` runs when the mod stops or unloads. The default update interval is 50 ms and the accepted range is 8 to 1000 ms. Missed intervals are not replayed.\n\nDo not use `on_update` for unnecessary per-frame work. Read live settings again inside the callback. Check return values and status for network and native operations."
+  ],
+  "reference.bodyEn.61": [
+    "",
+    "\n## Type and requirement\n\n",
+    "\n\n## Allowed values and limits\n\n",
+    "\n\n## Example\n\n```json\n",
+    "\n```\n\n## Source\n\nSchema: [",
+    "](https://github.com/bonsaibauer/shroudforge/blob/HEAD/modules/modloader/manifest/",
+    "). The package reader checks additional relationships between fields."
+  ],
+  "reference.group.en.62": [
+    "mod.json"
+  ],
+  "reference.group.en.63": [
+    "mod.json, dependencies"
+  ],
+  "reference.navGroup.en.64": [
+    "extended.mod.json"
+  ],
+  "reference.titleEn.65": [
+    "The ",
+    " field"
+  ],
+  "reference.group.en.66": [
+    "extended.mod.json"
+  ],
+  "reference.group.en.67": [
+    "Settings"
+  ],
+  "reference.group.en.68": [
+    "Groups and actions"
+  ],
+  "reference.group.en.69": [
+    "Groups and actions"
+  ],
+  "extension-setting-key.navGroup.en.70": [
+    "Settings"
+  ],
+  "extension-setting-key.titleEn.71": [
+    "The `settings.<key>` key"
+  ],
+  "extension-setting-key.summaryEn.72": [
+    "The key names a setting and is also the name Lua uses to read its current value."
+  ],
+  "extension-setting-key.bodyEn.73": [
+    "# The `settings.<key>` key\n\nThe placeholder `<key>` is replaced by a name chosen by the mod author. For example, `settings.flightSpeed` names a setting `flightSpeed`.\n\nThe key accepts 1 to 80 letters, numbers, dots, hyphens, and underscores. Letter case matters. Lua uses the exact same name: `shroudforge.settings.get(\"flightSpeed\", 1.0)`.\n\nThis is not a global ShroudForge setting. Each mod has its own setting values."
+  ],
+  "extension-link-id.navGroup.en.74": [
+    "Groups and actions"
+  ],
+  "extension-link-id.titleEn.75": [
+    "The `links.<id>` key"
+  ],
+  "extension-link-id.summaryEn.76": [
+    "The link ID selects which recognized button the Modloader displays."
+  ],
+  "extension-link-id.bodyEn.77": [
+    "# The `links.<id>` key\n\nThe ID is the key inside `links`. Modloader displays only IDs registered by the UI. The IDs and their order are in [order.json](https://github.com/bonsaibauer/shroudforge/blob/HEAD/modules/modloader/mod_link_order.json).\n\nCurrently supported IDs include `source`, `source-github`, `source-gitlab`, `source-codeberg`, `issues`, `wiki`, `website`, `store`, and the `support-*` IDs. An unknown key can pass the schema but is not registered as a visible button. The URL must use HTTPS."
+  ],
+  "reference.navGroup.en.78": [
+    "Link IDs"
+  ],
+  "reference.titleEn.79": [
+    "Link ID ",
+    ""
+  ],
+  "reference.summaryEn.80": [
+    "Recognized Modloader button for ",
+    "."
+  ],
+  "reference.bodyEn.81": [
+    "# Link ID ",
+    "\n\nUse this ID in ",
+    " and provide an HTTPS address. The Modloader displays the link with its registered icon and translated label.\n\n```json\n{\n  \"links\": {\n    \"",
+    "\": \"https://example.com/project\"\n  }\n}\n```\n\nThe IDs and their order are defined in [order.json](https://github.com/bonsaibauer/shroudforge/blob/HEAD/modules/modloader/mod_link_order.json)."
+  ],
+  "reference.navGroup.en.82": [
+    "mod.json capabilities"
+  ],
+  "reference.titleEn.83": [
+    "The ",
+    " capability"
+  ],
+  "reference.bodyEn.84": [
+    "# The `",
+    "` capability\n\n",
+    ". Add the value to `capabilities` in `mod.json` only when the mod uses that feature.\n\n```json\n{\n  \"capabilities\": [\"",
+    "\"]\n}\n```\n\nDeclaring a capability does not report success. The loader checks the mod and the feature separately. See [the mod.json capabilities field](#doc-field-capabilities)."
+  ],
+  "reference.navGroup.en.85": [
+    "Controls"
+  ],
+  "reference.titleEn.86": [
+    "The ",
+    " control"
+  ],
+  "reference.bodyEn.87": [
+    "# The `",
+    "` control\n\n",
+    " Set it as `control` on a setting.\n\n```json\n{\n  \"settings\": {\n    \"example\": {\"value\": ",
+    ", \"label\": \"",
+    "\", \"control\": \"",
+    "\"",
+    "}\n  }\n}\n```\n\n",
+    " See [settings.<key>.control](#doc-field-settings-key-control) for the schema rules."
+  ],
+  "targets.navGroup.en.88": [
+    "extended.mod.json"
+  ],
+  "targets.titleEn.89": [
+    "targets, choose client and server"
+  ],
+  "targets.summaryEn.90": [
+    "targets selects the game process in which a mod runs. Client, server, or both are available."
+  ],
+  "targets.bodyEn.91": [
+    "# `targets`, choose client and server\n\n`targets` is a list in `extended.mod.json`. It selects the process in which the mod is loaded.\n\n| Value | Where the mod runs |\n| --- | --- |\n| `[\"client\"]` | In the player's local Enshrouded game process. |\n| `[\"server\"]` | In the Dedicated Server process. |\n| `[\"client\", \"server\"]` | In both the client and Dedicated Server. |\n\n## Examples\n\nClient only:\n\n```json\n{\n  \"targets\": [\"client\"]\n}\n```\n\nServer only:\n\n```json\n{\n  \"targets\": [\"server\"]\n}\n```\n\nBoth processes:\n\n```json\n{\n  \"targets\": [\"client\", \"server\"]\n}\n```\n\n## What it does not do\n\nA client mod is not automatically synchronized with the server. `targets` does not replicate Lua state or world edits, and it does not send a Steam P2P request. Those need suitable network and server-side logic.\n\n## Defaults and EML\n\nNew ShroudForge packages should set `[\"client\"]` explicitly. An EML package without explicit `targets` runs on client and server, including an extension file with `launcher: \"EML\"`. Set `targets` explicitly when migrating or when you need another target. See [EML migration](#doc-eml-migration).\n\nFor multiplayer, install the mod wherever its code needs to run. See the [multiplayer quickstart](#server)."
+  ],
+  "modloader-settings-guide.navGroup.en.92": [
+    "Modloader settings"
+  ],
+  "modloader-settings-guide.titleEn.93": [
+    "Modloader settings"
+  ],
+  "modloader-settings-guide.summaryEn.94": [
+    "These values configure ShroudForge itself. They are separate from settings packaged by an individual mod."
+  ],
+  "modloader-settings-guide.bodyEn.95": [
+    "# Modloader settings\n\nThese settings configure the Modloader interface, built-in modules, and their data locations. They live in `shroudforge/config/modloader-config.json`. They are separate from mod settings in `extended.mod.json`.\n\nThe field pages are generated from `loader.schema.json` and the defaults file. Each setting has its own Markdown page. Internal action and session values such as `requestId` and window-position state are not presented as user preferences.\n\n## Areas\n\n- **General**: language, username, and display behavior.\n- **Logging**: minimum level for saved log entries.\n- **Debug Console**: source, filter, shortcut, and read limit.\n- **Modloader and World Editor UI**: enablement and refresh behavior.\n- **Network**: Dedicated Server fallback and optional SteamID64 allowlist.\n- **Runtime diagnostics**: areas, interval, duration, and slow-callback threshold.\n- **Updates**: release channel and check interval.\n- **Storage locations**: mods, state, logs, cache, exports, and runtime data.\n\nChanging `minimumLevel` controls what gets saved. A Debug Console filter does not change the log file contents."
+  ],
+  "reference.general.en.96": [
+    "General"
+  ],
+  "reference.logging.en.97": [
+    "Logging"
+  ],
+  "reference.exports.en.98": [
+    "Exports"
+  ],
+  "reference.debugConsole.en.99": [
+    "Debug Console"
+  ],
+  "reference.worldEditor.en.100": [
+    "World Editor UI"
+  ],
+  "reference.network.en.101": [
+    "Network"
+  ],
+  "reference.modloaderUi.en.102": [
+    "Modloader UI"
+  ],
+  "reference.runtimeDiagnostics.en.103": [
+    "Runtime diagnostics"
+  ],
+  "reference.updates.en.104": [
+    "Updates"
+  ],
+  "reference.paths.en.105": [
+    "Storage paths"
+  ],
+  "reference.en.106": [
+    "Modloader"
+  ],
+  "reference.bodyEn.107": [
+    "",
+    "\n## What it changes\n\n",
+    "\n\n## Default\n\n",
+    "\n\n",
+    "\n\n",
+    "\n\n## Type and allowed values\n\nType: `",
+    "`.\n\n",
+    "\n\n## Example\n\nThis is a partial config snippet. Keep the other entries in your file.\n\n```json\n",
+    "\n```\n\n## Configuration location\n\n`shroudforge/config/modloader-config.json`, JSON path `/",
+    "`. This configures the loader and is not copied into a mod package.\n\nSource: `modules/loader-config/loader.schema.json` and `loader.default.json`."
+  ],
+  "reference.en.108": [
+    "Built-in mods · ",
+    " · ",
+    ""
+  ],
+  "reference.titleEn.109": [
+    "",
+    " · ",
+    ""
+  ],
+  "reference.bodyEn.110": [
+    "# ",
+    "\n\n",
+    "\n\n## Meaning and default\n\n",
+    "",
+    "\n\n## Source of this information\n\nThis page is based on `mods/",
+    "/extended.mod.json`. Lua reads the current value with `shroudforge.settings.get(\"",
+    "\", fallback)`. Modloader saves player changes in the extension file. [Lua source file](https://github.com/bonsaibauer/shroudforge/blob/HEAD/mods/",
+    "/src/mod.lua).",
+    ""
+  ],
+  "reference.navGroup.en.111": [
+    "Built-in mods · ",
+    ""
+  ],
+  "reference.bodyEn.112": [
+    "# ",
+    "\n\n",
+    "\n\n## Package details\n\n- Mod ID: `",
+    "`\n- Target processes: ",
+    "\n- Runtime capability: ",
+    "\n- Declared player settings: ",
+    "\n\n## Settings\n\n",
+    "\n\nSettings are stored in the mod package's `extended.mod.json`. The mod reads them with `shroudforge.settings.get(key, fallback)`. See the [Lua source file](https://github.com/bonsaibauer/shroudforge/blob/HEAD/mods/",
+    "/src/mod.lua) for implementation details."
+  ],
+  "builtin-mods-guide.navGroup.en.113": [
+    "Built-in mods"
+  ],
+  "builtin-mods-guide.titleEn.114": [
+    "Built-in mods and their settings"
+  ],
+  "builtin-mods-guide.summaryEn.115": [
+    "Overview of the mods shipped with ShroudForge and their individually documented settings."
+  ],
+  "builtin-mods-guide.bodyEn.116": [
+    "# Built-in mods and their settings\n\nThese mods live in the repository's `mods/` folder. Open a mod page to see its purpose, target processes, and setting groups. Every setting has its own page with type, default, and allowed values. Mod settings live in `extended.mod.json` and are separate from general Modloader preferences.\n\n| Mod | What it does | Settings |\n| --- | --- | --- |\n",
+    ""
+  ]
+}

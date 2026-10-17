@@ -88,7 +88,7 @@ automatically export functions or create shared globals. Cross-mod module
 loading uses the existing `require("mods.<id>.<module>")` support separately.
 `capabilities` describes the loader features a mod uses.
 
-The current [manifest schema](../../src/loader/package/src/registry/manifest.schema.json) defines every accepted field.
+The current [manifest schema](../../modules/modloader/manifest/manifest.schema.json) defines every accepted field.
 
 ## Add a switch or slider
 
@@ -129,7 +129,7 @@ Here, **allowDescent** starts switched off. **flightSpeed** starts at **1.0** an
 
 The default control follows the value: a boolean shows a switch, a string shows a text field, and a number shows a number field. In this example, `control: "slider"` makes `flightSpeed` a slider with the given limits. Adding `options` makes a single value a dropdown; an array needs `options` and becomes a multi-select. You can choose one of the 12 controls explicitly with `control`. Choice controls need `options`; use the option keys as values and their strings as the names shown to players. `min`, `max`, and `step` apply to numbers. `minLength` and `maxLength` apply to text.
 
-A group listing a key in `groups[].settings` controls where it appears. An ungrouped setting appears in the default Settings group. The Lua code reads that same key with `shroudforge.settings.get(key, fallback)`. The [extension schema](../../src/loader/package/src/registry/extended.mod.schema.json) lists every accepted field; the package reader also checks that setting defaults, choices, and group references make sense together.
+A group listing a key in `groups[].settings` controls where it appears. An ungrouped setting appears in the default Settings group. The Lua code reads that same key with `shroudforge.settings.get(key, fallback)`. The [extension schema](../../modules/modloader/manifest/extended.mod.schema.json) lists every accepted field; the package reader also checks that setting defaults, choices, and group references make sense together.
 
 ## Connect a Modloader setting to Lua
 
@@ -174,9 +174,9 @@ shroudforge.log.info(greeting)
 
 The first argument is the exact key from `extended.mod.json`. The second is a fallback used if that key has no value. Keep its type the same as the setting's `value`. The `runtime` permission belongs in `mod.json` for a mod using the ShroudForge runtime API.
 
-When a player changes the text, the Modloader saves it at `settings.greeting.value` in the same `extended.mod.json`. The loader passes the saved value to the running runtime mod. Read it inside a lifecycle or action callback each time the mod needs the current value; a local variable created once at module load will keep the old value. The [starter mod](../../templates/mod/) shows this pattern with `shroudforge.settings.get`, `shroudforge.ui.on_action`, and a matching action ID.
+When a player changes the text, the Modloader saves it at `settings.greeting.value` in the same `extended.mod.json`. The loader passes the saved value to the running runtime mod. Read it inside a lifecycle or action callback each time the mod needs the current value; a local variable created once at module load will keep the old value. The [starter mod](../modding/starter-mod/) shows this pattern with `shroudforge.settings.get`, `shroudforge.ui.on_action`, and a matching action ID.
 
-The [extension schema](../../src/loader/package/src/registry/extended.mod.schema.json) defines the JSON fields. The loader also checks relationships such as group references and whether a default value matches its choices.
+The [extension schema](../../modules/modloader/manifest/extended.mod.schema.json) defines the JSON fields. The loader also checks relationships such as group references and whether a default value matches its choices.
 
 ## What happens to player choices?
 

@@ -88,7 +88,9 @@ Wiederbeitritt. Dafür sind weiterhin ein Server-Canary, ein zweiter Client und
 ein Save/Rejoin-Test nötig. Die P2P-Transport- und Server-Undo-Lua-Pfade haben
 isolierte Integrationstests; ein Live-Spieltest ist damit nicht vorgetäuscht.
 
-## Wiederholbare Prüfung
+## Historische Prüfungen dieses Berichts
+
+Die folgenden Aufrufe dokumentieren den Stand dieses datierten Audits. Die damaligen Referenzpakete und einige dazugehörige Prüfeinstiege sind inzwischen entfernt. Diese Liste ist keine aktuelle Ausführungsanleitung. Die heutigen Entwicklungsaktionen stehen in [dev/profiles/README.md](../../dev/profiles/README.md).
 
 - `profile-tools/dev/tools/enshrouded/audit-mod-origins.py`: alle neun tatsächlichen
   Lua-Einstiege, Prozessziele, Modifier-Ursprünge und nativen Guards; Aufruf mit
@@ -106,7 +108,7 @@ isolierte Integrationstests; ein Live-Spieltest ist damit nicht vorgetäuscht.
   gegen einen isolierten Eingabepuffer, einschließlich Mehrfachbesuch im selben
   Tick, Release-Pose, Abbruch, fremdem Spieler und falschem Build.
 
-Die ausführbaren Profile bleiben unter `src/loader/runtime/profiles/enshrouded/`.
+Die ausführbaren Profile bleiben unter `kfc-runtime/profiles/enshrouded/`.
 Diagnoseausgaben unter `target/` sind keine ausgelieferten Bindings.
 
 ## Schmelzen: aktueller Live-Nachweis
@@ -119,4 +121,4 @@ funktionierte in diesem Lauf. Der Zeitunterschied entstand durch 320 um Faktor
 `sf-production-time` macht die Basisdauer nun über die vorhandene Lua-Asset-API
 ausdrücklich einstellbar; gleiche Werte sind auf beiden Installationen nötig.
 Der echte KFC-Schreib-/Lesezyklus wurde auf isolierten Kopien beider Builds
-geprüft. Siehe [Messung und Aufrufpfad](../../src/loader/runtime/profile-tools/dev/investigations/2026-10-09-smelter-production.md).
+geprüft. Siehe [Messung und Aufrufpfad](../runtime-investigations/2026-10-09-smelter-production.md).

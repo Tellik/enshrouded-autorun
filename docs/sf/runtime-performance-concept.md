@@ -252,17 +252,17 @@ beide Mods neu geladen. Der erste Reload hatte ausstehende Bereinigung.
 
 Primäre Quellen:
 
-- [Ressourcenindex](../../src/loader/api/src/env/game/assets/loaded_index.rs).
-- [Zentraler Ressourcenwriter und AppState](../../src/loader/api/src/env/app_state.rs).
-- [Lua-Targets](../../src/loader/api/src/shroudforge/v1/lua/override_targets.lua) und
-  [Override-Verwaltung](../../src/loader/api/src/shroudforge/v1/lua/overrides.lua).
-- [ECS- und Provider-Bindings](../../src/loader/api/src/env/loader.rs).
-- [Attributzugriff](../../src/loader/api/src/env/runtime_attributes.rs) und
-  [Claims](../../src/loader/api/src/env/runtime_ownership.rs).
-- [Nativer Ressourcenreader](../../src/loader/runtime/native/resource/resource_runtime.cpp)
-  und [ECS-Provider](../../src/loader/runtime/native/ecs/ecs_runtime.cpp).
-- [Runtime-Loop](../../src/loader/api/src/lib.rs) und
-  [Bootstrap](../../src/bootstrap/windows/bootstrap.cpp).
+- [Ressourcenindex](../../execution/lua/runtime/loaded_resources/index.rs).
+- [Zentraler Ressourcenwriter und AppState](../../execution/context.rs).
+- [Lua-Targets](../../execution/lua/shroudforge/v1/lua/override_targets.lua) und
+  [Override-Verwaltung](../../execution/lua/shroudforge/v1/lua/overrides.lua).
+- [ECS- und Provider-Bindings](../../execution/lua/runtime/mod.rs).
+- [Attributzugriff](../../execution/lua/runtime/ecs/attributes.rs) und
+  [Claims](../../execution/runtime/ownership.rs).
+- [Nativer Ressourcenreader](../../kfc-runtime/native/loaded-resources/profile_layout.cpp)
+  und [ECS-Provider](../../kfc-runtime/native/ecs/entities.cpp).
+- [Runtime-Loop](../../execution/lib.rs) und
+  [Bootstrap](../../entrypoints/windows-bootstrap/startup.cpp).
 
 ## 3. Zuständigkeiten im Zielzustand
 
@@ -334,7 +334,7 @@ darf deshalb nicht stillschweigend das Mehrdeutigkeitsverhalten von
 `get_loaded_resource_by_field()` verändern.
 
 Quelle und noch zu portierender Beleg:
-[Creative-Mode-Untersuchung](../../src/loader/runtime/profile-tools/dev/investigations/2026-10-16-creative-mode.md).
+[Creative-Mode-Untersuchung](../runtime-investigations/2026-10-16-creative-mode.md).
 Ein Reflection-Typname allein beweist diese Verbindung nicht.
 
 ### 4.2 Allgemeine Indizes früh vorbereiten

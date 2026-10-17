@@ -1,5 +1,5 @@
 {
-  "$schema": "../../src/loader/package/src/registry/manifest.schema.json",
+  "$schema": "../../modules/modloader/manifest/manifest.schema.json",
   "id": "sf-survival",
   "name": "SF Survival",
   "version": "1.0.0",

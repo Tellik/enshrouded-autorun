@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "../..");
-const site = path.join(root, "website");
+const site = path.join(root, "build", "website");
 const current = JSON.parse(fs.readFileSync(path.join(site, "data", "current.json"), "utf8"));
 const snapshot = path.join(site, "data", current.snapshot);
 const profile = JSON.parse(fs.readFileSync(path.join(snapshot, "profile.json"), "utf8"));
@@ -12,7 +12,7 @@ const api = JSON.parse(fs.readFileSync(path.join(site, "data", "api.json"), "utf
 const version = fs.readFileSync(path.join(root, "VERSION"), "utf8").trim();
 
 for (const name of ["manifest.schema.json", "extended.mod.schema.json"]) {
-  const source = fs.readFileSync(path.join(root, "src", "loader", "package", "src", "registry", name), "utf8");
+  const source = fs.readFileSync(path.join(root, "modules", "modloader", "manifest", name), "utf8");
   const published = fs.readFileSync(path.join(site, "schemas", name), "utf8");
   if (source !== published) throw new Error(`published schema is stale: ${name}`);
 }

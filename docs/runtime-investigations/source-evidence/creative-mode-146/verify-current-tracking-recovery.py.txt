@@ -1,0 +1,103 @@
+"""Run original tracking/recovery code in isolated Unicorn memory only.
+
+The queue-count reset below represents the exact stores proven in drainQueueA.
+It is synthetic phase composition, not execution of a whole game frame.
+"""
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+sys.path[:0] = ['build/world-context-python']
+spec = importlib.util.spec_from_file_location(
+    'tracking_oracle',
+    'src/loader/runtime/profile-tools/devdata/creative-mode-146/verify-current-change-tracking.py')
+t = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(t)
+from unicorn.x86_const import UC_X86_REG_RCX, UC_X86_REG_RDX, UC_X86_REG_R8, UC_X86_REG_R9, UC_X86_REG_RSP, UC_X86_REG_RIP
+from capstone import Cs, CS_ARCH_X86, CS_MODE_64
+
+
+def retry(stamp_offset=0x90, queue_offset=0, pending_offset=0x280):
+    rsp = t.o.STACK + 0xff08
+    t.write(rsp, '<Q', t.o.STOP)
+    for reg, value in ((UC_X86_REG_RCX, t.storage + stamp_offset),
+                       (UC_X86_REG_RDX, t.context + queue_offset),
+                       (UC_X86_REG_R8, t.context + pending_offset),
+                       (UC_X86_REG_R9, 0x1234), (UC_X86_REG_RSP, rsp)):
+        t.u.reg_write(reg, value)
+    t.u.emu_start(t.pe.base + 0x9cd180, t.o.STOP, timeout=100000, count=100000)
+    assert t.u.reg_read(UC_X86_REG_RIP) == t.o.STOP
+    return dict(stamp=t.read(t.storage + stamp_offset, '<I'),
+                count=t.read(t.context + queue_offset + 8, '<Q'),
+                pending=t.read(t.context + pending_offset, '<I'))
+
+
+cases = []
+t.setup()
+t.execute()
+t.write(t.context + 8, '<Q', 0)
+t.write(t.context + 0x148, '<Q', 0)
+r = t.execute()
+assert r['countA'] == r['countB'] == 0 and r['stampA'] == r['stampB'] == 123
+cases.append(dict(name='same-epoch-after-original-count-reset-does-not-notify', result=r))
+r = retry()
+assert r == dict(stamp=123, count=0, pending=0)
+cases.append(dict(name='recovery-does-not-create-pending-from-positive-stamp', result=r))
+
+for sequence in (123, 122, 0):
+    t.setup()
+    t.write(t.storage + 0x90, '<I', 0x80000000 | sequence)
+    t.write(t.context + 0x280, '<I', 1)
+    r = retry()
+    assert r == dict(stamp=sequence, count=1, pending=0), r
+    assert t.read(t.queue_a, '<I') == 0x1234
+    cases.append(dict(name=f'recovery-preserves-lower-sequence-{sequence}', result=r))
+
+t.setup(capacity_a=0)
+t.write(t.storage + 0x90, '<I', 0x8000007b)
+t.write(t.context + 0x280, '<I', 1)
+r = retry()
+assert r == dict(stamp=0x8000007b, count=0, pending=1)
+cases.append(dict(name='recovery-without-room-leaves-pending', result=r))
+
+t.setup(capacity_a=0, capacity_b=0)
+t.execute()
+t.write(t.context + 0x10, '<Q', 4)
+t.write(t.context + 0x150, '<Q', 4)
+r = t.execute()
+assert r['countA'] == r['countB'] == 0 and r['pendingA'] == r['pendingB'] == 1
+cases.append(dict(name='tracker-same-epoch-leaves-pending-for-recovery', result=r))
+t.write(t.manager + 0x4dc, '<I', 124)
+r = t.execute()
+assert r['countA'] == r['countB'] == 0 and r['pendingA'] == r['pendingB'] == 1, r
+assert r['stampA'] == r['stampB'] == 0x8000007b
+cases.append(dict(name='tracker-new-epoch-preserves-negative-pending-until-recovery', result=r))
+
+c = Cs(CS_ARCH_X86, CS_MODE_64)
+functions = {}
+for name, rva in [('recoverOne', 0x9cd180), ('recoverScan', 0x9cd210),
+                  ('frameSetup', 0x9c80e0), ('transientCleanup', 0x963f60),
+                  ('drainA', 0x9cd730)]:
+    fragments = [f for f in t.pe.functions if f['primaryBeginRva'] == rva]
+    functions[name] = dict(rva=rva, fragments=[dict(
+        beginRva=f['beginRva'], endRva=f['endRva'],
+        instructions=[dict(rva=i.address, mnemonic=i.mnemonic, operands=i.op_str)
+                      for i in c.disasm(t.pe.read(f['beginRva'], f['endRva']-f['beginRva']), f['beginRva'])])
+        for f in fragments])
+
+result = dict(executable=t.pe.identity(), processOpened=False, processWrites=False,
+              nativeGameCalls=False, environment='Original code in private Unicorn memory',
+              cases=cases, functions=functions,
+              findings=dict(recoveryRequiresExistingNegativeStamp=True,
+                            recoveryCreatesNoNewPending=True,
+                            recoveryChecksCurrentEpoch=False,
+                            scanLimit=4096,
+                            frameSetupAdvancesManagerEpochByTickCount=True,
+                            frameTransientCleanupTouchesTrackingQueues=False,
+                            arbitraryBetweenFrameWriteValidated=False),
+              limitations=['Synthetic phase composition, not whole-frame emulation',
+                           'No live game memory written or original game function called'])
+out = Path('src/loader/runtime/profile-tools/devdata/creative-mode-146/current-tracking-recovery-oracle-20261016.json')
+out.write_text(json.dumps(result, indent=2))
+print(json.dumps(dict(cases=len(cases), passed=True, path=str(out))))

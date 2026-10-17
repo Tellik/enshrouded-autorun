@@ -1,0 +1,189 @@
+{
+  "refactor-migration-verification": {
+    "baseline_entries": 1040,
+    "distinct_planned_targets": 1145,
+    "all_targets_present": true,
+    "missing": [],
+    "single_targets_identical_baseline_digest": 665
+  },
+  "updater-function-preservation": {
+    "original_function_items": 94,
+    "identical_function_bodies": 94,
+    "unmatched": []
+  },
+  "parser-patch-verification": {
+    "revision": "34a156f6614f78c3340c07e4750afa400349abeb",
+    "all_files_equal": true,
+    "compared_files": 244
+  },
+  "release-mod-preservation": {
+    "all_content_identical": true,
+    "files": [
+      {
+        "path": "mods/sf-survival/extended.mod.json",
+        "byte_identical_to_head": true,
+        "identical_after_line_ending_normalization": true,
+        "byte_identical_to_audit_baseline": true
+      },
+      {
+        "path": "mods/sf-survival/src/mod.lua",
+        "byte_identical_to_head": false,
+        "identical_after_line_ending_normalization": true,
+        "byte_identical_to_audit_baseline": true
+      },
+      {
+        "path": "mods/sf-unlimited-flight/extended.mod.json",
+        "byte_identical_to_head": true,
+        "identical_after_line_ending_normalization": true,
+        "byte_identical_to_audit_baseline": true
+      },
+      {
+        "path": "mods/sf-unlimited-flight/src/mod.lua",
+        "byte_identical_to_head": false,
+        "identical_after_line_ending_normalization": true,
+        "byte_identical_to_audit_baseline": true
+      }
+    ],
+    "all_byte_identical_to_audit_baseline": true
+  },
+  "release-package-verification": {
+    "archive": "build\\shroudforge-1.6.8-refactor-check.zip",
+    "sha256": "d13866b8f753bca0aae708cf5e0165a83fb216703e8710f7f535201663bbbd1a",
+    "entry_count": 26,
+    "entries": [
+      "dbghelp.dll",
+      "dinput8.dll",
+      "mods/sf-survival/.luarc.json",
+      "mods/sf-survival/README.md",
+      "mods/sf-survival/extended.mod.json",
+      "mods/sf-survival/icon.svg",
+      "mods/sf-survival/mod.json",
+      "mods/sf-survival/src/mod.lua",
+      "mods/sf-unlimited-flight/.luarc.json",
+      "mods/sf-unlimited-flight/README.md",
+      "mods/sf-unlimited-flight/extended.mod.json",
+      "mods/sf-unlimited-flight/icon.svg",
+      "mods/sf-unlimited-flight/mod.json",
+      "mods/sf-unlimited-flight/src/mod.lua",
+      "shroudforge/config/modloader-config.json",
+      "shroudforge/kfc-runtime.dll",
+      "shroudforge/runtime/profiles/README.md",
+      "shroudforge/runtime/profiles/enshrouded/client/1076226.json",
+      "shroudforge/runtime/profiles/enshrouded/client/25966634.json",
+      "shroudforge/runtime/profiles/enshrouded/client/25988036.json",
+      "shroudforge/runtime/profiles/enshrouded/server/1024233.json",
+      "shroudforge/shroudforge-runtime.dll",
+      "shroudforge/shroudforge-updater.exe",
+      "shroudforge/shroudforge.exe",
+      "shroudforge/version.json",
+      "winmm.dll"
+    ],
+    "source_payloads_compared": 18,
+    "managed_paths_count": 25,
+    "no_development_profiles_or_runtime_state": true,
+    "all_checks_passed": true
+  },
+  "modloader-ui-preservation": {
+    "originalDeclarations": 96,
+    "unchangedDeclarationAst": 94,
+    "structurallyExtractedDeclarations": [
+      "App",
+      "ModulePreferencesEditor"
+    ],
+    "newsBuilderBody": "identical AST",
+    "moduleOwnedFiles": [
+      "modules/modloader/ui/host.ts",
+      "modules/modloader/ui/components.tsx",
+      "modules/modloader/ui/mods.tsx",
+      "modules/modloader/ui/settings.tsx",
+      "modules/modloader/ui/app.tsx",
+      "modules/updater/ui/updates.tsx",
+      "modules/news/ui/notices.tsx",
+      "modules/runtime-diagnostics/ui/controls.tsx",
+      "modules/transport/ui/settings.tsx",
+      "modules/debug-console/ui/settings.ts",
+      "modules/world-editor/ui/settings.ts"
+    ]
+  },
+  "foundation-review": {
+    "original_files": 21,
+    "original_functions": 301,
+    "identical_bodies": 299,
+    "differences": [
+      {
+        "original": "src/loader/package/src/registry/manifest_reader.rs",
+        "name": "shipped_mod_packages_have_valid_eml_and_extension_manifests",
+        "candidates": [
+          "packages/manifest/read.rs"
+        ]
+      },
+      {
+        "original": "src/loader/package/src/window_icon.rs",
+        "name": "rgba",
+        "candidates": [
+          "modules/ui-resources/window_icon.rs"
+        ]
+      }
+    ],
+    "review_status": "no_behavioral_findings",
+    "reviewed_scope": [
+      "support/",
+      "packages/",
+      "game-assets/",
+      "modules/updater/",
+      "execution/runtime/control.rs",
+      "execution/runtime/status.rs",
+      "modules/news/service.rs",
+      "modules/ui-resources/window_icon.rs"
+    ],
+    "method": "Statischer Vergleich von 301 ursprünglichen Funktionskörpern aus 21 HEAD-Quelldateien. Leerraum wird normalisiert. include_str-Pfade werden anhand unveränderter eingebetteter Dateiinhalte aufgelöst. Zusätzlich gezielte vollständige Inhaltsprüfung der neuen Modulwurzeln und der cfg-/Reexport-Verkabelung.",
+    "path_only_differences": [
+      {
+        "function": "rgba",
+        "evidence": "Nur include_bytes-Pfad wurde geändert. Der ursprüngliche und neue Icon-Inhalt sind bytegleich."
+      },
+      {
+        "function": "shipped_mod_packages_have_valid_eml_and_extension_manifests",
+        "evidence": "Bestehender Test ermittelt den Repository-Root entsprechend der neuen Crate-Tiefe über ancestors().nth(1) statt nth(3). Test wurde nicht ausgeführt."
+      }
+    ],
+    "findings": [],
+    "checks": [
+      {
+        "topic": "scheduled::check_update_cancelled",
+        "result": "windows/scheduler.rs importiert ausdrücklich crate::system_stage::* ohne crate::*-Glob. Der Aufruf erreicht system-updates/stage.rs und prüft weiterhin die cancel-system-update-Datei. Keine Rekursion über die öffentliche Request-Fassade."
+      },
+      {
+        "topic": "cfg(windows)",
+        "result": "windows, restore_worker, system_install, system_stage und scheduled sind in lib.rs ausschließlich unter cfg(windows) eingebunden. Aufgeteilte öffentliche Requests und Queue-Funktionen behalten ihre ursprünglichen Windows- und Nicht-Windows-Varianten."
+      },
+      {
+        "topic": "Privatsichtbarkeit",
+        "result": "Interne Aufteilung erweitert ausschließlich crate-interne Sichtbarkeit benötigter Funktionen und Arguments-Felder. Der alte öffentliche Updater-Einstieg und alle Request-Namen bleiben über Reexports erreichbar."
+      },
+      {
+        "topic": "Gemeinsamer Zustand",
+        "result": "Logging lebt einmalig in support und wird durch packages reexportiert. Asset-Fingerprint und Runtime-Status werden jeweils einmalig durch packages kompiliert. Keine zweite Implementierung oder neue parallele statische Instanz in den neuen Crates."
+      },
+      {
+        "topic": "Konfiguration und Persistenz",
+        "result": "Die ursprünglichen Funktionskörper für State-Locking, JSON-Schreibvorgänge, Schemaauswahl, Loader-Merge, Windows-Anforderungen und Manifest-/Settings-Lesen stimmen einschließlich eingebetteter Inhalte überein."
+      },
+      {
+        "topic": "Mod-Extension und Archivzweige",
+        "result": "Die ausgelagerten Funktionen für EML-Extension, Settings und Paketdateien bewahren ihre Implementierungen. Vorhandene Archivzweige wurden bei dieser Verhaltensbewahrung nicht entfernt."
+      }
+    ],
+    "limitations": [
+      "Keine Tests oder weiteren Builds ausgeführt, wie beauftragt.",
+      "Dies ist eine statische Foundation-Prüfung. Tatsächliche Spielstarts, externe Updateanbieter und Windows-Scheduler-Ausführung wurden nicht praktisch ausgeführt.",
+      "Funktionsabgleich prüft bestehende Funktionen. Neue Modulverkabelung und Zustandsidentität wurden ergänzend gezielt gelesen."
+    ]
+  },
+  "executed_tests": false,
+  "live_game_checked": false,
+  "documentation_links_valid": true,
+  "diff_formatting_check_passed": true,
+  "snapshot_scope": "Historischer Nachweis der abgeschlossenen Strukturphase vor der Reduzierung",
+  "subsequent_phase": "reduction-report.md"
+}

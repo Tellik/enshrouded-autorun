@@ -8,7 +8,7 @@ field or an ABI for calling arbitrary original engine functions.
 
 ## Declared API inventory at the start of the audit
 
-`src/loader/api/src/shroudforge/v1/definitions/runtime.lua` contained 86 explicit
+`execution/lua/shroudforge/v1/definitions/runtime.lua` contained 86 explicit
 `function` declarations. This includes five log methods and both documented
 overloads of `runtime.world.entity.destroy`. `assets/manager.lua` contained 14
 declarations, including both overloads of `create_resource`.

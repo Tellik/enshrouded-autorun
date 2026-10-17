@@ -1,8 +1,0 @@
-# XHL Vein Mining v1.0.33
-# Terrain material ID whitelist. Fully exit and restart the game after making changes.
-# Enter the "Terrain Material ID" shown in the crosshair tooltip here, not an item ID or GUID.
-# This list completely replaces the whitelist. Keep the existing IDs when adding new materials, and separate them with commas.
-# Valid range: 1 to 127. Duplicate IDs are automatically removed; invalid content falls back to the built-in list of 33 IDs.
-# Normal Shroud Soil = 32; Underwater Shroud Soil = 93.
-# In multiplayer, the host and clients should use the same list. The host's settings determine the actual terrain removal.
-materialIds=6,7,14,17,18,19,24,25,26,27,29,30,31,32,33,38,48,50,60,63,65,68,71,72,76,82,83,84,85,89,93,96,97,98

@@ -1,5 +1,7 @@
 # Auto Refill
 
+> Historical reference mod. This package is not one of the two currently bundled mods. Source links point to the verified repository revision before its removal.
+
 Turns repeated stamina refill to maximum on or off.
 
 ## Meaning and default
@@ -15,4 +17,4 @@ Repeatedly refills stamina to maximum.
 
 ## Source of this information
 
-This page is based on `mods/sf-auto-stamina-refill/extended.mod.json`. Lua reads the current value with `shroudforge.settings.get("autoRefill", fallback)`. Modloader saves player changes in the extension file. [Lua source file](https://github.com/bonsaibauer/shroudforge/blob/HEAD/mods/sf-auto-stamina-refill/src/mod.lua).
+This page is based on `reference-mods-0.9/sf-auto-stamina-refill/extended.mod.json`. Lua reads the current value with `shroudforge.settings.get("autoRefill", fallback)`. Modloader saves player changes in the extension file. [Lua source file](https://github.com/bonsaibauer/shroudforge/blob/81f9c5fe2d70ea4ba10896fb22a75b2d082800a6/reference-mods-0.9/sf-auto-stamina-refill/src/mod.lua).

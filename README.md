@@ -146,7 +146,7 @@ See the [English server guide](https://bonsaibauer.github.io/shroudforge/en/#ser
 
 ## Make your first mod
 
-Start with the [mod template](templates/mod/README.md). It gives you the files for a small mod and explains what to change.
+Start with the [mod template](docs/modding/starter-mod/README.md). It gives you the files for a small mod and explains what to change.
 
 The website's [first-mod lesson](https://bonsaibauer.github.io/shroudforge/en/#first) walks through a complete example. When you are ready, try the [mod settings guide](https://bonsaibauer.github.io/shroudforge/en/#manifests): edit an example on the left and see the Modloader-style preview on the right. It also shows how `extended.mod.json` exposes a setting and how Lua reads it with `shroudforge.settings.get`.
 
@@ -165,7 +165,25 @@ The release build validates each mod's manifest, ID, Lua entry point, and Lua sy
 
 \* Multiplayer support depends on installing and enabling the mod in the process that handles the relevant game action. For asset changes such as recipe data or production time, prepare both client and server before starting them. A client-side change alone does not prove that the server accepted or persisted the result.
 
-Older packages are preserved under [`reference-mods-0.9/`](reference-mods-0.9/). Runtime test probes are stored separately under [`diagnostic-mods/`](diagnostic-mods/). Neither folder is included in the release package.
+The source tree currently contains the two release mods listed above. The earlier reference and diagnostic package directories have been removed. See the [architecture guide](docs/sf/Architecture.md) for current source locations and concrete build actions.
+
+## Find or build something in the repository
+
+Find the action you want to change, then open the file with that name. For example, **modules/modloader/save_mod_settings.rs** contains the mod-setting save operation. Its UI lives in the same module. See the [action and file guide](docs/sf/Architecture.md) and the [module owners](modules/README.md).
+
+Run these commands from the repository root:
+
+Initialize the Git submodules before building. For a direct Rust-only build, first run `./dev/prepare_parser.ps1` once to apply the recorded parser integration. The complete `build.ps1` sequence already performs this preparation.
+
+| What you want to do | Command |
+| --- | --- |
+| Build the Modloader and its UI | `./dev/build_modloader.ps1` |
+| Build the native runtime | `./dev/build_runtime.ps1` |
+| Build and validate the website | `./dev/build_website.ps1` |
+| Package existing build outputs | `./dev/package_release.ps1` |
+| Build the complete release without running tests | `./build.ps1 -SkipTests` |
+
+Executable inspection, captures and profile preparation belong to [dev/profiles/](dev/profiles/README.md). The [starter mod](docs/modding/starter-mod/README.md) and [small Lua examples](docs/modding/examples/) belong to the documentation. Build outputs are generated under **build/** and **target/**. Installed loader state is separate from the repository source.
 
 ## Development roadmap
 

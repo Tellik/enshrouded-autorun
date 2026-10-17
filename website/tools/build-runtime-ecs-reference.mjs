@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "../..");
-const dataDirectory = path.join(root, "website", "data");
+const dataDirectory = path.join(root, "build", "website", "data");
 const current = JSON.parse(fs.readFileSync(path.join(dataDirectory, "current.json"), "utf8"));
 const snapshot = path.join(dataDirectory, current.snapshot);
 const profile = JSON.parse(fs.readFileSync(path.join(snapshot, "profile.json"), "utf8"));

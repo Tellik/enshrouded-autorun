@@ -8,7 +8,7 @@ Jeder Mod braucht eine `mod.json`. ShroudForge liest sie, bevor der Mod vorberei
 
 ## Welche Datei wird hier beschrieben?
 
-Das kanonische Schema liegt in [manifest.schema.json](../../../schemas/manifest.schema.json). Der Loader prüft zusätzlich Abhängigkeiten und Laufzeitbedingungen in [manifest_reader.rs](https://github.com/bonsaibauer/shroudforge/blob/HEAD/src/loader/package/src/registry/manifest_reader.rs).
+Das kanonische Schema liegt in [manifest.schema.json](../../../schemas/manifest.schema.json). Der Loader prüft zusätzlich Abhängigkeiten und Laufzeitbedingungen in [read_mod_manifest.rs](https://github.com/bonsaibauer/shroudforge/blob/HEAD/modules/modloader/read_mod_manifest.rs).
 
 ## Kleines Beispiel
 

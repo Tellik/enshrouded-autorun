@@ -1,5 +1,5 @@
 # Build output
-build/
+/build/
 x64/
 target/
 node_modules/
@@ -32,11 +32,7 @@ __pycache__/
 
 # Runtime output
 *.log
-/shroudforge/state/state.json
-/shroudforge/config/.shroudforge-write.lock
-/shroudforge/config/loader.json
-/shroudforge/config/mods/*.json
-/shroudforge/config/webview2-profile/
+/shroudforge/
 mods/**/.mod-json.lock
 
 # Local environment and operating system files
@@ -46,3 +42,10 @@ mods/**/.mod-json.lock
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Local runtime investigation captures
+/dev/profiles/captures/
+
+# Legacy UI outputs. Current generators write to /build/ui/.
+/modules/modloader/ui/dist/
+/modules/modloader/ui/generated-flags.ts

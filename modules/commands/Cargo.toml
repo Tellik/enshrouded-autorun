@@ -1,0 +1,16 @@
+[package]
+name = "shroudforge-commands"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+autobins = false
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+shroudforge-logging.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+shroudforge-package.workspace = true

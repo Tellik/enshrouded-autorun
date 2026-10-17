@@ -8,7 +8,7 @@ Every mod needs a `mod.json`. ShroudForge reads it before preparing or starting 
 
 ## The file described here
 
-The canonical schema is [manifest.schema.json](../../../schemas/manifest.schema.json). The loader also checks dependencies and runtime conditions in [manifest_reader.rs](https://github.com/bonsaibauer/shroudforge/blob/HEAD/src/loader/package/src/registry/manifest_reader.rs).
+The canonical schema is [manifest.schema.json](../../../schemas/manifest.schema.json). The loader also checks dependencies and runtime conditions in [read_mod_manifest.rs](https://github.com/bonsaibauer/shroudforge/blob/HEAD/modules/modloader/read_mod_manifest.rs).
 
 ## A small example
 

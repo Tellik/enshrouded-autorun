@@ -1,0 +1,32 @@
+use crate::config::*;
+use serde_json::Value;
+use std::{fs, path::Path};
+
+pub fn read_loader(root: &Path) -> Result<Value, String> {
+    let path = document_path(root, crate::documents::LOADER);
+    let defaults: Value = serde_json::from_str(include_str!("loader.default.json"))
+        .map_err(|error| error.to_string())?;
+    let mut result = defaults;
+    let loaded = match fs::read(&path) {
+        Ok(bytes) => {
+            Some(serde_json::from_slice::<Value>(&bytes).map_err(|error| error.to_string())?)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.to_string()),
+    };
+    fn merge(target: &mut Value, source: Value) {
+        match (target, source) {
+            (Value::Object(target), Value::Object(source)) => {
+                for (key, value) in source {
+                    merge(target.entry(key).or_insert(Value::Null), value);
+                }
+            }
+            (target, source) => *target = source,
+        }
+    }
+    if let Some(loaded) = loaded {
+        merge(&mut result, loaded);
+    }
+    validate_document(root, crate::documents::LOADER, &result)?;
+    Ok(result)
+}

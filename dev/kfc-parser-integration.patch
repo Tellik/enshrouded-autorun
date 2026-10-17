@@ -1,0 +1,2037 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index e0b0214..4f0fbac 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -954,7 +954,9 @@ dependencies = [
+  "kfc-base",
+  "kfc-content",
+  "kfc-resource",
++ "serde",
+  "serde_json",
++ "thiserror 2.0.17",
+ ]
+ 
+ [[package]]
+diff --git a/crates/kfc-base/examples/bench_reader.rs b/crates/kfc-base/examples/bench_reader.rs
+deleted file mode 100644
+index 670961c5161c5ca1d3204d38f39d5c131a0affb7..0000000000000000000000000000000000000000
+--- a/crates/kfc-base/examples/bench_reader.rs
++++ /dev/null
+@@ -1,246 +0,0 @@
+-//! Read-only resource benchmark. Build with `cargo build -p kfc-base --release
+-//! --example bench_reader`, then run the resulting executable directly.
+-//!
+-//! Usage: bench_reader GAME_DIR [--file-name NAME] [--threads N]
+-//!        [--order index|offset] [--limit N] [--passes N]
+-//!
+-//! `index` follows the on-disk hash index backwards, modelling the CLI's
+-//! shared work queue without its random HashSet iteration order. `offset`
+-//! assigns each worker a contiguous range in resource offset order.
+-//! Each pass creates fresh cursors on the same KFCReader. The operating
+-//! system's file cache and any cache owned by the reader survive passes.
+-
+-use std::{
+-    env,
+-    error::Error,
+-    hint::black_box,
+-    io,
+-    path::{Path, PathBuf},
+-    sync::atomic::{AtomicUsize, Ordering},
+-    thread,
+-    time::Instant,
+-};
+-
+-use kfc_base::{container::KFCReader, guid::ResourceId};
+-
+-const USAGE: &str = "Usage: bench_reader GAME_DIR [--file-name NAME] [--threads N] \
+-                    [--order index|offset] [--limit N] [--passes N]";
+-
+-#[derive(Clone, Copy)]
+-enum Order {
+-    Index,
+-    Offset,
+-}
+-
+-impl Order {
+-    fn name(self) -> &'static str {
+-        match self {
+-            Self::Index => "index",
+-            Self::Offset => "offset",
+-        }
+-    }
+-}
+-
+-struct Options {
+-    game_dir: PathBuf,
+-    file_name: Option<String>,
+-    threads: usize,
+-    order: Order,
+-    limit: Option<usize>,
+-    passes: usize,
+-}
+-
+-#[derive(Default)]
+-struct Totals {
+-    resources: usize,
+-    bytes: u64,
+-}
+-
+-fn invalid_input(message: impl Into<String>) -> io::Error {
+-    io::Error::new(io::ErrorKind::InvalidInput, message.into())
+-}
+-
+-fn parse_options() -> Result<Options, io::Error> {
+-    let mut args = env::args_os().skip(1);
+-    let game_dir = args.next().ok_or_else(|| invalid_input(USAGE))?;
+-    if game_dir == "--help" || game_dir == "-h" {
+-        println!("{USAGE}");
+-        std::process::exit(0);
+-    }
+-
+-    let mut options = Options {
+-        game_dir: PathBuf::from(game_dir),
+-        file_name: None,
+-        threads: 1,
+-        order: Order::Index,
+-        limit: None,
+-        passes: 1,
+-    };
+-
+-    while let Some(flag) = args.next() {
+-        let flag = flag
+-            .into_string()
+-            .map_err(|_| invalid_input("Option name is not valid UTF-8"))?;
+-        let value = args
+-            .next()
+-            .ok_or_else(|| invalid_input(format!("Missing value for {flag}. {USAGE}")))?
+-            .into_string()
+-            .map_err(|_| invalid_input(format!("Value for {flag} is not valid UTF-8")))?;
+-        match flag.as_str() {
+-            "--file-name" | "--file_name" => options.file_name = Some(value),
+-            "--order" => {
+-                options.order = match value.as_str() {
+-                    "index" => Order::Index,
+-                    "offset" => Order::Offset,
+-                    _ => return Err(invalid_input("--order must be index or offset")),
+-                };
+-            }
+-            "--threads" | "--limit" | "--passes" => {
+-                let number: usize = value
+-                    .parse()
+-                    .map_err(|_| invalid_input(format!("Invalid number for {flag}: {value}")))?;
+-                if number == 0 {
+-                    return Err(invalid_input(format!("{flag} must be greater than zero")));
+-                }
+-                match flag.as_str() {
+-                    "--threads" => options.threads = number,
+-                    "--limit" => options.limit = Some(number),
+-                    "--passes" => options.passes = number,
+-                    _ => unreachable!(),
+-                }
+-            }
+-            _ => return Err(invalid_input(format!("Unknown option: {flag}. {USAGE}"))),
+-        }
+-    }
+-    Ok(options)
+-}
+-
+-fn find_file_name(game_dir: &Path) -> Result<String, io::Error> {
+-    for name in ["enshrouded", "enshrouded_server"] {
+-        if game_dir.join(format!("{name}.kfc")).is_file() {
+-            return Ok(name.into());
+-        }
+-    }
+-
+-    let mut names = Vec::new();
+-    for entry in std::fs::read_dir(game_dir)? {
+-        let path = entry?.path();
+-        if path.extension().is_some_and(|extension| extension == "kfc") && path.is_file() {
+-            if let Some(name) = path.file_stem().and_then(|name| name.to_str()) {
+-                names.push(name.to_owned());
+-            }
+-        }
+-    }
+-    names.sort_unstable();
+-    if names.len() == 1 {
+-        return Ok(names.remove(0));
+-    }
+-    Err(invalid_input(
+-        "Specify --file-name when the game directory has no recognized or unique .kfc file",
+-    ))
+-}
+-
+-fn run_pass(
+-    reader: &KFCReader,
+-    ids: &[ResourceId],
+-    options: &Options,
+-) -> Result<Totals, io::Error> {
+-    let next = AtomicUsize::new(0);
+-    thread::scope(|scope| {
+-        let mut handles = Vec::with_capacity(options.threads);
+-        for worker in 0..options.threads {
+-            let next = &next;
+-            handles.push(scope.spawn(move || -> Result<Totals, io::Error> {
+-                let mut cursor = reader
+-                    .new_cursor()
+-                    .map_err(|error| io::Error::other(error.to_string()))?;
+-                let mut buffer = Vec::new();
+-                let mut totals = Totals::default();
+-                let mut position = ids.len() * worker / options.threads;
+-                let end = ids.len() * (worker + 1) / options.threads;
+-
+-                loop {
+-                    let index = match options.order {
+-                        Order::Index => {
+-                            let claimed = next.fetch_add(1, Ordering::Relaxed);
+-                            if claimed >= ids.len() {
+-                                break;
+-                            }
+-                            ids.len() - 1 - claimed
+-                        }
+-                        Order::Offset => {
+-                            if position >= end {
+-                                break;
+-                            }
+-                            let index = position;
+-                            position += 1;
+-                            index
+-                        }
+-                    };
+-                    let id = &ids[index];
+-                    buffer.clear();
+-                    if !cursor.read_resource_into(id, &mut buffer)? {
+-                        return Err(io::Error::new(
+-                            io::ErrorKind::NotFound,
+-                            format!("Resource from the index could not be read: {id:?}"),
+-                        ));
+-                    }
+-                    black_box(buffer.as_slice());
+-                    totals.resources += 1;
+-                    totals.bytes += buffer.len() as u64;
+-                }
+-                Ok(totals)
+-            }));
+-        }
+-
+-        let mut totals = Totals::default();
+-        for handle in handles {
+-            let result = handle
+-                .join()
+-                .map_err(|_| io::Error::other("Benchmark worker panicked"))??;
+-            totals.resources += result.resources;
+-            totals.bytes += result.bytes;
+-        }
+-        if totals.resources != ids.len() {
+-            return Err(io::Error::other(
+-                "Benchmark did not read every selected resource",
+-            ));
+-        }
+-        Ok(totals)
+-    })
+-}
+-
+-fn main() -> Result<(), Box<dyn Error>> {
+-    let options = parse_options()?;
+-    let file_name = match options.file_name.as_deref() {
+-        Some(name) => name.to_owned(),
+-        None => find_file_name(&options.game_dir)?,
+-    };
+-    let reader = KFCReader::new(&options.game_dir, file_name)?;
+-    let resources = reader.file().resources();
+-    let mut ids = resources.keys().to_vec();
+-    // Apply the limit first so both orders read the same deterministic subset.
+-    if let Some(limit) = options.limit {
+-        ids.truncate(limit);
+-    }
+-    if matches!(options.order, Order::Offset) {
+-        ids.sort_by_key(|id| resources.get(id).expect("ID came from this index").offset);
+-    }
+-    let chunks = reader.file().resource_chunks();
+-    let uncompressed_bytes: u64 = chunks.iter().map(|chunk| chunk.uncompressed_size).sum();
+-
+-    for pass in 1..=options.passes {
+-        let start = Instant::now();
+-        let totals = run_pass(&reader, &ids, &options)?;
+-        let elapsed_secs = start.elapsed().as_secs_f64();
+-        println!(
+-            "{{\"elapsed_secs\":{elapsed_secs:.9},\"resources\":{},\"bytes\":{},\"threads\":{},\"order\":\"{}\",\"pass\":{pass},\"chunk_count\":{},\"uncompressed_bytes\":{uncompressed_bytes}}}",
+-            totals.resources,
+-            totals.bytes,
+-            options.threads,
+-            options.order.name(),
+-            chunks.len(),
+-        );
+-    }
+-    Ok(())
+-}
+diff --git a/crates/kfc-base/src/container/error.rs b/crates/kfc-base/src/container/error.rs
+index e7c6a7a0296589d203b88470d10b6bcc984712f6..6f0dff0d8cf794d6545f768a243f4423d4c57267 100644
+--- a/crates/kfc-base/src/container/error.rs
++++ b/crates/kfc-base/src/container/error.rs
+@@ -31,6 +31,4 @@ pub enum StaticMapError {
+     BucketCountMismatch(usize, usize),
+     #[error("Bucket size must be a power of 2: {0}")]
+     InvalidBucketSize(usize),
+-    #[error("Bucket range out of bounds: index {0} + count {1} > key count {2}")]
+-    BucketOutOfRange(usize, usize, usize),
+ }
+diff --git a/crates/kfc-base/src/container/mod.rs b/crates/kfc-base/src/container/mod.rs
+index 66068abfc23b9f0ed3d394e739c8e4e35ce9a78b..2a029e2e251f17c0f251424c23abee3418b6de99 100644
+--- a/crates/kfc-base/src/container/mod.rs
++++ b/crates/kfc-base/src/container/mod.rs
+@@ -11,3 +11,6 @@ pub use static_map::*;
+ pub use error::*;
+ pub use reader::*;
+ pub use writer::*;
++
++/// Name-based resource lookup helpers.
++pub mod resource_lookup;
+diff --git a/crates/kfc-base/src/container/reader.rs b/crates/kfc-base/src/container/reader.rs
+index 7c2052706d77dbdc365549444e3e62c745040a18..6b7998491ef782f319b9c515388debcba2a9ccc7 100644
+--- a/crates/kfc-base/src/container/reader.rs
++++ b/crates/kfc-base/src/container/reader.rs
+@@ -1,48 +1,11 @@
+-use std::{borrow::Borrow, fs::File, io::{BufReader, Read, Seek, SeekFrom, Take}, path::{Path, PathBuf}, sync::{Mutex, OnceLock}};
++use std::{borrow::Borrow, collections::HashMap, fs::File, io::{BufReader, Read, Seek, SeekFrom, Take}, path::{Path, PathBuf}};
+ 
+ use crate::{container::KFCReadError, guid::{ContentHash, ResourceId}};
+ 
+-use super::{header::ResourceEntry, KFCFile};
+-
+-/// Resource sizes are stored in 24 bits, so sizes of 16 MiB and larger are
+-/// truncated to their lower 24 bits.
+-const RESOURCE_SIZE_MODULUS: u64 = 0x1000000;
+-const RESOURCE_ALIGNMENT: u64 = 16;
+-
+-#[derive(Default)]
+-struct ResourceChunkCacheEntry {
+-    data: OnceLock<Box<[u8]>>,
+-    loading: Mutex<()>,
+-}
+-
+-impl ResourceChunkCacheEntry {
+-    fn get_or_load(&self, load: impl FnOnce() -> std::io::Result<Vec<u8>>) -> std::io::Result<&[u8]> {
+-        if let Some(data) = self.data.get() {
+-            return Ok(data);
+-        }
+-
+-        // Serialize only this chunk's first load. Hits never acquire a mutex,
+-        // and failed loads leave the entry empty so another cursor can retry.
+-        let _loading = self.loading.lock()
+-            .map_err(|_| std::io::Error::other("Resource chunk cache lock poisoned"))?;
+-        if let Some(data) = self.data.get() {
+-            return Ok(data);
+-        }
+-
+-        let data = load()?.into_boxed_slice();
+-        Ok(self.data.get_or_init(|| data))
+-    }
+-}
++use super::KFCFile;
+ 
+ pub struct KFCReader {
+     file: KFCFile,
+-    /// Sorted, distinct resource offsets followed by the end of the resource data.
+-    resource_bounds: Vec<u64>,
+-    resource_chunks_ordered: bool,
+-    /// Lazy decompressed data shared by every cursor, retained until this reader
+-    /// is dropped. The maximum payload is the sum of uncompressed chunk sizes,
+-    /// rather than that sum multiplied by the number of cursors.
+-    chunk_cache: Vec<ResourceChunkCacheEntry>,
+ 
+     path: PathBuf,
+     file_name: String,
+@@ -102,20 +65,8 @@ impl KFCReader {
+             options.resource_extension
+         ));
+ 
+-        let resource_bounds = resource_bounds(&file);
+-        let resource_chunks_ordered = file.resource_chunks().windows(2).all(|pair| {
+-            pair[0].uncompressed_offset.checked_add(pair[0].uncompressed_size)
+-                .is_some_and(|end| end <= pair[1].uncompressed_offset)
+-        });
+-        let chunk_cache = (0..file.resource_chunks().len())
+-            .map(|_| ResourceChunkCacheEntry::default())
+-            .collect();
+-
+         Ok(Self {
+             file,
+-            resource_bounds,
+-            resource_chunks_ordered,
+-            chunk_cache,
+ 
+             path: path.to_path_buf(),
+             file_name: file_name.to_string(),
+@@ -140,17 +91,6 @@ impl KFCReader {
+         &self.kfc_path
+     }
+ 
+-    /// Returns the actual size of a resource.
+-    ///
+-    /// The game stores resource sizes in 24 bits. For resources of 16 MiB and
+-    /// larger the stored size is therefore too small by a multiple of 16 MiB.
+-    /// The actual size is recovered from the offset of the next resource.
+-    pub fn resource_size(&self, guid: &ResourceId) -> Option<u64> {
+-        self.file.resources()
+-            .get(guid)
+-            .map(|entry| actual_resource_size(&self.resource_bounds, entry))
+-    }
+-
+     #[inline]
+     pub fn new_cursor(&self) -> Result<KFCCursor<&Self>, KFCReadError> {
+         KFCCursor::new(self)
+@@ -168,6 +108,7 @@ pub struct KFCCursor<R> {
+     reader: BufReader<File>,
+     container_readers: Vec<Option<BufReader<File>>>,
+ 
++    chunk_cache: HashMap<usize, Vec<u8>>,
+     buffer: Vec<u8>,
+ }
+ 
+@@ -187,6 +128,7 @@ where
+             reader,
+             container_readers: Vec::new(),
+ 
++            chunk_cache: HashMap::new(),
+             buffer: Vec::new(),
+         })
+     }
+@@ -196,12 +138,6 @@ where
+         self.kfc_reader.borrow().file()
+     }
+ 
+-    /// See [`KFCReader::resource_size`].
+-    #[inline]
+-    pub fn resource_size(&self, guid: &ResourceId) -> Option<u64> {
+-        self.kfc_reader.borrow().resource_size(guid)
+-    }
+-
+     // pub fn open_resource(
+     //     &self,
+     //     id: &ResourceId,
+@@ -249,38 +185,44 @@ where
+             None => return Ok(false),
+         };
+ 
+-        let resource_size = actual_resource_size(&kfc_reader.resource_bounds, resource);
++        // TEMPORARY: until the game devs fix this resource size issue
++        const RID: ResourceId = ResourceId::parse_qualified("509feadb-4c60-425f-9c7c-deeefd9b6920_21b2a090_3").unwrap();
+ 
+-        if resource_size == 0 {
+-            return Ok(true);
+-        }
++        let resource_size = if guid == &RID && resource.size < 0x1000000 {
++            resource.size + 0x1000000
++        } else {
++            resource.size
++        };
++        // END TEMPORARY
+ 
+-        let resource_end = resource.offset.checked_add(resource_size)
+-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Resource range overflow"))?;
+-        let chunk_start = resource_chunk_index(
+-            file.resource_chunks(), kfc_reader.resource_chunks_ordered, resource.offset,
+-        );
++        let chunk_start = file.resource_chunks()
++            .iter()
++            .position(|chunk| {
++                (chunk.uncompressed_offset..chunk.uncompressed_offset + chunk.uncompressed_size)
++                    .contains(&resource.offset)
++            });
+ 
+         let chunk_start = match chunk_start {
+             Some(chunk) => chunk,
+             None => return Ok(false),
+         };
+ 
+-        // The resource end is exclusive. Looking up the end itself would also
+-        // decompress the next chunk when the resource ends at a chunk boundary.
+-        let chunk_end = resource_chunk_index(
+-            file.resource_chunks(), kfc_reader.resource_chunks_ordered, resource_end - 1,
+-        );
++        let chunk_end = file.resource_chunks()
++            .iter()
++            .rposition(|chunk| {
++                (chunk.uncompressed_offset..=chunk.uncompressed_offset + chunk.uncompressed_size)
++                    .contains(&(resource.offset + resource_size))
++            });
+ 
+         let chunk_end = match chunk_end {
+             Some(chunk) => chunk,
+             None => return Ok(false),
+         };
+ 
+-        dst.reserve_exact(resource_size as usize);
++        dst.reserve_exact(resource_size.saturating_sub(dst.len() as u64) as usize);
+ 
+         let mut remaining_size = resource_size;
+-        let mut resource_offset = resource.offset;
++        let resource_offset = resource.offset;
+ 
+         for i in chunk_start..=chunk_end {
+             let base_offset = self.kfc_reader.borrow()
+@@ -290,19 +232,22 @@ where
+ 
+             let chunk_data = self.decompress_chunk(i)?;
+ 
+-            let offset = resource_offset.checked_sub(base_offset)
+-                .filter(|&offset| offset < chunk_data.len() as u64)
+-                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Resource chunk range has a gap or overlap"))?
+-                as usize;
+-            let size = std::cmp::min((chunk_data.len() - offset) as u64, remaining_size);
++            let size = if resource_offset > base_offset {
++                let available = chunk_data.len() as u64 - (resource_offset - base_offset);
++                std::cmp::min(available, remaining_size)
++            } else {
++                let available = chunk_data.len() as u64;
++                std::cmp::min(available, remaining_size)
++            };
++
++            let offset = if resource_offset > base_offset {
++                (resource_offset - base_offset) as usize
++            } else {
++                0
++            };
+ 
+             dst.extend_from_slice(&chunk_data[offset .. offset + size as usize]);
+             remaining_size -= size;
+-            resource_offset += size;
+-        }
+-
+-        if remaining_size != 0 {
+-            return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Incomplete resource chunk range"));
+         }
+ 
+         Ok(true)
+@@ -312,23 +257,37 @@ where
+         &mut self,
+         index: usize
+     ) -> std::io::Result<&[u8]> {
+-        let kfc_reader = self.kfc_reader.borrow();
+-        let chunk = &kfc_reader.file.resource_chunks()[index];
+-        let reader = &mut self.reader;
+-        let buffer = &mut self.buffer;
+-
+-        kfc_reader.chunk_cache[index].get_or_load(|| {
+-            buffer.resize(chunk.compressed_size as usize, 0);
+-            reader.seek(SeekFrom::Start(chunk.offset))?;
+-            reader.read_exact(buffer)?;
+-
+-            let mut decompressed_data = Vec::with_capacity(chunk.uncompressed_size as usize);
+-            zstd::stream::copy_decode(&mut &buffer[..], &mut decompressed_data)?;
+-            if decompressed_data.len() as u64 != chunk.uncompressed_size {
+-                return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Decompressed chunk size does not match the index"));
++        self.decompress_chunk_impl(index)?;
++        Ok(self.chunk_cache.get(&index).unwrap())
++    }
++
++    fn decompress_chunk_impl(
++        &mut self,
++        index: usize
++    ) -> std::io::Result<()> {
++        match self.chunk_cache.get(&index) {
++            Some(_) => Ok(()),
++            None => {
++                let kfc_reader = self.kfc_reader.borrow();
++                let chunk = &kfc_reader.file.resource_chunks()[index];
++
++                self.buffer.clear();
++                self.buffer.resize(chunk.compressed_size as usize, 0);
++
++                self.reader.seek(SeekFrom::Start(chunk.offset))?;
++                self.reader.read_exact(&mut self.buffer[..chunk.compressed_size as usize])?;
++
++                let mut decompressed_data = Vec::with_capacity(chunk.uncompressed_size as usize);
++                zstd::stream::copy_decode(
++                    &mut &self.buffer[..],
++                    &mut decompressed_data
++                )?;
++
++                self.chunk_cache.insert(index, decompressed_data);
++
++                Ok(())
+             }
+-            Ok(decompressed_data)
+-        })
++        }
+     }
+ 
+     pub fn open_content(
+@@ -430,219 +389,3 @@ where
+     }
+ 
+ }
+-
+-fn resource_chunk_index(
+-    chunks: &[super::header::ResourceChunkInfo],
+-    ordered: bool,
+-    offset: u64,
+-) -> Option<usize> {
+-    let contains = |chunk: &super::header::ResourceChunkInfo| {
+-        chunk.uncompressed_offset <= offset
+-            && chunk.uncompressed_offset.checked_add(chunk.uncompressed_size)
+-                .is_some_and(|end| offset < end)
+-    };
+-    if ordered {
+-        let index = chunks.partition_point(|chunk| chunk.uncompressed_offset <= offset)
+-            .checked_sub(1)?;
+-        contains(&chunks[index]).then_some(index)
+-    } else {
+-        // Keep supporting tables that are not ordered by uncompressed offset.
+-        chunks.iter().position(contains)
+-    }
+-}
+-
+-fn resource_bounds(file: &KFCFile) -> Vec<u64> {
+-    let mut bounds = file.resources()
+-        .values()
+-        .iter()
+-        .map(|entry| entry.offset)
+-        .collect::<Vec<_>>();
+-
+-    let data_end = file.resource_chunks()
+-        .iter()
+-        .map(|chunk| chunk.uncompressed_offset + chunk.uncompressed_size)
+-        .max()
+-        .unwrap_or(0);
+-
+-    bounds.sort_unstable();
+-    bounds.dedup();
+-    bounds.push(data_end);
+-    bounds
+-}
+-
+-/// Returns the size of the resource, corrected for sizes that were truncated
+-/// to 24 bits.
+-///
+-/// The space up to the next resource must match the stored size plus a
+-/// multiple of 16 MiB and less than the resource alignment, otherwise the
+-/// stored size is used as is (e.g. unused space left behind by patching).
+-fn actual_resource_size(bounds: &[u64], entry: &ResourceEntry) -> u64 {
+-    let next = match bounds.binary_search(&entry.offset) {
+-        Ok(index) => bounds.get(index + 1),
+-        Err(index) => bounds.get(index),
+-    };
+-
+-    let Some(&next) = next else {
+-        return entry.size;
+-    };
+-
+-    let Some(gap) = next.checked_sub(entry.offset + entry.size) else {
+-        return entry.size;
+-    };
+-
+-    let missing = gap - gap % RESOURCE_SIZE_MODULUS;
+-
+-    if missing > 0 && gap - missing < RESOURCE_ALIGNMENT {
+-        entry.size + missing
+-    } else {
+-        entry.size
+-    }
+-}
+-
+-#[cfg(test)]
+-mod tests {
+-    use super::*;
+-
+-    fn entry(offset: u64, size: u64) -> ResourceEntry {
+-        ResourceEntry { offset, size }
+-    }
+-
+-    #[test]
+-    fn test_actual_resource_size() {
+-        let bounds = vec![0, 32, 32 + 0x2000000 + 16, 0x3000000];
+-
+-        // regular resources keep their stored size
+-        assert_eq!(actual_resource_size(&bounds, &entry(0, 24)), 24);
+-        // truncated by 2 * 16 MiB, followed by alignment padding
+-        assert_eq!(actual_resource_size(&bounds, &entry(32, 12)), 12 + 0x2000000);
+-        // gap that does not match a truncated size is left alone
+-        assert_eq!(actual_resource_size(&bounds, &entry(32 + 0x2000000 + 16, 100)), 100);
+-        // offset not in bounds and past the end
+-        assert_eq!(actual_resource_size(&bounds, &entry(0x4000000, 8)), 8);
+-    }
+-
+-    #[test]
+-    fn concurrent_chunk_requests_load_once_and_share_the_same_allocation() {
+-        use std::sync::{Barrier, atomic::{AtomicUsize, Ordering}};
+-
+-        let cache = ResourceChunkCacheEntry::default();
+-        let loads = AtomicUsize::new(0);
+-        let start = Barrier::new(8);
+-        let pointers = std::thread::scope(|scope| {
+-            let handles = (0..8).map(|_| {
+-                scope.spawn(|| {
+-                    start.wait();
+-                    let data = cache.get_or_load(|| {
+-                        loads.fetch_add(1, Ordering::Relaxed);
+-                        Ok(vec![42; 1024])
+-                    }).unwrap();
+-                    assert_eq!(data, &[42; 1024]);
+-                    data.as_ptr() as usize
+-                })
+-            }).collect::<Vec<_>>();
+-            handles.into_iter().map(|handle| handle.join().unwrap()).collect::<Vec<_>>()
+-        });
+-
+-        assert_eq!(loads.load(Ordering::Relaxed), 1);
+-        assert!(pointers.iter().all(|pointer| *pointer == pointers[0]));
+-    }
+-
+-    #[test]
+-    fn failed_chunk_load_can_be_retried() {
+-        let cache = ResourceChunkCacheEntry::default();
+-        let failure = cache.get_or_load(|| Err(std::io::Error::new(
+-            std::io::ErrorKind::Interrupted, "transient read failure",
+-        )));
+-        assert_eq!(failure.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+-
+-        assert_eq!(cache.get_or_load(|| Ok(vec![1, 2, 3])).unwrap(), [1, 2, 3]);
+-        assert_eq!(cache.get_or_load(|| panic!("cached data must not be loaded again")).unwrap(), [1, 2, 3]);
+-    }
+-
+-    #[test]
+-    fn chunk_lookup_uses_exclusive_ends_and_rejects_gaps() {
+-        use super::super::header::ResourceChunkInfo;
+-
+-        let chunk = |offset, size| ResourceChunkInfo {
+-            uncompressed_offset: offset,
+-            uncompressed_size: size,
+-            ..Default::default()
+-        };
+-        let chunks = [chunk(0, 8), chunk(8, 8), chunk(20, 4)];
+-        for ordered in [true, false] {
+-            assert_eq!(resource_chunk_index(&chunks, ordered, 0), Some(0));
+-            assert_eq!(resource_chunk_index(&chunks, ordered, 7), Some(0));
+-            assert_eq!(resource_chunk_index(&chunks, ordered, 8), Some(1));
+-            assert_eq!(resource_chunk_index(&chunks, ordered, 15), Some(1));
+-            assert_eq!(resource_chunk_index(&chunks, ordered, 16), None);
+-            assert_eq!(resource_chunk_index(&chunks, ordered, 23), Some(2));
+-            assert_eq!(resource_chunk_index(&chunks, ordered, 24), None);
+-        }
+-
+-        let unordered = [chunk(20, 4), chunk(0, 8), chunk(8, 8)];
+-        assert_eq!(resource_chunk_index(&unordered, false, 4), Some(1));
+-    }
+-
+-    #[test]
+-    fn resource_reads_cross_boundaries_and_reuse_chunks_across_cursors() {
+-        use std::sync::atomic::{AtomicUsize, Ordering};
+-        use super::super::header::{ResourceBundleEntry, ResourceChunkInfo};
+-
+-        static NEXT_DIRECTORY: AtomicUsize = AtomicUsize::new(0);
+-        struct TestDirectory(PathBuf);
+-        impl Drop for TestDirectory {
+-            fn drop(&mut self) {
+-                std::fs::remove_dir_all(&self.0).unwrap();
+-            }
+-        }
+-
+-        let directory = TestDirectory(std::env::temp_dir().join(format!(
+-            "kfc-reader-{}-{}", std::process::id(), NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed),
+-        )));
+-        std::fs::create_dir(&directory.0).unwrap();
+-        let bytes = (0..128).collect::<Vec<u8>>();
+-        let mut blob = Vec::new();
+-        let chunks = bytes.chunks(64).enumerate().map(|(index, data)| {
+-            let compressed = zstd::encode_all(data, 0).unwrap();
+-            let chunk = ResourceChunkInfo {
+-                offset: blob.len() as u64,
+-                size: compressed.len() as u64,
+-                compressed_size: compressed.len() as u64,
+-                uncompressed_offset: index as u64 * 64,
+-                uncompressed_size: data.len() as u64,
+-            };
+-            blob.extend_from_slice(&compressed);
+-            chunk
+-        }).collect();
+-        let first = ResourceId::NONE.with_type_hash(1);
+-        let crossing = first.with_part_index(1);
+-        let mut file = KFCFile::default();
+-        let bundles = std::collections::HashMap::from([(1, ResourceBundleEntry::default())]).into();
+-        file.set_resources(
+-            std::collections::HashMap::from([(first, entry(0, 64)), (crossing, entry(60, 8))]).into(),
+-            &crate::reflection::TypeRegistry::default(), Some(&bundles),
+-        ).unwrap();
+-        file.set_resource_chunks(chunks);
+-        file.write(&mut File::create(directory.0.join("test.kfc")).unwrap()).unwrap();
+-        std::fs::write(directory.0.join("test.kfc_resources"), &blob).unwrap();
+-
+-        let reader = KFCReader::new(&directory.0, "test").unwrap();
+-        {
+-            let mut cursor = reader.new_cursor().unwrap();
+-            let mut output = vec![255];
+-            assert!(cursor.read_resource_into(&first, &mut output).unwrap());
+-            assert_eq!(&output[1..], &bytes[..64]);
+-            assert_eq!(output[0], 255);
+-            // Ending at offset 64 must not load the next chunk.
+-            assert!(reader.chunk_cache[0].data.get().is_some());
+-            assert!(reader.chunk_cache[1].data.get().is_none());
+-            assert_eq!(cursor.read_resource(&crossing).unwrap().unwrap(), bytes[60..68]);
+-        }
+-
+-        // A fresh cursor needs no disk data for chunks loaded by the old one.
+-        std::fs::write(directory.0.join("test.kfc_resources"), []).unwrap();
+-        let mut cursor = reader.new_cursor().unwrap();
+-        assert_eq!(cursor.read_resource(&first).unwrap().unwrap(), bytes[..64]);
+-        assert_eq!(cursor.read_resource(&crossing).unwrap().unwrap(), bytes[60..68]);
+-    }
+-}
+diff --git a/crates/kfc-base/src/container/resource_lookup.rs b/crates/kfc-base/src/container/resource_lookup.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..b2d59cfffac2e632c9c7205a897c4df06d3445ef
+--- /dev/null
++++ b/crates/kfc-base/src/container/resource_lookup.rs
+@@ -0,0 +1,59 @@
++//! Name-based boundary around identifiers required by the physical KFC format.
++use crate::{
++    container::KFCFile,
++    guid::{Guid, ResourceId},
++    reflection::{LookupKey, TypeIndex, TypeMetadata, TypeRegistry},
++};
++
++pub fn resource_id(
++    registry: &TypeRegistry,
++    qualified_name: &str,
++    guid: Guid,
++    part: u32,
++) -> Option<ResourceId> {
++    registry
++        .get_by_name(LookupKey::Qualified(qualified_name))
++        .map(|metadata| ResourceId::new(guid, metadata.qualified_hash, part))
++}
++
++pub fn resource_id_for_type(
++    registry: &TypeRegistry,
++    type_index: TypeIndex,
++    guid: Guid,
++    part: u32,
++) -> Option<ResourceId> {
++    registry
++        .get(type_index)
++        .and_then(|metadata| resource_id(registry, &metadata.qualified_name, guid, part))
++}
++
++pub fn type_for_resource<'a>(
++    registry: &'a TypeRegistry,
++    resource: &ResourceId,
++) -> Option<&'a TypeMetadata> {
++    registry.get_by_hash(LookupKey::Qualified(resource.type_hash()))
++}
++
++pub fn same_type(left: &ResourceId, right: &ResourceId) -> bool {
++    left.type_hash() == right.type_hash()
++}
++
++pub fn resources_by_type(
++    file: &KFCFile,
++    registry: &TypeRegistry,
++    qualified_name: &str,
++) -> Vec<ResourceId> {
++    let Some(metadata) = registry.get_by_name(LookupKey::Qualified(qualified_name)) else {
++        return Vec::new();
++    };
++    file.resources_by_type(metadata.qualified_hash)
++        .copied()
++        .collect()
++}
++
++pub fn resource_type_indices(file: &KFCFile, registry: &TypeRegistry) -> Vec<TypeIndex> {
++    file.resource_types()
++        .filter_map(|identifier| registry.get_by_hash(LookupKey::Qualified(identifier)))
++        .map(|metadata| metadata.index)
++        .collect()
++}
+diff --git a/crates/kfc-base/src/container/static_map.rs b/crates/kfc-base/src/container/static_map.rs
+index 3d3e17ad26db5878e28f8358313d52e3e93d56fa..96944c80fde57045f26622a31402d2983eeae6aa 100644
+--- a/crates/kfc-base/src/container/static_map.rs
++++ b/crates/kfc-base/src/container/static_map.rs
+@@ -38,13 +38,6 @@ impl<K: std::cmp::PartialEq + StaticHash, V> StaticMap<K, V> {
+             return Err(StaticMapError::InvalidBucketSize(buckets.len()));
+         }
+ 
+-        for bucket in &buckets {
+-            match bucket.index.checked_add(bucket.count) {
+-                Some(end) if end <= keys.len() => {}
+-                _ => return Err(StaticMapError::BucketOutOfRange(bucket.index, bucket.count, keys.len())),
+-            }
+-        }
+-
+         Ok(Self {
+             keys,
+             values,
+@@ -53,10 +46,6 @@ impl<K: std::cmp::PartialEq + StaticHash, V> StaticMap<K, V> {
+     }
+ 
+     pub fn get(&self, key: &K) -> Option<&V> {
+-        if self.buckets.is_empty() {
+-            return None;
+-        }
+-
+         let hash = key.static_hash();
+         let bucket_index = hash as usize % self.buckets.len();
+         let bucket = &self.buckets[bucket_index];
+@@ -282,44 +271,4 @@ mod tests {
+         assert_eq!(map.get(&4), None);
+     }
+ 
+-    #[test]
+-    fn test_static_map_empty() {
+-        let map = StaticMap::<u32, &'static str>::default();
+-
+-        assert!(map.is_empty());
+-        assert_eq!(map.get(&1), None);
+-        assert!(!map.contains_key(&1));
+-    }
+-
+-    #[test]
+-    fn test_static_map_from_parts() {
+-        let map = create_test_map();
+-        let map = StaticMap::from_parts(
+-            map.keys().to_vec(),
+-            map.values().to_vec(),
+-            map.buckets().to_vec(),
+-        ).unwrap();
+-
+-        assert_eq!(map.get(&1), Some(&"one"));
+-        assert_eq!(map.get(&2), Some(&"two"));
+-        assert_eq!(map.get(&3), Some(&"three"));
+-        assert_eq!(map.get(&4), None);
+-    }
+-
+-    #[test]
+-    fn test_static_map_from_parts_out_of_range() {
+-        let buckets = vec![
+-            StaticMapBucket { index: 1, count: 1 },
+-            StaticMapBucket { index: 0, count: 0 },
+-        ];
+-        let result = StaticMap::from_parts(vec![1u32], vec!["one"], buckets);
+-
+-        assert!(matches!(result, Err(StaticMapError::BucketOutOfRange(1, 1, 1))));
+-
+-        let buckets = vec![StaticMapBucket { index: usize::MAX, count: 1 }];
+-        let result = StaticMap::from_parts(vec![1u32], vec!["one"], buckets);
+-
+-        assert!(matches!(result, Err(StaticMapError::BucketOutOfRange(usize::MAX, 1, 1))));
+-    }
+-
+ }
+diff --git a/crates/kfc-base/src/container/writer.rs b/crates/kfc-base/src/container/writer.rs
+index 7ee1828dc6f7d063d59cc35784f1cfde584e02c3..ed98d00fad7e3b957e2c2747256b650c01c7eb51 100644
+--- a/crates/kfc-base/src/container/writer.rs
++++ b/crates/kfc-base/src/container/writer.rs
+@@ -1,6 +1,6 @@
+-use std::{borrow::Borrow, fs::File, io::{BufWriter, Cursor, Seek, SeekFrom, Write}, path::{Path, PathBuf}};
++use std::{borrow::Borrow, collections::HashMap, fs::File, io::{BufWriter, Cursor, Seek, SeekFrom, Write}, path::{Path, PathBuf}};
+ 
+-use crate::{container::header::ResourceChunkInfo, guid::{ContentHash, ResourceId}, io::{WriteExt, WriteSeekExt}, reflection::TypeRegistry};
++use crate::{Hash32, container::header::ResourceChunkInfo, guid::{ContentHash, ResourceId}, io::{WriteExt, WriteSeekExt}, reflection::TypeRegistry};
+ 
+ use super::{header::{ContentEntry, ContainerInfo, KfcFormat, ResourceEntry}, KFCFile, KFCReadError, KFCWriteError, StaticMapBuilder};
+ 
+@@ -300,10 +300,6 @@ where
+     }
+ 
+     fn submit_resource_data(&mut self) -> std::io::Result<()> {
+-        if self.chunk_writer.get_ref().is_empty() {
+-            return Ok(());
+-        }
+-
+         let offset = self.resource_writer.stream_position()?;
+         let chunk_data = self.chunk_writer.get_ref();
+ 
+@@ -369,7 +365,6 @@ where
+ 
+     pub fn finalize(mut self) -> Result<(), KFCWriteError> {
+         self.submit_resource_data()?;
+-        self.resource_writer.flush()?;
+ 
+         // prepare container infos
+ 
+@@ -390,15 +385,9 @@ where
+             });
+         }
+ 
+-        // Keep the existing container directory for resource-only updates.
++        // make sure to have a power of two container files
+ 
+-        let required_container_count = if self.container_writers.is_empty() && self.incremental_data.is_some() {
+-            // An incremental resource edit must preserve the original content
+-            // container directory. KFC4 packages can have any container count.
+-            containers.len()
+-        } else {
+-            containers.len().next_power_of_two()
+-        };
++        let required_container_count = containers.len().next_power_of_two();
+ 
+         while containers.len() < required_container_count {
+             let path = self.dat_path(containers.len());
+@@ -443,7 +432,6 @@ where
+         file.set_resource_chunks(chunks);
+ 
+         file.write(&mut file_writer)?;
+-        file_writer.flush()?;
+ 
+         Ok(())
+     }
+@@ -495,85 +483,6 @@ where
+ 
+ }
+ 
+-#[cfg(test)]
+-mod tests {
+-    use std::sync::atomic::{AtomicU64, Ordering};
+-
+-    use super::*;
+-
+-    static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+-
+-    struct TestDirectory(PathBuf);
+-
+-    impl TestDirectory {
+-        fn new() -> Self {
+-            let path = std::env::temp_dir().join(format!(
+-                "kfc-writer-{}-{}",
+-                std::process::id(),
+-                NEXT_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed),
+-            ));
+-            std::fs::create_dir(&path).unwrap();
+-            Self(path)
+-        }
+-    }
+-
+-    impl Drop for TestDirectory {
+-        fn drop(&mut self) {
+-            std::fs::remove_dir_all(&self.0).unwrap();
+-        }
+-    }
+-
+-    #[test]
+-    fn incremental_resource_finalize_preserves_content_container_count_and_chunks() {
+-        let directory = TestDirectory::new();
+-        let name = "test";
+-        let mut reference = KFCFile::default();
+-        reference.set_format(KfcFormat::Kfc4);
+-        reference.set_containers(vec![ContainerInfo::default(); 3]);
+-
+-        let resource_data = vec![7; 64];
+-        let compressed = zstd::encode_all(resource_data.as_slice(), 0).unwrap();
+-        reference.set_resource_chunks(vec![ResourceChunkInfo {
+-            offset: 0,
+-            size: RESOURCE_CHUNK_ALIGNMENT,
+-            compressed_size: compressed.len() as u64,
+-            uncompressed_offset: 0,
+-            uncompressed_size: resource_data.len() as u64,
+-        }]);
+-        let index_path = directory.0.join("test.kfc");
+-        reference.write(&mut File::create(&index_path).unwrap()).unwrap();
+-        let resource_path = directory.0.join("test.kfc_resources");
+-        let mut blob = compressed;
+-        blob.resize(RESOURCE_CHUNK_ALIGNMENT as usize, 0);
+-        std::fs::write(&resource_path, &blob).unwrap();
+-
+-        let registry = TypeRegistry::default();
+-        let writer = KFCWriter::new_incremental(&directory.0, name, &reference, &registry).unwrap();
+-        writer.finalize().unwrap();
+-
+-        let rewritten = KFCFile::from_path(&index_path, false).unwrap();
+-        assert_eq!(rewritten.containers().len(), 3);
+-        assert_eq!(rewritten.resource_chunks().len(), 1);
+-        assert_eq!(std::fs::read(resource_path).unwrap(), blob);
+-        assert!(!directory.0.join("test_003.dat").exists());
+-    }
+-
+-    #[test]
+-    fn submitting_an_empty_resource_chunk_does_not_write_a_zstd_frame() {
+-        let directory = TestDirectory::new();
+-        File::create(directory.0.join("test.kfc")).unwrap();
+-        File::create(directory.0.join("test.kfc_resources")).unwrap();
+-        let registry = TypeRegistry::default();
+-        let mut writer = KFCWriter::<&KFCFile, _>::new(&directory.0, "test", &registry, "test").unwrap();
+-
+-        writer.submit_resource_data().unwrap();
+-        writer.resource_writer.flush().unwrap();
+-
+-        assert!(writer.resource_chunks.is_empty());
+-        assert_eq!(writer.resource_writer.stream_position().unwrap(), 0);
+-    }
+-}
+-
+ struct ContainerWriter {
+     index: usize,
+     count: usize,
+diff --git a/crates/kfc-base/src/reflection/extract/error.rs b/crates/kfc-base/src/reflection/extract/error.rs
+index 1107ad94eee0bdc9b5c3f653bdd82d2721f1aec2..7a19fc6a95c96ee3993405bcca66b50516d244b4 100644
+--- a/crates/kfc-base/src/reflection/extract/error.rs
++++ b/crates/kfc-base/src/reflection/extract/error.rs
+@@ -28,19 +28,4 @@ pub enum ReflectionParseError {
+     MissingRDataSection,
+     #[error("Malformed pattern")]
+     MalformedPattern,
+-    #[error("Unknown primitive type 0x{value:X} for type `{name}`")]
+-    UnknownPrimitiveType { value: u8, name: String },
+-
+-    #[error("Duplicate impact hash: {hash:#010X}, previous: {previous}, current: {current}")]
+-    DuplicateImpactHash {
+-        hash: u32,
+-        previous: String,
+-        current: String,
+-    },
+-    #[error("Duplicate qualified hash: {hash:#010X}, previous: {previous}, current: {current}")]
+-    DuplicateQualifiedHash {
+-        hash: u32,
+-        previous: String,
+-        current: String,
+-    },
+ }
+diff --git a/crates/kfc-base/src/reflection/extract/parser.rs b/crates/kfc-base/src/reflection/extract/parser.rs
+index 6995e564c36054f91b300aaa4bfa23260d293356..f3ca38b711a3edfa39aaeb7e4564fb768ada2414 100644
+--- a/crates/kfc-base/src/reflection/extract/parser.rs
++++ b/crates/kfc-base/src/reflection/extract/parser.rs
+@@ -62,9 +62,9 @@ pub fn extract_reflection_data<P: AsRef<Path>>(
+     let mut reference_table = HashMap::new();
+     let mut reference_table_cursor = table_cursor.clone();
+ 
+-    for i in 0..table_count {
++    for _ in 0..table_count {
+         let offset = reference_table_cursor.read_u64()?;
+-        reference_table.entry(offset).or_insert(i as usize);
++        reference_table.insert(offset, reference_table.len());
+     }
+ 
+     let mut table = Vec::with_capacity(table_count as usize);
+@@ -131,7 +131,7 @@ fn read_type(
+     pe_file: &PEFile,
+     reference_table: &HashMap<u64, usize>,
+     index: TypeIndex,
+-) -> std::result::Result<TypeMetadata, ReflectionParseError> {
++) -> Result<TypeMetadata> {
+     let name = cursor.read_pointee(pe_file)?
+         .read_string(cursor.read_u64()? as usize)?;
+     let impact_name = cursor.read_pointee(pe_file)?
+@@ -148,12 +148,7 @@ fn read_type(
+     let alignment = cursor.read_u16()?;
+     let element_alignment = cursor.read_u16()?;
+     let field_count = cursor.read_u32()?;
+-    let primitive_type = cursor.read_u8()?;
+-    let primitive_type = PrimitiveType::from_u8(primitive_type)
+-        .ok_or_else(|| ReflectionParseError::UnknownPrimitiveType {
+-            value: primitive_type,
+-            name: qualified_name.clone(),
+-        })?;
++    let primitive_type = PrimitiveType::from_u8(cursor.read_u8()?);
+     let flags = TypeFlags::from_bits_truncate(cursor.read_u8()?);
+     cursor.padding(2)?;
+     let qualified_hash = cursor.read_u32()?;
+diff --git a/crates/kfc-base/src/reflection/extract/types.rs b/crates/kfc-base/src/reflection/extract/types.rs
+index 952854f21459292469cd1ac0ba51ffa5df486bf4..5c46f6d9d08613d1d56fc0672d9965e98496d863 100644
+--- a/crates/kfc-base/src/reflection/extract/types.rs
++++ b/crates/kfc-base/src/reflection/extract/types.rs
+@@ -125,8 +125,8 @@ pub enum PrimitiveType {
+ }
+ 
+ impl PrimitiveType {
+-    pub fn from_u8(value: u8) -> Option<Self> {
+-        Some(match value {
++    pub fn from_u8(value: u8) -> Self {
++        match value {
+             0x0 => Self::None,
+             0x1 => Self::Bool,
+             0x2 => Self::UInt8,
+@@ -157,8 +157,8 @@ impl PrimitiveType {
+             0x1B => Self::BlobVariant,
+             0x1C => Self::ObjectReference,
+             0x1D => Self::Guid,
+-            _ => return None,
+-        })
++            _ => panic!("Invalid PrimitiveType: 0x{value:X}"),
++        }
+     }
+ 
+     pub fn to_u8(&self) -> u8 {
+@@ -204,26 +204,3 @@ impl PartialEq for TypeMetadata {
+ }
+ 
+ impl Eq for TypeMetadata {}
+-
+-#[cfg(test)]
+-mod tests {
+-    use super::*;
+-
+-    #[test]
+-    fn primitive_type_from_u8_roundtrip() {
+-        for value in 0x0..=0x1D {
+-            let primitive_type = PrimitiveType::from_u8(value).unwrap();
+-            assert_eq!(primitive_type.to_u8(), value);
+-        }
+-
+-        assert_eq!(PrimitiveType::from_u8(0x0), Some(PrimitiveType::None));
+-        assert_eq!(PrimitiveType::from_u8(0x12), Some(PrimitiveType::Struct));
+-        assert_eq!(PrimitiveType::from_u8(0x1D), Some(PrimitiveType::Guid));
+-    }
+-
+-    #[test]
+-    fn primitive_type_from_u8_unknown() {
+-        assert_eq!(PrimitiveType::from_u8(0x1E), None);
+-        assert_eq!(PrimitiveType::from_u8(0xFF), None);
+-    }
+-}
+diff --git a/crates/kfc-base/src/reflection/registry.rs b/crates/kfc-base/src/reflection/registry.rs
+index f4c96446355417d020d44a752c1a99dde4d3a6b4..f6bf93940cbbfcf46ff714fce8a198bbb89d4c55 100644
+--- a/crates/kfc-base/src/reflection/registry.rs
++++ b/crates/kfc-base/src/reflection/registry.rs
+@@ -56,7 +56,7 @@ impl TypeRegistry {
+         let mut registry = Self::default();
+         let types = super::extract_reflection_data(path)?;
+ 
+-        registry.extend(types)?;
++        registry.extend(types);
+ 
+         Ok(registry)
+     }
+@@ -199,7 +199,7 @@ impl TypeRegistry {
+     pub(super) fn extend(
+         &mut self,
+         types: Vec<TypeMetadata>
+-    ) -> Result<usize, ReflectionParseError> {
++    ) -> usize {
+         if self.types.is_empty() {
+             self.types.reserve_exact(types.len());
+             self.types_by_qualified_hash.reserve(types.len());
+@@ -207,130 +207,37 @@ impl TypeRegistry {
+ 
+         let len = types.len();
+ 
++        // TODO: handle duplicates properly
+         // TODO: maybe add validation at some point
+ 
+         for value in types {
+-            let has_impact_hash = !value.flags.contains(TypeFlags::HAS_DS);
+-
+-            if has_impact_hash {
++            if !value.flags.contains(TypeFlags::HAS_DS) {
+                 if let Some(previous) = self.types_by_impact_hash.get(&value.impact_hash) {
+-                    return Err(ReflectionParseError::DuplicateImpactHash {
+-                        hash: value.impact_hash,
+-                        previous: self.type_name_at(*previous),
+-                        current: value.qualified_name,
+-                    });
++                    panic!(
++                        "Duplicate impact hash: {:#010X}, previous: {}, current: {}",
++                        value.impact_hash,
++                        self.get(*previous).unwrap().qualified_name,
++                        value.qualified_name
++                    );
+                 }
+-            }
+ 
+-            if let Some(previous) = self.types_by_qualified_hash.get(&value.qualified_hash) {
+-                return Err(ReflectionParseError::DuplicateQualifiedHash {
+-                    hash: value.qualified_hash,
+-                    previous: self.type_name_at(*previous),
+-                    current: value.qualified_name,
+-                });
++                self.types_by_impact_hash.insert(value.impact_hash, value.index);
+             }
+ 
+-            if has_impact_hash {
+-                self.types_by_impact_hash.insert(value.impact_hash, value.index);
++            if let Some(previous) = self.types_by_qualified_hash.get(&value.qualified_hash) {
++                panic!(
++                    "Duplicate qualified hash: {:#010X}, previous: {}, current: {}",
++                    value.qualified_hash,
++                    self.get(*previous).unwrap().qualified_name,
++                    value.qualified_name
++                );
+             }
+ 
+             self.types_by_qualified_hash.insert(value.qualified_hash, value.index);
+             self.types.push(value);
+         }
+ 
+-        Ok(len)
+-    }
+-
+-    fn type_name_at(&self, index: TypeIndex) -> String {
+-        self.get(index)
+-            .map(|r#type| r#type.qualified_name.clone())
+-            .unwrap_or_else(|| format!("<index {index}>"))
+-    }
+-
+-}
+-
+-#[cfg(test)]
+-mod tests {
+-    use super::*;
+-
+-    fn make_type(
+-        index: usize,
+-        name: &str,
+-        flags: TypeFlags,
+-    ) -> TypeMetadata {
+-        TypeMetadata {
+-            index: TypeIndex(index),
+-            name: name.to_string(),
+-            impact_name: name.to_string(),
+-            qualified_name: name.to_string(),
+-            namespace: Vec::new(),
+-            inner_type: None,
+-            size: 0,
+-            alignment: 0,
+-            element_alignment: 0,
+-            field_count: 0,
+-            primitive_type: PrimitiveType::None,
+-            flags,
+-            name_hash: fnv(name),
+-            impact_hash: fnv(name),
+-            qualified_hash: fnv(name),
+-            internal_hash: 0,
+-            struct_fields: Default::default(),
+-            enum_fields: Default::default(),
+-            default_value: None,
+-            attributes: Default::default(),
+-        }
+-    }
+-
+-    #[test]
+-    fn test_extend() {
+-        let mut registry = TypeRegistry::default();
+-        let types = vec![
+-            make_type(0, "A", TypeFlags::NONE),
+-            make_type(1, "B", TypeFlags::HAS_DS),
+-        ];
+-
+-        assert_eq!(registry.extend(types).unwrap(), 2);
+-        assert_eq!(registry.len(), 2);
+-        assert_eq!(registry.get_by_name(LookupKey::Qualified("A")).unwrap().index, TypeIndex(0));
+-        assert_eq!(registry.get_by_name(LookupKey::Qualified("B")).unwrap().index, TypeIndex(1));
+-        assert_eq!(registry.get_by_name(LookupKey::Impact("A")).unwrap().index, TypeIndex(0));
+-        assert!(registry.get_by_name(LookupKey::Impact("B")).is_none());
+-    }
+-
+-    #[test]
+-    fn test_extend_duplicate_qualified_hash() {
+-        let mut registry = TypeRegistry::default();
+-        let types = vec![
+-            make_type(0, "A", TypeFlags::HAS_DS),
+-            make_type(1, "A", TypeFlags::HAS_DS),
+-        ];
+-
+-        let err = registry.extend(types).unwrap_err();
+-
+-        assert!(matches!(
+-            err,
+-            ReflectionParseError::DuplicateQualifiedHash { hash, .. } if hash == fnv("A")
+-        ));
+-    }
+-
+-    #[test]
+-    fn test_extend_duplicate_impact_hash() {
+-        let mut registry = TypeRegistry::default();
+-        let mut duplicate = make_type(1, "B", TypeFlags::NONE);
+-        duplicate.impact_hash = fnv("A");
+-
+-        let types = vec![
+-            make_type(0, "A", TypeFlags::NONE),
+-            duplicate,
+-        ];
+-
+-        let err = registry.extend(types).unwrap_err();
+-
+-        assert!(matches!(
+-            err,
+-            ReflectionParseError::DuplicateImpactHash { hash, .. } if hash == fnv("A")
+-        ));
++        len
+     }
+ 
+ }
+diff --git a/crates/kfc-base/src/reflection/serde.rs b/crates/kfc-base/src/reflection/serde.rs
+index 088beb2c7c0ed3c788a4783139791e04a3fc1f40..bd1639bac060ba312d5415997a8193ec82b077da 100644
+--- a/crates/kfc-base/src/reflection/serde.rs
++++ b/crates/kfc-base/src/reflection/serde.rs
+@@ -25,8 +25,7 @@ impl<'de> Deserialize<'de> for TypeRegistry {
+             ..Default::default()
+         };
+ 
+-        registry.extend(data.types)
+-            .map_err(serde::de::Error::custom)?;
++        registry.extend(data.types);
+ 
+         Ok(registry)
+     }
+diff --git a/crates/kfc/Cargo.toml b/crates/kfc/Cargo.toml
+index e6be612a0b5306fbcd8555ef8df8ab2e61b7a9a5..2f29a4c9984e3a8ebe19ea5dfbfff4c8cb05ebf1 100644
+--- a/crates/kfc/Cargo.toml
++++ b/crates/kfc/Cargo.toml
+@@ -5,6 +5,9 @@ version.workspace = true
+ authors.workspace = true
+ 
+ [dependencies]
++serde.workspace = true
++serde_json.workspace = true
++thiserror.workspace = true
+ kfc-base = { path = "../kfc-base" }
+ kfc-resource = { path = "../kfc-resource", optional = true }
+ kfc-content = { path = "../kfc-content", optional = true }
+@@ -15,4 +18,3 @@ resource = ["kfc-resource"]
+ content = ["kfc-content"]
+ 
+ [dev-dependencies]
+-serde_json.workspace = true
+diff --git a/crates/kfc/src/lib.rs b/crates/kfc/src/lib.rs
+index f3fa928cc20cae3da6705c62866ce93feda9a6ee..97a0d8ad14b5874d327a748b7049725855e36406 100644
+--- a/crates/kfc/src/lib.rs
++++ b/crates/kfc/src/lib.rs
+@@ -5,3 +5,11 @@ pub use kfc_resource as resource;
+ 
+ #[cfg(feature = "content")]
+ pub use kfc_content as content;
++
++mod schema;
++mod snapshot;
++
++/// Name-based helpers around physical KFC resource identifiers.
++pub use container::resource_lookup as kfc_format;
++pub use schema::*;
++pub use snapshot::{SnapshotError, SnapshotResult, export_api_snapshot};
+diff --git a/crates/kfc/src/schema.rs b/crates/kfc/src/schema.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..3cf2590139621fdacb3f2d90004ee3e198593b8f
+--- /dev/null
++++ b/crates/kfc/src/schema.rs
+@@ -0,0 +1,204 @@
++use serde::{Deserialize, Serialize};
++use std::{
++    collections::BTreeMap,
++    path::{Path, PathBuf},
++};
++use thiserror::Error;
++
++#[derive(Debug, Clone)]
++pub struct GameFiles {
++    pub executable: PathBuf,
++    pub kfc: PathBuf,
++}
++
++impl GameFiles {
++    pub fn client(game: impl AsRef<Path>) -> Self {
++        Self {
++            executable: game.as_ref().join("enshrouded.exe"),
++            kfc: game.as_ref().join("enshrouded.kfc"),
++        }
++    }
++
++    pub fn server(game: impl AsRef<Path>) -> Self {
++        Self {
++            executable: game.as_ref().join("enshrouded_server.exe"),
++            kfc: game.as_ref().join("enshrouded_server.kfc"),
++        }
++    }
++}
++
++#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
++pub struct FieldDefinition {
++    pub name: String,
++    pub type_name: String,
++    pub data_offset: u64,
++}
++
++#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
++pub struct EnumValueDefinition {
++    pub name: String,
++    pub value: u64,
++}
++
++#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
++pub struct TypeDefinition {
++    pub name: String,
++    pub impact_name: String,
++    pub qualified_name: String,
++    pub namespace: Vec<String>,
++    pub inner_type: Option<String>,
++    pub primitive: String,
++    pub size: u32,
++    pub alignment: u16,
++    pub element_alignment: u16,
++    pub field_count: u32,
++    pub fields: BTreeMap<String, FieldDefinition>,
++    pub enum_values: BTreeMap<String, EnumValueDefinition>,
++}
++
++#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
++pub struct ResourceReference {
++    pub guid: String,
++    pub part: u32,
++}
++
++#[derive(Debug, Clone, Serialize, Deserialize)]
++pub struct GameSchema {
++    pub parser: String,
++    pub game_version: String,
++    pub types: BTreeMap<String, TypeDefinition>,
++    pub resources: BTreeMap<String, Vec<ResourceReference>>,
++}
++
++#[derive(Debug, Error)]
++pub enum ParserError {
++    #[error("game executable does not exist: {0}")]
++    MissingExecutable(PathBuf),
++    #[error("game data does not exist: {0}")]
++    MissingData(PathBuf),
++    #[error("parser backend failed: {0}")]
++    Backend(String),
++}
++
++pub trait GameParser: Send + Sync {
++    fn id(&self) -> &'static str;
++    fn parse(&self, files: &GameFiles) -> Result<GameSchema, ParserError>;
++}
++
++#[derive(Debug, Default, Clone, Copy)]
++pub struct KfcParser;
++
++impl GameParser for KfcParser {
++    fn id(&self) -> &'static str {
++        "kfc"
++    }
++
++    fn parse(&self, files: &GameFiles) -> Result<GameSchema, ParserError> {
++        use crate::{container::KFCFile, reflection::TypeRegistry};
++
++        require_file(&files.executable, true)?;
++        require_file(&files.kfc, false)?;
++        let registry = TypeRegistry::load_from_executable(&files.executable)
++            .map_err(|error| ParserError::Backend(error.to_string()))?;
++        let container = KFCFile::from_path(&files.kfc, false)
++            .map_err(|error| ParserError::Backend(error.to_string()))?;
++
++        Ok(schema_from_registry(&registry, &container))
++    }
++}
++
++/// Build the API view from already loaded metadata; never rescan the executable.
++pub fn schema_from_registry(
++    registry: &crate::reflection::TypeRegistry,
++    container: &crate::container::KFCFile,
++) -> GameSchema {
++    use crate::reflection::LookupKey;
++
++    let mut types = BTreeMap::new();
++    for metadata in registry.iter() {
++        let fields = metadata
++            .struct_fields
++            .values()
++            .map(|field| {
++                let type_name = registry
++                    .get(field.r#type)
++                    .map(|value| value.qualified_name.clone())
++                    .unwrap_or_else(|| "<unknown>".into());
++                (
++                    field.name.clone(),
++                    FieldDefinition {
++                        name: field.name.clone(),
++                        type_name,
++                        data_offset: field.data_offset,
++                    },
++                )
++            })
++            .collect();
++        let enum_values = metadata
++            .enum_fields
++            .values()
++            .map(|field| {
++                (
++                    field.name.clone(),
++                    EnumValueDefinition {
++                        name: field.name.clone(),
++                        value: field.value,
++                    },
++                )
++            })
++            .collect();
++        types.insert(
++            metadata.qualified_name.clone(),
++            TypeDefinition {
++                name: metadata.name.clone(),
++                impact_name: metadata.impact_name.clone(),
++                qualified_name: metadata.qualified_name.clone(),
++                namespace: metadata.namespace.clone(),
++                inner_type: metadata
++                    .inner_type
++                    .and_then(|index| registry.get(index))
++                    .map(|value| value.qualified_name.clone()),
++                primitive: format!("{:?}", metadata.primitive_type),
++                size: metadata.size,
++                alignment: metadata.alignment,
++                element_alignment: metadata.element_alignment,
++                field_count: metadata.field_count,
++                fields,
++                enum_values,
++            },
++        );
++    }
++
++    let mut resources = BTreeMap::new();
++    for type_hash in container.resource_types() {
++        let Some(metadata) = registry.get_by_hash(LookupKey::Qualified(type_hash)) else {
++            continue;
++        };
++        let values = container
++            .resources_by_type(type_hash)
++            .map(|resource| ResourceReference {
++                guid: resource.to_string(),
++                part: resource.part_index(),
++            })
++            .collect();
++        resources.insert(metadata.qualified_name.clone(), values);
++    }
++
++    GameSchema {
++        parser: "kfc".into(),
++        game_version: container.game_version().into(),
++        types,
++        resources,
++    }
++}
++
++fn require_file(path: &Path, executable: bool) -> Result<(), ParserError> {
++    if path.is_file() {
++        return Ok(());
++    }
++    if executable {
++        Err(ParserError::MissingExecutable(path.into()))
++    } else {
++        Err(ParserError::MissingData(path.into()))
++    }
++}
+diff --git a/crates/kfc/src/snapshot.rs b/crates/kfc/src/snapshot.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..fb031cfe8c623d6dbc3d891954c5570f86c97b3a
+--- /dev/null
++++ b/crates/kfc/src/snapshot.rs
+@@ -0,0 +1,223 @@
++use crate::{EnumValueDefinition, FieldDefinition, GameSchema, TypeDefinition};
++use serde::Serialize;
++use std::{
++    collections::BTreeMap,
++    fmt::Write as _,
++    fs,
++    path::{Path, PathBuf},
++};
++use thiserror::Error;
++
++#[derive(Debug, Error)]
++pub enum SnapshotError {
++    #[error("cannot create {0}: {1}")]
++    Create(PathBuf, std::io::Error),
++    #[error("cannot serialize {0}: {1}")]
++    Serialize(&'static str, serde_json::Error),
++    #[error("cannot write {0}: {1}")]
++    Write(PathBuf, std::io::Error),
++}
++
++#[derive(Debug, Clone)]
++pub struct SnapshotResult {
++    pub directory: PathBuf,
++    pub type_count: usize,
++    pub field_count: usize,
++}
++
++#[derive(Serialize)]
++struct Profile<'a> {
++    game_version: &'a str,
++    parser: &'a str,
++    type_count: usize,
++    field_count: usize,
++    resource_type_count: usize,
++}
++
++/// Public name-based view. KFC lookup hashes remain an implementation detail of
++/// the parser/serializer and are deliberately not published as mod API data.
++#[derive(Serialize)]
++struct PublicType<'a> {
++    name: &'a str,
++    impact_name: &'a str,
++    qualified_name: &'a str,
++    namespace: &'a [String],
++    inner_type: &'a Option<String>,
++    primitive: &'a str,
++    size: u32,
++    alignment: u16,
++    element_alignment: u16,
++    field_count: u32,
++    fields: &'a BTreeMap<String, FieldDefinition>,
++    enum_values: &'a BTreeMap<String, EnumValueDefinition>,
++}
++
++pub fn export_api_snapshot(
++    schema: &GameSchema,
++    root: impl AsRef<Path>,
++) -> Result<SnapshotResult, SnapshotError> {
++    let directory = root.as_ref().join(profile_id(&schema.game_version));
++    fs::create_dir_all(&directory)
++        .map_err(|error| SnapshotError::Create(directory.clone(), error))?;
++    let field_count = schema.types.values().map(|value| value.fields.len()).sum();
++    let profile = Profile {
++        game_version: &schema.game_version,
++        parser: &schema.parser,
++        type_count: schema.types.len(),
++        field_count,
++        resource_type_count: schema.resources.len(),
++    };
++    write_json(directory.join("profile.json"), "profile", &profile)?;
++    let public_types: BTreeMap<_, _> = schema
++        .types
++        .iter()
++        .map(|(name, value)| {
++            (
++                name,
++                PublicType {
++                    name: &value.name,
++                    impact_name: &value.impact_name,
++                    qualified_name: &value.qualified_name,
++                    namespace: &value.namespace,
++                    inner_type: &value.inner_type,
++                    primitive: &value.primitive,
++                    size: value.size,
++                    alignment: value.alignment,
++                    element_alignment: value.element_alignment,
++                    field_count: value.field_count,
++                    fields: &value.fields,
++                    enum_values: &value.enum_values,
++                },
++            )
++        })
++        .collect();
++    write_json(directory.join("types.json"), "types", &public_types)?;
++    write_json(
++        directory.join("resources.json"),
++        "resources",
++        &schema.resources,
++    )?;
++    write_file(directory.join("types.lua"), generate_lua(schema).as_bytes())?;
++    Ok(SnapshotResult {
++        directory,
++        type_count: schema.types.len(),
++        field_count,
++    })
++}
++
++fn write_json<T: Serialize>(
++    path: PathBuf,
++    name: &'static str,
++    value: &T,
++) -> Result<(), SnapshotError> {
++    let bytes =
++        serde_json::to_vec_pretty(value).map_err(|error| SnapshotError::Serialize(name, error))?;
++    write_file(path, &bytes)
++}
++
++fn write_file(path: PathBuf, bytes: &[u8]) -> Result<(), SnapshotError> {
++    fs::write(&path, bytes).map_err(|error| SnapshotError::Write(path, error))
++}
++
++fn profile_id(version: &str) -> String {
++    let value: String = version
++        .chars()
++        .map(|character| {
++            if character.is_ascii_alphanumeric() {
++                character.to_ascii_lowercase()
++            } else {
++                '-'
++            }
++        })
++        .collect();
++    format!("enshrouded-{}", value.trim_matches('-'))
++}
++
++fn generate_lua(schema: &GameSchema) -> String {
++    let mut output = String::from("---@meta\n-- Generated by ShroudForge parser. Do not edit.\n\n");
++    output.push_str("---@alias ShroudForgeQualifiedTypeName\n");
++    for name in schema.types.keys() {
++        let _ = writeln!(output, "---| {:?}", name);
++    }
++    output.push('\n');
++    for definition in schema.types.values() {
++        match definition.primitive.as_str() {
++            "Struct" => append_struct(&mut output, definition, schema),
++            "Enum" => append_enum(&mut output, definition),
++            _ => {}
++        }
++    }
++    output
++}
++
++fn append_struct(output: &mut String, definition: &TypeDefinition, schema: &GameSchema) {
++    let _ = write!(output, "---@class {}", lua_name(&definition.qualified_name));
++    if let Some(inner) = &definition.inner_type {
++        let _ = write!(output, " : {}", lua_type(schema, inner));
++    }
++    output.push('\n');
++    let _ = writeln!(
++        output,
++        "---@field __qualified_name {:?}",
++        definition.qualified_name
++    );
++    for field in definition.fields.values() {
++        let _ = writeln!(
++            output,
++            "---@field {} {} @ native offset 0x{:x}",
++            field.name,
++            lua_type(schema, &field.type_name),
++            field.data_offset
++        );
++    }
++    output.push('\n');
++}
++
++fn append_enum(output: &mut String, definition: &TypeDefinition) {
++    let _ = writeln!(output, "---@alias {}", lua_name(&definition.qualified_name));
++    for value in definition.enum_values.values() {
++        let _ = writeln!(output, "---| {:?} # {}", value.name, value.value);
++    }
++    output.push('\n');
++}
++
++fn lua_type(schema: &GameSchema, name: &str) -> String {
++    let Some(definition) = schema.types.get(name) else {
++        return lua_name(name);
++    };
++    match definition.primitive.as_str() {
++        "None" => "nil".into(),
++        "Bool" => "boolean".into(),
++        "UInt8" => "u8".into(),
++        "SInt8" => "i8".into(),
++        "UInt16" => "u16".into(),
++        "SInt16" => "i16".into(),
++        "UInt32" => "u32".into(),
++        "SInt32" => "i32".into(),
++        "UInt64" => "u64".into(),
++        "SInt64" => "i64".into(),
++        "Float32" => "f32".into(),
++        "Float64" => "f64".into(),
++        "BlobString" | "DsString" => "string".into(),
++        "BlobArray" | "DsArray" | "StaticArray" => definition
++            .inner_type
++            .as_deref()
++            .map(|inner| format!("{}[]", lua_type(schema, inner)))
++            .unwrap_or_else(|| "unknown[]".into()),
++        "BlobOptional" | "DsOptional" => definition
++            .inner_type
++            .as_deref()
++            .map(|inner| format!("{}?", lua_type(schema, inner)))
++            .unwrap_or_else(|| "unknown?".into()),
++        "Typedef" => definition
++            .inner_type
++            .as_deref()
++            .map(|inner| lua_type(schema, inner))
++            .unwrap_or_else(|| lua_name(name)),
++        _ => lua_name(name),
++    }
++}
++
++fn lua_name(value: &str) -> String {
++    value.replace("::", ".")
++}
+diff --git a/crates/kfc/tests/common/mod.rs b/crates/kfc/tests/common/mod.rs
+deleted file mode 100644
+index 695899d56e26e2a8e034581db647c2b5d4641b7c..0000000000000000000000000000000000000000
+--- a/crates/kfc/tests/common/mod.rs
++++ /dev/null
+@@ -1,29 +0,0 @@
+-use std::path::PathBuf;
+-
+-/// Location of an installed client or dedicated server used by ignored tests.
+-pub struct GameFiles {
+-    pub dir: PathBuf,
+-    pub file_name: String,
+-}
+-
+-impl GameFiles {
+-    pub fn from_env() -> Self {
+-        let dir = PathBuf::from(
+-            std::env::var_os("GAME_DIR").expect("GAME_DIR environment variable not set"),
+-        );
+-        assert!(
+-            dir.is_dir(),
+-            "GAME_DIR is not an existing directory: {}",
+-            dir.display()
+-        );
+-
+-        // Set GAME_FILE_NAME=enshrouded_server for the dedicated server.
+-        let file_name = std::env::var("GAME_FILE_NAME").unwrap_or_else(|_| "enshrouded".to_owned());
+-
+-        Self { dir, file_name }
+-    }
+-
+-    pub fn path(&self, extension: &str) -> PathBuf {
+-        self.dir.join(format!("{}.{}", self.file_name, extension))
+-    }
+-}
+diff --git a/crates/kfc/tests/test_kfc_read.rs b/crates/kfc/tests/test_kfc_read.rs
+index fdf2f064d7a915cef5cd474594150a31854263ab..3b9e9d8258f1442cb42a2d8795b1bce9657f1157 100644
+--- a/crates/kfc/tests/test_kfc_read.rs
++++ b/crates/kfc/tests/test_kfc_read.rs
+@@ -1,25 +1,29 @@
+-use std::collections::HashMap;
++use std::{collections::HashMap, path::PathBuf};
+ 
+ use kfc::{container::KFCReader, guid::ContentHash};
+ use kfc_base::{container::KFCFile, reflection::{LookupKey, TypeRegistry}};
+ 
+-mod common;
++fn get_game_dir() -> PathBuf {
++    std::env::var("GAME_DIR")
++        .expect("GAME_DIR environment variable not set")
++        .into()
++}
+ 
+ #[test]
+ #[ignore = "requires GAME_DIR environment variable"]
+ fn test_validate_kfc() -> Result<(), Box<dyn std::error::Error>> {
+     let mut buf = vec![0; 1024 * 1024]; // 1 MB buffer
+ 
+-    let game = common::GameFiles::from_env();
+-    let kfc_path = game.path("kfc");
+-    let exe_path = game.path("exe");
++    let dir = get_game_dir();
++    let kfc_path = dir.join("enshrouded.kfc");
++    let exe_path = dir.join("enshrouded.exe");
+ 
+     // Load TypeRegistry from the executable
+     let type_registry = TypeRegistry::load_from_executable(&exe_path)?;
+ 
+     // Open the KFC file
+     let kfc_file = KFCFile::from_path(&kfc_path, false)?;
+-    let mut reader = KFCReader::new(&game.dir, &game.file_name)?.into_cursor()?;
++    let mut reader = KFCReader::new(&dir, "enshrouded")?.into_cursor()?;
+ 
+     // check type registry for valid resource types
+     for guid in kfc_file.resources().keys() {
+@@ -44,13 +48,13 @@ fn test_validate_kfc() -> Result<(), Box<dyn std::error::Error>> {
+         assert!(exists, "Resource {guid} not found in KFC file");
+ 
+         // check the size
+-        let size = reader.resource_size(guid)
++        let entry = kfc_file.resources().get(guid)
+             .expect("Resource entry not found"); // checked above
+ 
+         assert_eq!(
+             buf.len(),
+-            size as usize,
+-            "Resource {} has size {}, but expected {}", guid, buf.len(), size
++            entry.size as usize,
++            "Resource {} has size {}, but expected {}", guid, buf.len(), entry.size
+         );
+     }
+ 
+diff --git a/crates/kfc/tests/test_resource_read.rs b/crates/kfc/tests/test_resource_read.rs
+index 400e0383f1623c51f0e3f73a0a8e30440f22eb93..5a1c4a97f6ed77894c1e2b3038eac7cb46096e1e 100644
+--- a/crates/kfc/tests/test_resource_read.rs
++++ b/crates/kfc/tests/test_resource_read.rs
+@@ -1,24 +1,30 @@
++use std::path::PathBuf;
++
+ use kfc::container::KFCReader;
+ use kfc_base::{container::KFCFile, reflection::{LookupKey, TypeRegistry}};
+ use kfc_resource::value::{ConversionOptions, Value};
+ 
+-mod common;
++fn get_game_dir() -> PathBuf {
++    std::env::var("GAME_DIR")
++        .expect("GAME_DIR environment variable not set")
++        .into()
++}
+ 
+ #[test]
+ #[ignore = "requires GAME_DIR environment variable"]
+ fn test_validate_resources_with_value() -> Result<(), Box<dyn std::error::Error>> {
+     let mut buf = vec![0; 1024 * 1024]; // 1 MB buffer
+ 
+-    let game = common::GameFiles::from_env();
+-    let kfc_path = game.path("kfc");
+-    let exe_path = game.path("exe");
++    let dir = get_game_dir();
++    let kfc_path = dir.join("enshrouded.kfc");
++    let exe_path = dir.join("enshrouded.exe");
+ 
+     // Load TypeRegistry from the executable
+     let type_registry = TypeRegistry::load_from_executable(&exe_path)?;
+ 
+     // Open the KFC file
+     let kfc_file = KFCFile::from_path(&kfc_path, false)?;
+-    let mut reader = KFCReader::new(&game.dir, &game.file_name)?.into_cursor()?;
++    let mut reader = KFCReader::new(&dir, "enshrouded")?.into_cursor()?;
+ 
+     // check parse json
+     for guid in kfc_file.resources().keys() {
+@@ -66,16 +72,16 @@ fn test_validate_resources_with_value() -> Result<(), Box<dyn std::error::Error>
+ fn test_validate_resources_with_value_human() -> Result<(), Box<dyn std::error::Error>> {
+     let mut buf = vec![0; 1024 * 1024]; // 1 MB buffer
+ 
+-    let game = common::GameFiles::from_env();
+-    let kfc_path = game.path("kfc");
+-    let exe_path = game.path("exe");
++    let dir = get_game_dir();
++    let kfc_path = dir.join("enshrouded.kfc");
++    let exe_path = dir.join("enshrouded.exe");
+ 
+     // Load TypeRegistry from the executable
+     let type_registry = TypeRegistry::load_from_executable(&exe_path)?;
+ 
+     // Open the KFC file
+     let kfc_file = KFCFile::from_path(&kfc_path, false)?;
+-    let mut reader = KFCReader::new(&game.dir, &game.file_name)?.into_cursor()?;
++    let mut reader = KFCReader::new(&dir, "enshrouded")?.into_cursor()?;
+ 
+     // check parse json
+     for guid in kfc_file.resources().keys() {
+@@ -124,16 +130,16 @@ fn test_validate_resources_with_value_human() -> Result<(), Box<dyn std::error::
+ fn test_value_serde_to_json() -> Result<(), Box<dyn std::error::Error>> {
+     let mut buf = vec![0; 1024 * 1024]; // 1 MB buffer
+ 
+-    let game = common::GameFiles::from_env();
+-    let kfc_path = game.path("kfc");
+-    let exe_path = game.path("exe");
++    let dir = get_game_dir();
++    let kfc_path = dir.join("enshrouded.kfc");
++    let exe_path = dir.join("enshrouded.exe");
+ 
+     // Load TypeRegistry from the executable
+     let type_registry = TypeRegistry::load_from_executable(&exe_path)?;
+ 
+     // Open the KFC file
+     let kfc_file = KFCFile::from_path(&kfc_path, false)?;
+-    let mut reader = KFCReader::new(&game.dir, &game.file_name)?.into_cursor()?;
++    let mut reader = KFCReader::new(&dir, "enshrouded")?.into_cursor()?;
+ 
+     // check parse json
+     for guid in kfc_file.resources().keys() {
+diff --git a/crates/kfc/tests/test_type_registry.rs b/crates/kfc/tests/test_type_registry.rs
+index b35684908664bf32db83bccab2095cc4f99f0395..51a45128731c8cf122dde223d38b251afb980b9d 100644
+--- a/crates/kfc/tests/test_type_registry.rs
++++ b/crates/kfc/tests/test_type_registry.rs
+@@ -1,12 +1,19 @@
++use std::path::PathBuf;
++
+ use kfc_base::reflection::TypeRegistry;
+ 
+-mod common;
++fn get_game_dir() -> PathBuf {
++    std::env::var("GAME_DIR")
++        .expect("GAME_DIR environment variable not set")
++        .into()
++}
+ 
+ #[test]
+ #[ignore = "requires GAME_DIR environment variable"]
+ fn test_validate_type_registry() -> Result<(), Box<dyn std::error::Error>> {
+-    let game = common::GameFiles::from_env();
+-    let exe_path = game.path("exe");
++    let dir = get_game_dir();
++    let _kfc_path = dir.join("enshrouded.kfc");
++    let exe_path = dir.join("enshrouded.exe");
+ 
+     // Load TypeRegistry from the executable
+     let _type_registry = TypeRegistry::load_from_executable(&exe_path)?;

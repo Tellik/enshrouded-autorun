@@ -1914,17 +1914,18 @@ dependencies = [
 [[package]]
 name = "kfc"
 version = "0.1.2"
-source = "git+https://github.com/bonsaibauer/kfc-parser.git?rev=a404b15cde40fc7bd43d812bb460ce40d2a9d3b1#a404b15cde40fc7bd43d812bb460ce40d2a9d3b1"
 dependencies = [
  "kfc-base",
  "kfc-content",
  "kfc-resource",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
 name = "kfc-base"
 version = "0.1.2"
-source = "git+https://github.com/bonsaibauer/kfc-parser.git?rev=a404b15cde40fc7bd43d812bb460ce40d2a9d3b1#a404b15cde40fc7bd43d812bb460ce40d2a9d3b1"
 dependencies = [
  "aes",
  "bitflags 2.13.2",
@@ -1937,7 +1938,6 @@ dependencies = [
 [[package]]
 name = "kfc-content"
 version = "0.1.2"
-source = "git+https://github.com/bonsaibauer/kfc-parser.git?rev=a404b15cde40fc7bd43d812bb460ce40d2a9d3b1#a404b15cde40fc7bd43d812bb460ce40d2a9d3b1"
 dependencies = [
  "anyhow",
  "block_compression",
@@ -1953,7 +1953,6 @@ dependencies = [
 [[package]]
 name = "kfc-resource"
 version = "0.1.2"
-source = "git+https://github.com/bonsaibauer/kfc-parser.git?rev=a404b15cde40fc7bd43d812bb460ce40d2a9d3b1#a404b15cde40fc7bd43d812bb460ce40d2a9d3b1"
 dependencies = [
  "indexmap",
  "kfc-base",
@@ -2220,7 +2219,7 @@ dependencies = [
 
 [[package]]
 name = "mod-loader-bridge"
-version = "1.0.0"
+version = "0.1.2"
 dependencies = [
  "serde_json",
  "windows-sys 0.60.2",
@@ -3664,8 +3663,11 @@ dependencies = [
  "serde_json",
  "sha2",
  "shroudforge-compatibility",
+ "shroudforge-game-assets",
+ "shroudforge-loader-config",
+ "shroudforge-news",
  "shroudforge-package",
- "shroudforge-parser",
+ "shroudforge-runtime-bridge",
  "shroudforge-runtime-diagnostics",
  "shroudforge-steam-networking",
  "thiserror 2.0.20",
@@ -3681,6 +3683,7 @@ version = "1.0.0"
 dependencies = [
  "serde",
  "serde_json",
+ "shroudforge-logging",
  "shroudforge-package",
 ]
 
@@ -3688,8 +3691,8 @@ dependencies = [
 name = "shroudforge-compatibility"
 version = "1.0.0"
 dependencies = [
+ "kfc",
  "serde",
- "shroudforge-parser",
 ]
 
 [[package]]
@@ -3698,10 +3701,46 @@ version = "1.0.0"
 dependencies = [
  "serde",
  "serde_json",
+ "shroudforge-loader-config",
+ "shroudforge-logging",
  "shroudforge-package",
+ "shroudforge-ui-resources",
  "tao",
  "windows-sys 0.61.2",
  "wry",
+]
+
+[[package]]
+name = "shroudforge-game-assets"
+version = "1.0.0"
+dependencies = [
+ "serde_json",
+ "sha2",
+ "shroudforge-loader-config",
+ "uuid",
+]
+
+[[package]]
+name = "shroudforge-loader-config"
+version = "1.0.0"
+dependencies = [
+ "fs2",
+ "jsonschema",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "shroudforge-logging"
+version = "1.0.0"
+dependencies = [
+ "serde_json",
+ "shroudforge-loader-config",
+ "tracing",
+ "tracing-subscriber",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3717,9 +3756,11 @@ dependencies = [
  "shroudforge-commands",
  "shroudforge-compatibility",
  "shroudforge-debug-console",
+ "shroudforge-game-assets",
+ "shroudforge-loader-config",
+ "shroudforge-logging",
  "shroudforge-modloader-ui",
  "shroudforge-package",
- "shroudforge-parser",
  "shroudforge-runtime-diagnostics",
  "shroudforge-updater",
  "shroudforge-world-editor-ui",
@@ -3733,21 +3774,36 @@ name = "shroudforge-modloader-ui"
 version = "1.0.0"
 dependencies = [
  "base64 0.22.1",
- "reqwest",
  "semver",
  "serde",
  "serde_json",
  "sha2",
+ "shroudforge-game-assets",
+ "shroudforge-loader-config",
+ "shroudforge-logging",
+ "shroudforge-news",
  "shroudforge-package",
  "shroudforge-runtime-diagnostics",
+ "shroudforge-ui-resources",
  "shroudforge-updater",
  "tao",
- "tracing",
+ "tempfile",
  "windows",
  "windows-sys 0.61.2",
  "wry",
- "zip",
  "zstd",
+]
+
+[[package]]
+name = "shroudforge-news"
+version = "1.0.0"
+dependencies = [
+ "jsonschema",
+ "serde",
+ "serde_json",
+ "shroudforge-loader-config",
+ "shroudforge-logging",
+ "tempfile",
 ]
 
 [[package]]
@@ -3755,8 +3811,6 @@ name = "shroudforge-package"
 version = "1.0.0"
 dependencies = [
  "camino",
- "fs2",
- "image",
  "indexmap",
  "jsonschema",
  "parking_lot",
@@ -3764,24 +3818,22 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "tempfile",
+ "shroudforge-game-assets",
+ "shroudforge-loader-config",
  "thiserror 2.0.20",
  "tracing",
- "tracing-subscriber",
  "walkdir",
- "windows-sys 0.61.2",
  "zip",
 ]
 
 [[package]]
-name = "shroudforge-parser"
+name = "shroudforge-runtime-bridge"
 version = "1.0.0"
 dependencies = [
  "kfc",
- "serde",
  "serde_json",
- "thiserror 2.0.20",
- "uuid",
+ "shroudforge-runtime-diagnostics",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3789,7 +3841,7 @@ name = "shroudforge-runtime-diagnostics"
 version = "1.0.0"
 dependencies = [
  "serde_json",
- "shroudforge-package",
+ "shroudforge-loader-config",
  "tempfile",
  "tracing",
  "windows-sys 0.61.2",
@@ -3799,7 +3851,19 @@ dependencies = [
 name = "shroudforge-steam-networking"
 version = "1.0.0"
 dependencies = [
+ "mlua",
+ "serde_json",
+ "shroudforge-loader-config",
+ "shroudforge-package",
+ "tracing",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "shroudforge-ui-resources"
+version = "1.0.0"
+dependencies = [
+ "image",
 ]
 
 [[package]]
@@ -3807,11 +3871,15 @@ name = "shroudforge-updater"
 version = "1.0.0"
 dependencies = [
  "mod-loader-bridge",
+ "parking_lot",
  "reqwest",
  "semver",
  "serde",
  "serde_json",
  "sha2",
+ "shroudforge-game-assets",
+ "shroudforge-loader-config",
+ "shroudforge-logging",
  "shroudforge-package",
  "windows-sys 0.61.2",
  "zip",
@@ -3826,7 +3894,10 @@ dependencies = [
  "resvg",
  "serde",
  "serde_json",
+ "shroudforge-loader-config",
+ "shroudforge-logging",
  "shroudforge-package",
+ "shroudforge-ui-resources",
  "tao",
  "windows",
  "windows-sys 0.61.2",

@@ -1,7 +1,7 @@
-[submodule "src/parser/kfc-parser"]
-	path = src/parser/kfc-parser
+[submodule "kfc-parser"]
+	path = kfc-parser
 	url = https://github.com/bonsaibauer/kfc-parser.git
 	branch = kfc4_compatibility
 [submodule "nlohmann-json"]
-	path = src/loader/runtime/native/json
+	path = kfc-runtime/native/json
 	url = https://github.com/nlohmann/json.git

@@ -12,12 +12,12 @@ The notices are included in the loader when ShroudForge is built. They are not a
 - **templates** contains text for events, such as a mod update.
 - **{name}**, **{version}**, and **{previousVersion}** are filled in when the notice appears.
 
-The source and **news-schema.json** are in the loader package's news module. The schema is the rulebook for the shape of a valid news file.
+The source and **news-schema.json** are in **modules/notifications/**. The schema is the rulebook for the shape of a valid news file.
 
 Visible text is looked up in the Modloader language files:
 
-- **src/loader/modules/modloader-ui/ui/src/locales/en.json** is the English source.
-- **src/loader/modules/modloader-ui/ui/src/locales/de.json** contains the German translation.
+- **modules/ui-resources/locales/en.json** is the English source.
+- **modules/ui-resources/locales/de.json** contains the German translation.
 
 Add new text to the English file and provide its German translation. **crowdin.yml** uses English as the source language.
 
@@ -29,7 +29,7 @@ By default, the loader saves its state in **shroudforge/state.json**. The locati
 - **news** remembers which notice IDs were read and when.
 - **mods** stores the last observed mod versions so the loader can notice changes.
 
-Runtime mods can publish their own local news notices with `shroudforge.notifications.publish`. A notice is written only when the mod calls the function. The API does not schedule, broadcast, throttle, or expire notices. Reusing the same mod-scoped ID replaces the notice in place. A new ID creates another local feed item. Read state is keyed by ID, so updating an already-read notice does not make it unread again. Mod authors should publish for meaningful events, never from per-frame callbacks, and should choose stable or versioned IDs based on whether a notice is an update or a separate release announcement. The [Lua API guide](../../src/loader/api/README.md#publish-a-modloader-notice) has a full example and explains the fields, size limits, and ID behavior.
+Runtime mods can publish their own local news notices with `shroudforge.notifications.publish`. A notice is written only when the mod calls the function. The API does not schedule, broadcast, throttle, or expire notices. Reusing the same mod-scoped ID replaces the notice in place. A new ID creates another local feed item. Read state is keyed by ID, so updating an already-read notice does not make it unread again. Mod authors should publish for meaningful events, never from per-frame callbacks, and should choose stable or versioned IDs based on whether a notice is an update or a separate release announcement. The [Lua API guide](../../execution/README.md#publish-a-modloader-notice) has a full example and explains the fields, size limits, and ID behavior.
 
 Under **Settings → General → Username**, the player can use automatic detection or choose a manual fallback. Automatic mode reads the most recently played character from the local rolling `characters` save; if it cannot read the save or cannot determine a unique character, it uses the fallback, which defaults to `Flameborn`. ShroudForge notices and mod-authored notices can use `{username}` in titles or messages. The Modloader replaces this token locally on the player's device.
 
@@ -59,7 +59,7 @@ For example, a mod with a **source** button can include:
 }
 ~~~
 
-The definitions, order, and icons are in **src/loader/modules/modloader-ui/ui/src/links/**. The translated button text is in the UI language files. Keep every link field name aligned with its ID in **order.json**.
+The definitions and icons are in **modules/modloader/ui/links/**. Their display order is in **modules/modloader/mod_link_order.json**. The translated button text is in the UI language files. Keep every link field name aligned with its ID in **order.json**.
 
 ## Updates
 

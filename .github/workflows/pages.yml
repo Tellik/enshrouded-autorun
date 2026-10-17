@@ -25,12 +25,12 @@ jobs:
         run: npm ci
       - name: Build documentation
         run: npm run site:check
-      - name: Verify generated documentation is current
+      - name: Verify documentation sources stay unchanged
         run: git diff --exit-code -- website
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: website
+          path: build/website
 
   deploy:
     environment:

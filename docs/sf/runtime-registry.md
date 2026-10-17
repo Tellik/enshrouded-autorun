@@ -775,7 +775,7 @@ The client capture contained 161. Their union covers 384 registered storage
 types. Unobserved types and nonmatching columns remain separate findings.
 These captures were external process reads. They do not establish that a new
 DLL or the shown Lua queries had already executed inside the game. See the
-[dated capture report](../../src/loader/runtime/profile-tools/dev/investigations/2026-10-16-kfc4-ecs-attribute-read.md).
+[dated capture report](../runtime-investigations/2026-10-16-kfc4-ecs-attribute-read.md).
 The examples are retrying mod entry points. An incomplete query returns
 `nil, reason` until its scan finishes and must be resumed on a later update.
 It must not be asserted as an immediate startup failure.
@@ -879,10 +879,10 @@ server gameplay test after installation.
 
 | Responsibility | Source |
 | --- | --- |
-| Shipped build evidence | `src/loader/runtime/profiles/`: executable identity, engine layouts/hooks, checked native operations and interventions. No duplicated 517-component tables. |
-| Automatic resolution | `api/src/runtime_resolution/`: GUID/ID/definition joining, type traversal and owned calculation model. No Lua, process access or diagnostic file I/O. Native `component_registry.h` reads the actual engine registrations. |
-| Lua and execution | `api/src/env/runtime_*`: one public runtime API, permission/lifecycle checks and adapters to the native game-thread dispatcher. |
-| Developer diagnostics | `runtime/profile-tools/dev/`: extraction, audits and differential emulation. Never required by a user's modloader installation. |
+| Shipped build evidence | `kfc-runtime/profiles/`: executable identity, engine layouts/hooks, checked native operations and interventions. No duplicated 517-component tables. |
+| Automatic resolution | `execution/reflection/`: GUID/ID/definition joining, type traversal and owned calculation model. No Lua, process access or diagnostic file I/O. Native `component_registry.h` reads the actual engine registrations. |
+| Lua and execution | `execution/lua/runtime/`: one public runtime API, permission/lifecycle checks and adapters to the native game-thread dispatcher. |
+| Developer diagnostics | `dev/profiles/`: extraction, audits and differential emulation. Never required by a user's modloader installation. |
 
 Both profiles use `componentResolution: live-registration`. ECS access waits for
 the proven engine registry instead of guessing from stale inline indices. Legacy
@@ -906,18 +906,18 @@ DLL replacement was performed during the read-only verification.
 
 The normal discovery runner now writes `components.json` in addition to
 reflection/code evidence. Full captured registries and production-reader checks
-are under `src/loader/runtime/profile-tools/devdata/registry-complete-20261008/`.
-See the [discovery guide](../../src/loader/runtime/profile-tools/dev/DISCOVERY.md)
-for commands and [investigation](../../src/loader/runtime/profile-tools/dev/investigations/2026-10-08-component-registry.md)
+are under `dev/profiles/captures/registry-complete-20261008/`.
+See the [discovery guide](runtime-discovery.md)
+for commands and [investigation](../runtime-investigations/2026-10-08-component-registry.md)
 for the layout evidence.
 
 Full build catalogs are exported to each target's `runtime-bindings.json`. The
 small committed indexes are
-`profile-tools/dev/function-catalogs/enshrouded/client/1076226.runtime-index.json`
-and `profile-tools/dev/function-catalogs/enshrouded/server/1024233.json`. Their
+`dev/profiles/catalogs/enshrouded/client/1076226.runtime-index.json`
+and `dev/profiles/catalogs/enshrouded/server/1024233.json`. Their
 `catalog` paths lead to the complete local generated artifacts. These discovery
 indexes are not executable compatibility profiles. The executable server profile is now
-`src/loader/runtime/profiles/enshrouded/server/1024233.json`, matching its actual
+`kfc-runtime/profiles/enshrouded/server/1024233.json`, matching its actual
 KFC version. When replacing an external installed profile, remove the obsolete
 server `1076226.json`; retaining both produces an ambiguous exact match. The
 client profile remains `client/1076226.json`. Both are pinned by executable SHA256.

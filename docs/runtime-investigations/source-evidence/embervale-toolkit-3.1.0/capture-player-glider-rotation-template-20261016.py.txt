@@ -1,0 +1,137 @@
+"""Read current player's exact TemplateResource and ActorRotation config.
+
+Reuse the existing read-only owner/registry/entity proof, then perform the same
+ResourceId and BlobArray/BlobVariant join as runtime.ecs.get_template_component.
+No process is opened for write and no engine code is invoked.
+"""
+import json
+import struct
+import sys
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+directory = Path(__file__).parent
+pid = int(sys.argv[1])
+source = Path("build/capture-glider-consumer-link.py").read_text(encoding="utf-8")
+source = source.split("# The same registered g38_items::ItemRegistry used by the host systems.")[0]
+source = source.replace("for name in ['keen::ecs::Actor','keen::ecs::PlayerInput'",
+    "for name in ['keen::ecs::Movement','keen::ecs::Actor','keen::ecs::PlayerInput'")
+exec(compile(source, "existing-readonly-glider-owner-proof", "exec"))
+try:
+    client_context = q(before["mainOwner"] + profile["resourceLayout"]["mainActiveContextOffset"])
+    client_items = q(client_context + profile["resourceLayout"]["contextItemRegistryOffset"])
+    service = q(client_items + 8)
+    reader = q(service + 8)
+    metadata = q(reader + 0x60)
+    resource_map = metadata + 0x48
+    head = pr.read(resource_map, 24)
+    key_rel, key_count, val_rel, val_count = struct.unpack_from("<iIiI", head, 8)
+    assert key_count == val_count and 0 < key_count < 1 << 20
+    key_base, val_base = resource_map + 8 + key_rel, resource_map + 16 + val_rel
+    resource_keys = pr.read(key_base, key_count * 32)
+    resource_values = pr.read(val_base, val_count * 8)
+    chunk_count = u(service + 0x58)
+    assert 0 < chunk_count <= 65536
+    chunk_table = q(service + 0x30)
+    chunks = pr.read(chunk_table, chunk_count * 16)
+    template = by_name["keen::ecs::TemplateResource"]
+    actor_rotation = by_name["keen::ecs::ActorRotation"]
+    out_players = []
+    for player in players:
+        entry = int(player["entry"], 16)
+        definition = q(entry + ecs["entityDefinitionPointer"])
+        guid = pr.read(definition + ecs["entityDefinitionUuidOffset"], 16)
+        matches = []
+        for index in range(key_count):
+            key = resource_keys[index * 32:(index + 1) * 32]
+            if key[:16] != guid or struct.unpack_from("<II", key, 16) != (template["qualifiedHash"], 0):
+                continue
+            offset, packed = struct.unpack_from("<II", resource_values, index * 8)
+            chunk_id, size = packed >> 24, packed & 0xffffff
+            assert chunk_id < chunk_count
+            chunk_base, chunk_size = struct.unpack_from("<QQ", chunks, chunk_id * 16)
+            assert offset + size <= chunk_size and size >= template["size"]
+            address = chunk_base + offset
+            data = pr.read(address, size)
+            matches.append((address, data))
+        assert len(matches) == 1
+        address, data = matches[0]
+        array_offset = template["structFields"]["components"]["dataOffset"]
+        relative, count = struct.unpack_from("<II", data, array_offset)
+        array = array_offset + relative
+        assert array + count * 12 <= len(data)
+        configs = []
+        for index in range(count):
+            variant = array + index * 12
+            qualified_hash, relative, length = struct.unpack_from("<III", data, variant)
+            if qualified_hash != actor_rotation["qualifiedHash"]:
+                continue
+            value = variant + 4 + relative
+            assert length == actor_rotation["size"] and value + length <= len(data)
+            config = data[value:value + length]
+            speed_offset = actor_rotation["structFields"]["gliderRotationSpeed"]["dataOffset"]
+            entry_type = reflection[actor_rotation["structFields"]["gliderRotationSpeed"]["type"]]
+            scalar_offset = entry_type["structFields"]["rotationSpeed"]["dataOffset"]
+            mode_offset = entry_type["structFields"]["interpolationMode"]["dataOffset"]
+            configs.append(dict(component="keen::ecs::ActorRotation", componentIndex=index + 1,
+                componentOffset=value, componentAddress=hex(address + value), bytes=config.hex(),
+                gliderRotationSpeed=struct.unpack_from("<f", config, speed_offset + scalar_offset)[0],
+                gliderInterpolationMode=config[speed_offset + mode_offset]))
+        assert len(configs) == 1
+        assert pr.read(address, len(data)) == data
+        assert q(entry + ecs["entityDefinitionPointer"]) == definition
+        assert pr.read(definition + ecs["entityDefinitionUuidOffset"], 16) == guid
+        registration = registrations["keen::ecs::Movement"]
+        entity_bytes = pr.read(entry, 0x38)
+        layout, storage = struct.unpack_from("<QQ", entity_bytes, 24)
+        row = struct.unpack_from("<I", entity_bytes, 48)[0]
+        shape = pr.read(layout, 0x1000)
+        component_index = registration["index"]
+        assert shape[component_index // 8] & (1 << (component_index % 8))
+        offset = struct.unpack_from("<H", shape, ecs["componentOffsets"] + component_index * 2)[0]
+        stride = struct.unpack_from("<H", shape, ecs["componentStrides"] + component_index * 2)[0]
+        assert stride == registration["size"]
+        movement_address = storage + offset + row * stride
+        movement = pr.read(movement_address, stride)
+        catalog = json.loads(Path("target/enshrouded-attribute-resolution.json").read_text(encoding="utf-8"))
+        attribute = next(a for a in catalog["entries"] if a["name"] == "Movement_RotationMod")
+        attribute_layout = next(a for a in catalog["component_layouts"] if a["qualified_name"] == "keen::ecs::Movement")
+        assert struct.unpack_from("<I", movement)[0] == attribute["root_hash"]
+        assert movement[6] & 1
+        storage_offset = struct.unpack_from("<H", movement, 4)[0]
+        assert storage_offset == attribute_layout["storage_offset"] and attribute["index"] < movement[7]
+        rotation_mod = struct.unpack_from("<f", movement, storage_offset + attribute["index"] * 4)[0]
+        assert pr.read(movement_address, stride) == movement and pr.read(entry, 0x38) == entity_bytes
+        input_values = {}
+        for component, field, fmt in (("keen::ecs::PlayerInput", "fromClient.movementStickInputMode", "<B"),
+                                       ("keen::ecs::ActorInput", "desiredLocalMoveInput.z", "<f"),
+                                       ("keen::ecs::DynamicLocomotion", "rotationSpeedFactor", "<f"),
+                                       ("keen::ecs::CurrentTransform", "transform.orientation", "<4f")):
+            registration = registrations[component]
+            component_index = registration["index"]
+            assert shape[component_index // 8] & (1 << (component_index % 8))
+            offset = struct.unpack_from("<H", shape, ecs["componentOffsets"] + component_index * 2)[0]
+            stride = struct.unpack_from("<H", shape, ecs["componentStrides"] + component_index * 2)[0]
+            assert stride == registration["size"]
+            component_address = storage + offset + row * stride
+            field_offset = path(component, field)["offset"]
+            values = struct.unpack(fmt, pr.read(component_address + field_offset, struct.calcsize(fmt)))
+            input_values[component + "." + field] = values[0] if len(values) == 1 else values
+        out_players.append(dict(entityId=player["entityId"], generation=player["generation"],
+            activeGlider=player["hangGliding"], activeItemId=player["usedItemId"],
+            templateGuid=str(uuid.UUID(bytes_le=guid)), templateAddress=hex(address),
+            templateSize=len(data), templateStable=True, configs=configs,
+            movementRotationMod=rotation_mod, movementSnapshotStable=True, currentInputValues=input_values))
+    assert chain() == before
+    out = dict(capturedAt=datetime.now(timezone.utc).isoformat(), pid=pid,
+        image=pe.identity(), readOnly=True, processWrites=False, nativeGameCalls=False,
+        players=out_players, chainStable=True,
+        parsingContract="Existing KFC BlobArray and BlobVariant layout, qualified reflection type hashes",
+        limitations=["Snapshot is not an active-flight result unless activeGlider is true",
+                     "Only read-only input configuration capture, no gameplay effect tested"])
+    output = directory / "player-glider-rotation-template-live-20261016.json"
+    output.write_text(json.dumps(out, indent=2), encoding="utf-8")
+    print(json.dumps(out, indent=2))
+finally:
+    pr.close()

@@ -2,15 +2,27 @@ import fs from "node:fs";
 import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "../..");
-const definitions = path.join(root, "src", "loader", "api", "src");
-const dataDirectory = path.join(root, "website", "data");
-const schemasDirectory = path.join(root, "website", "schemas");
+const definitions = path.join(root, "execution", "lua");
+const sourceDirectory = path.join(root, "website");
+const outputDirectory = path.join(root, "build", "website");
+// Rebuild the publication tree. Captured game data remains untouched in website/.
+fs.rmSync(outputDirectory, { recursive: true, force: true });
+fs.mkdirSync(outputDirectory, { recursive: true });
+fs.cpSync(sourceDirectory, outputDirectory, {
+  recursive: true,
+  filter: source => {
+    const relative = path.relative(sourceDirectory, source);
+    return relative !== "tools" && relative !== "README.md";
+  },
+});
+const dataDirectory = path.join(outputDirectory, "data");
+const schemasDirectory = path.join(outputDirectory, "schemas");
 const output = path.join(dataDirectory, "api.json");
 const version = fs.readFileSync(path.join(root, "VERSION"), "utf8").trim();
 fs.mkdirSync(schemasDirectory, { recursive: true });
 for (const name of ["manifest.schema.json", "extended.mod.schema.json"]) {
   fs.copyFileSync(
-    path.join(root, "src", "loader", "package", "src", "registry", name),
+    path.join(root, "modules", "modloader", "manifest", name),
     path.join(schemasDirectory, name),
   );
 }
@@ -333,7 +345,6 @@ function addIntegerHelp(symbol) {
 function addMissingParameterHelp(symbol) {
   const help = (english, german) => [english, german];
   const name = symbol.name;
-  const method = name.split(".").at(-1);
   const parameterHelp = {
     str: help("Text whose bytes will be placed in the new buffer.", "Text, dessen Bytes in den neuen Puffer geschrieben werden."),
     value: name === "game.types.of"

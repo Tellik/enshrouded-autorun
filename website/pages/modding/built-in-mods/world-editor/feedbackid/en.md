@@ -1,5 +1,7 @@
 # Material feedback ID (placement only)
 
+> Historical reference mod. This package is not one of the two currently bundled mods. Source links point to the verified repository revision before its removal.
+
 Material feedback ID from the ItemInfo placement definition. The advanced Place at coordinates action requires it, Destroy at coordinates does not.
 
 ## Meaning and default
@@ -15,6 +17,6 @@ Copy, rotate, save, and paste parts of the world.
 
 ## Source of this information
 
-This page is based on `mods/world-editor/extended.mod.json`. Lua reads the current value with `shroudforge.settings.get("feedbackId", fallback)`. Modloader saves player changes in the extension file. [Lua source file](https://github.com/bonsaibauer/shroudforge/blob/HEAD/mods/world-editor/src/mod.lua).
+This page is based on `reference-mods-0.9/world-editor/extended.mod.json`. Lua reads the current value with `shroudforge.settings.get("feedbackId", fallback)`. Modloader saves player changes in the extension file. [Lua source file](https://github.com/bonsaibauer/shroudforge/blob/81f9c5fe2d70ea4ba10896fb22a75b2d082800a6/reference-mods-0.9/world-editor/src/mod.lua).
 
-[Mod guide](https://github.com/bonsaibauer/shroudforge/blob/HEAD/mods/world-editor/README.md)
+[Mod guide](https://github.com/bonsaibauer/shroudforge/blob/81f9c5fe2d70ea4ba10896fb22a75b2d082800a6/reference-mods-0.9/world-editor/README.md)

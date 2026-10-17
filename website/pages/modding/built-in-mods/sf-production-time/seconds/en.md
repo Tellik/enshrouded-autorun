@@ -1,5 +1,7 @@
 # Base production time (seconds)
 
+> Historical reference mod. This package is not one of the two currently bundled mods. Source links point to the verified repository revision before its removal.
+
 Sets the base duration in seconds for timed production recipes. Set the same value on the client and host or server before starting the game.
 
 ## Meaning and default
@@ -17,6 +19,6 @@ Sets timed production recipes to a chosen base duration. World speed settings st
 
 ## Source of this information
 
-This page is based on `mods/sf-production-time/extended.mod.json`. Lua reads the current value with `shroudforge.settings.get("seconds", fallback)`. Modloader saves player changes in the extension file. [Lua source file](https://github.com/bonsaibauer/shroudforge/blob/HEAD/mods/sf-production-time/src/mod.lua).
+This page is based on `reference-mods-0.9/sf-production-time/extended.mod.json`. Lua reads the current value with `shroudforge.settings.get("seconds", fallback)`. Modloader saves player changes in the extension file. [Lua source file](https://github.com/bonsaibauer/shroudforge/blob/81f9c5fe2d70ea4ba10896fb22a75b2d082800a6/reference-mods-0.9/sf-production-time/src/mod.lua).
 
-[Mod guide](https://github.com/bonsaibauer/shroudforge/blob/HEAD/mods/sf-production-time/README.md)
+[Mod guide](https://github.com/bonsaibauer/shroudforge/blob/81f9c5fe2d70ea4ba10896fb22a75b2d082800a6/reference-mods-0.9/sf-production-time/README.md)

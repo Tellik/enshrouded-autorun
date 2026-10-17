@@ -1,0 +1,56 @@
+import sys,json,struct,hashlib
+from pathlib import Path
+sys.path.insert(0,'src/loader/runtime/profile-tools/dev/tools/enshrouded')
+from discovery.pe import PE
+from capstone import Cs,CS_ARCH_X86,CS_MODE_64
+p=PE(r'C:\Program Files (x86)\Steam\steamapps\common\Enshrouded\enshrouded.exe')
+c=Cs(CS_ARCH_X86,CS_MODE_64)
+targets={0x21c510:'signed',0x2316c0:'float',0x24d6d0:'unsigned',0x21bda0:'signed-adder'}
+refs={v:[] for v in targets.values()}
+for s in p.sections:
+ if not s['flags']&0x20000000: continue
+ b=p.data[s['raw']:s['raw']+s['rawSize']]
+ i=b.find(b'\xe8')
+ while i>=0 and i+5<=len(b):
+  rva=s['rva']+i
+  target=rva+5+struct.unpack_from('<i',b,i+1)[0]
+  if target in targets:
+   fi=p.containing_function(rva)
+   if fi is not None:
+    f=p.functions[fi]
+    instructions=list(c.disasm(p.read(f['beginRva'],f['endRva']-f['beginRva']),f['beginRva']))
+    if any(x.address==rva and x.mnemonic=='call' for x in instructions):
+     refs[targets[target]].append(dict(callRva=rva,caller=f,instructions=[dict(rva=x.address,mnemonic=x.mnemonic,operands=x.op_str) for x in instructions]))
+  i=b.find(b'\xe8',i+1)
+reflection=json.load(open('src/loader/runtime/profile-tools/devdata/enshrouded-client-25966634-kfc4/reflection_data.json'))
+attributes=[t for t in reflection['types'] if 'AttributeComponent' in t['qualifiedName'] or 'AttributeFlags' in t['qualifiedName']]
+out=dict(executable=p.identity(),targets={k:v for k,v in targets.items()},callers=refs,reflection=attributes,
+ signedAdder=[dict(rva=x.address,mnemonic=x.mnemonic,operands=x.op_str) for x in c.disasm(p.read(0x21bda0,0x154),0x21bda0)])
+path=Path('src/loader/runtime/profile-tools/devdata/creative-mode-146/current-attribute-vm-codeproof-20261016.json')
+path.write_text(json.dumps(out,indent=2))
+print(json.dumps({'counts':{k:len(v) for k,v in refs.items()},'attributeTypes':[t['qualifiedName'] for t in attributes],'path':str(path)}))
+for k,v in refs.items():
+ print(k,[(hex(x['callRva']),hex(x['caller']['primaryBeginRva'])) for x in v])
+for t in attributes: print(t)
+path=Path('src/loader/runtime/profile-tools/devdata/creative-mode-146/current-attribute-vm-codeproof-20261016.json')
+d=json.loads(path.read_text())
+d['changeTracking']={hex(r):[dict(rva=i.address,mnemonic=i.mnemonic,operands=i.op_str) for i in c.disasm(p.read(r,n),r)] for r,n in [(0x2bc8b0,0x3d),(0x21dc30,0x3d),(0x9c5830,0x125),(0x9c5ab0,0x9c),(0x9c5b50,0x330)]}
+path.write_text(json.dumps(d,indent=2))
+for x in d['changeTracking']['0x9c5b50']:
+ if x['rva']>=0x9c5c40: print(hex(x['rva']),x['mnemonic'],x['operands'])
+d=json.loads(path.read_text())
+functions={}
+for name,r,n in [('trackingByEntityEntry',0x9c5960,0x142),('mutableStaminaAccessor',0x2bc8b0,0x3d),('recordA',0x9c5ab0,0x9c),('recordB',0x9c5b50,0x325),('appendEntityId',0xa0c100,0x69),('queueGrowthCallback',0x4660a0,0x43),('managerTrackerConstruction',0x9846b7,0xed),('retryPendingEntityId',0x9cd180,0x89),('retryPendingEntities',0x9cd210,0x1b9),('drainQueueA',0x9cd730,0x20b)]:
+ b=p.read(r,n)
+ functions[name]=dict(rva=r,byteCount=n,sha256=hashlib.sha256(b).hexdigest(),bytes=b.hex(),instructions=[dict(rva=i.address,mnemonic=i.mnemonic,operands=i.op_str) for i in c.disasm(b,r)])
+d['trackingProof']=functions
+d['trackingAbi']=dict(signature='void __fastcall(uintptr_t manager, uintptr_t trackingContext, uintptr_t entityEntry, uint16_t componentIndex, uint8_t queueIndex)',rva=0x9c5960,guard=p.read(0x9c5960,33).hex(),trackingContextManagerOffset=0x290,managerTrackingContextOffset=0xebc030,queueAOffset=0,queueBOffset=0x140,queueStride=0x28,queueCount=8,queuePointerOffset=0,queueLengthOffset=8,queueCapacityOffset=0x10,queueCallbackOffset=0x18,queueAllocatorOffset=0x20,initialCapacityA=0x4000,initialCapacityB=0x1000,appendMaximumPerCallA=1,appendMaximumPerCallB=1,returnStatus=False,queueIndexZeroCallerRva=0x9dbc5d,processCallsExecuted=False)
+path.write_text(json.dumps(d,indent=2))
+print('saved tracking proof',str(path))
+d=json.loads(path.read_text())
+d['rootConsumers']={}
+for name,r in [('sint32',0x21bda0),('float32',0x232360),('uint32',0x2bb0f0)]:
+ end=max(f['endRva'] for f in p.functions if f['primaryBeginRva']==r)
+ b=p.read(r,end-r)
+ d['rootConsumers'][name]=dict(rva=r,byteCount=len(b),sha256=hashlib.sha256(b).hexdigest(),instructions=[dict(rva=i.address,mnemonic=i.mnemonic,operands=i.op_str) for i in c.disasm(b,r)],order='descending',empty='skipped',resultValueOffset=8)
+path.write_text(json.dumps(d,indent=2))

@@ -1,0 +1,199 @@
+#[cfg(test)]
+use crate::parse_manifest;
+use crate::{FileSystem, ModManifest};
+use crate::{infer_api_contract, parse_manifest_with_extension};
+use serde_json::Value;
+#[cfg(test)]
+use serde_json::json;
+use std::{io::Read, path::Path};
+fn read_package_json(fs: &mut FileSystem, name: &str) -> Result<Value, String> {
+    let reader = fs.read_file(name).map_err(|e| format!("{name}: {e}"))?;
+    serde_json::from_reader(reader).map_err(|e| format!("{name}: {e}"))
+}
+
+pub fn read_manifest(root: &Path, fs: &mut FileSystem) -> Result<ModManifest, String> {
+    let value = read_package_json(fs, "mod.json")?;
+    let extended = match fs.read_file("extended.mod.json") {
+        Ok(reader) => Some(
+            serde_json::from_reader(reader)
+                .map_err(|error| format!("extended.mod.json: {error}"))?,
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(format!("extended.mod.json: {error}")),
+    };
+    let mut manifest = parse_manifest_with_extension(root, value, extended)?;
+    let mut source = String::new();
+    collect_lua_sources(fs, camino::Utf8Path::new("src"), &mut source)?;
+    infer_api_contract(&mut manifest, &source);
+    Ok(manifest)
+}
+
+fn collect_lua_sources(
+    fs: &mut FileSystem,
+    directory: &camino::Utf8Path,
+    output: &mut String,
+) -> Result<(), String> {
+    let entries = match fs.read_directory(directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.to_string()),
+    };
+    for entry in entries.into_iter().flatten() {
+        if fs.is_directory(&entry) {
+            collect_lua_sources(fs, &entry, output)?;
+        } else if entry.extension() == Some("lua") {
+            let Ok(mut file) = fs.read_file(&entry) else {
+                continue;
+            };
+            file.read_to_string(output)
+                .map_err(|error| error.to_string())?;
+            output.push('\n');
+        }
+    }
+    Ok(())
+}
+
+pub fn read_manifest_path(root: &Path, package: &Path) -> Result<ModManifest, String> {
+    let path = camino::Utf8Path::from_path(package).ok_or("package path is not UTF-8")?;
+    let mut fs = if package.is_dir() {
+        FileSystem::new_disk(path)
+    } else {
+        FileSystem::new_zip(path)
+    }
+    .map_err(|e| e.to_string())?;
+    read_manifest(root, &mut fs)
+}
+
+pub fn valid_id(id: &str) -> bool {
+    crate::package_lookup::valid_identifier(id) && id != "." && id != ".."
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn eml_manifest_remains_valid_without_shroudforge_extension() {
+        let root = Path::new(".");
+        let manifest = parse_manifest(
+            root,
+            json!({
+                "id": "eml-example",
+                "name": "EML Example",
+                "version": "1.2.3",
+                "capabilities": ["patch"]
+            }),
+        )
+        .expect("an EML manifest remains loadable on its own");
+
+        assert_eq!(manifest.id, "eml-example");
+        assert!(!manifest.enabled);
+        assert!(manifest.settings.is_empty());
+        assert_eq!(manifest.capabilities, vec![crate::Capability::Patch]);
+    }
+
+    #[test]
+    fn extension_settings_and_groups_are_read_from_the_neighbor_manifest() {
+        let manifest = parse_manifest_with_extension(
+            Path::new("."),
+            json!({
+                "id": "sf-example",
+                "name": "SF Example",
+                "version": "1.0.0",
+                "capabilities": ["runtime"]
+            }),
+            Some(json!({
+                "schemaVersion": 1,
+                "enabled": true,
+                "settings": {
+                    "enabledFeature": {
+                        "value": true,
+                        "label": "Enable feature",
+                        "description": "Run the feature.",
+                        "control": "toggle"
+                    }
+                },
+                "groups": [{
+                    "label": "Features",
+                    "settings": ["enabledFeature"],
+                    "actions": [{"id": "reset", "label": "Reset", "confirm": "Reset this mod?"}]
+                }]
+            })),
+        )
+        .expect("the ShroudForge extension is parsed with the EML manifest");
+
+        assert!(manifest.enabled);
+        assert_eq!(manifest.setting_values["enabledFeature"], true);
+        assert_eq!(manifest.settings[0].label, "Enable feature");
+        assert_eq!(manifest.groups[0].settings, vec!["enabledFeature"]);
+        assert_eq!(manifest.groups[0].actions[0].id, "reset");
+    }
+
+    #[test]
+    fn extension_targets_apply_to_all_packages_without_changing_mod_json() {
+        let manifest = parse_manifest_with_extension(
+            Path::new("."),
+            json!({
+                "id": "shared-runtime-mod",
+                "name": "Shared Runtime Mod",
+                "version": "1.0.0",
+                "capabilities": ["runtime"]
+            }),
+            Some(json!({"schemaVersion":1,"enabled":true,"targets":["client","server"]})),
+        )
+        .expect("targets are read from extended.mod.json");
+
+        assert!(matches!(manifest.target, crate::ModTarget::ClientServer));
+    }
+
+    #[test]
+    fn legacy_eml_without_extension_defaults_to_client_and_server() {
+        let mut manifest = parse_manifest(
+            Path::new("."),
+            json!({
+                "id": "legacy-runtime-mod",
+                "name": "Legacy Runtime Mod",
+                "version": "1.0.0",
+                "capabilities": ["runtime"]
+            }),
+        )
+        .expect("legacy EML manifest remains valid");
+
+        infer_api_contract(
+            &mut manifest,
+            "runtime.patch.set_enabled('runtime.patch.example', true)",
+        );
+
+        assert!(matches!(manifest.target, crate::ModTarget::ClientServer));
+    }
+
+    #[test]
+    fn mod_targets_match_only_the_declared_processes() {
+        assert!(crate::ModTarget::Client.supports_process(false));
+        assert!(!crate::ModTarget::Client.supports_process(true));
+        assert!(!crate::ModTarget::Server.supports_process(false));
+        assert!(crate::ModTarget::Server.supports_process(true));
+        assert!(crate::ModTarget::ClientServer.supports_process(false));
+        assert!(crate::ModTarget::ClientServer.supports_process(true));
+    }
+
+    #[test]
+    fn shipped_mod_packages_have_valid_eml_and_extension_manifests() {
+        let repository_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("modloader crate lives under modules");
+        let mods = repository_root.join("mods");
+        let packages = std::fs::read_dir(&mods)
+            .expect("shipped mods directory exists")
+            .map(|entry| entry.expect("mod directory entry is readable").path())
+            .filter(|path| path.join("mod.json").is_file())
+            .collect::<Vec<_>>();
+        assert!(!packages.is_empty(), "at least one shipped mod is checked");
+
+        for package in packages {
+            read_manifest_path(repository_root, &package)
+                .unwrap_or_else(|error| panic!("{}: {error}", package.display()));
+        }
+    }
+}

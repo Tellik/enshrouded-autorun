@@ -1,0 +1,34 @@
+[package]
+name = "shroudforge-updater"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+[[bin]]
+name = "shroudforge-updater"
+path = "bin.rs"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+shroudforge-loader-config.workspace = true
+shroudforge-logging.workspace = true
+shroudforge-game-assets.workspace = true
+parking_lot = "0.12"
+serde.workspace = true
+serde_json.workspace = true
+semver.workspace = true
+shroudforge-package.workspace = true
+mod-loader-bridge = { path = "../../kfc-parser/crates/mod-loader-bridge" }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+sha2 = "0.10"
+zip = { version = "4.6", default-features = false, features = ["deflate"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_UI_WindowsAndMessaging",
+] }

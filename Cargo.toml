@@ -1,22 +1,25 @@
 [workspace]
 resolver = "2"
 members = [
-    "src/parser",
-    "src/loader/compatibility",
-    "src/loader/api",
-    "src/loader",
-    "src/loader/package",
-    "src/loader/modules/commands",
-    "src/loader/modules/debug-console",
-    "src/loader/modules/modloader-ui",
-    "src/loader/modules/updater",
-    "src/loader/modules/runtime-diagnostics",
-    "src/loader/modules/steam-networking",
+    "entrypoints/loader",
+    "kfc-runtime/compatibility",
+    "kfc-runtime/bridge",
+    "execution",
+    "modules/loader-config",
+    "modules/logging",
+    "modules/ui-resources",
+    "game-assets",
+    "modules/commands",
+    "modules/debug-console",
+    "modules/modloader",
+    "modules/modloader/ui",
+    "modules/updater",
+    "modules/runtime-diagnostics",
+    "modules/transport",
+    "modules/world-editor",
+    "modules/notifications",
 ]
-exclude = [
-    "src/parser/kfc-parser",
-    "src/parser/kfc-parser/crates/*",
-]
+exclude = ["kfc-parser", "kfc-parser/crates/*"]
 
 [workspace.package]
 version = "1.0.0"
@@ -29,4 +32,11 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 thiserror = "2.0"
 semver = { version = "1.0", features = ["serde"] }
-shroudforge-package = { path = "src/loader/package" }
+shroudforge-package = { path = "modules/modloader" }
+
+shroudforge-loader-config = { path = "modules/loader-config" }
+shroudforge-logging = { path = "modules/logging" }
+shroudforge-game-assets = { path = "game-assets" }
+shroudforge-news = { path = "modules/notifications" }
+shroudforge-ui-resources = { path = "modules/ui-resources" }
+shroudforge-updater = { path = "modules/updater" }

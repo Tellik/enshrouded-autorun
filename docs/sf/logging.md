@@ -54,4 +54,4 @@ The Debug Console's **Display** selector is a separate view filter. It can hide 
 
 ## World Editor application
 
-The World Editor follows these rules. Its operation phases and results use INFO, blocked or uncertain P2P work uses WARN, failed writes or verification use ERROR, input and window visibility use DEBUG, and complete visible UI snapshots use TRACE. Player-facing notices are written to the same role-appropriate ShroudForge log as structured UI-message entries. There is no separate UI log. See the [World Editor guide](../../mods/world-editor/README.md).
+The World Editor follows these rules. Its operation phases and results use INFO, blocked or uncertain P2P work uses WARN, failed writes or verification use ERROR, input and window visibility use DEBUG, and complete visible UI snapshots use TRACE. Player-facing notices are written to the same role-appropriate ShroudForge log as structured UI-message entries. There is no separate UI log. See the [module responsibilities](../../modules/README.md).

@@ -198,7 +198,7 @@ Code following the original consumer is still needed to establish which
 gameplay calculation uses a selected field. Live engine-effect verification is
 separate from the structural write checks.
 
-The [Creative Mode investigation](../../src/loader/runtime/profile-tools/dev/investigations/2026-10-16-creative-mode.md)
+The [Creative Mode investigation](../runtime-investigations/2026-10-16-creative-mode.md)
 records the owner chain and the generic ResourceService resolution proof. The
 profile is marked `read-validated`, separate from an approved execution
 profile. Its `ownerLayout` is shared with the ECS reader. The separately
@@ -302,7 +302,7 @@ status and the log. Startup stops only if preparation fails and the baseline
 cannot be restored safely. Runtime mods with export permission do not trigger
 another pregame export pass or run their entrypoints during asset preparation.
 
-`src/bootstrap/windows/tests/run.ps1` verifies entrypoint ordering, DLL loading
+`entrypoints/windows-bootstrap/tests/run.ps1` verifies entrypoint ordering, DLL loading
 outside loader lock, instruction restoration, and the unrecoverable-failure path.
 The ignored `blueprint_startup_matches_legacy_and_recovers_from_mod_failure` Rust
 test uses `SF_BLUEPRINT_GAME_SOURCE` to copy a client or server installation's
@@ -312,7 +312,7 @@ error, without changing the installation.
 
 ## The shared interface
 
-The official interface is declared in [runtime.h](../../src/loader/runtime/native/runtime.h). It describes the names of calls and the exact shape of the information passed between the bridge and runtime. There is no second hand-maintained list.
+The official interface is declared in [runtime.h](../../kfc-runtime/native/abi/runtime.h). It describes the names of calls and the exact shape of the information passed between the bridge and runtime. There is no second hand-maintained list.
 
 **KfcRuntimeAbi()** returns the interface version. If a change breaks compatibility, the version must be increased and the ShroudForge loader must be updated to match.
 
@@ -334,10 +334,10 @@ A **profile** is reviewed information for one Enshrouded game version and target
 One complete profile per build lives under:
 
 ~~~text
-src/loader/runtime/profiles/<game>/<target>/<build>.json
+kfc-runtime/profiles/<game>/<target>/<build>.json
 ~~~
 
-For example, the profile for Enshrouded client build **1076226** is under **src/loader/runtime/profiles/enshrouded/client/**.
+For example, the profile for Enshrouded client build **1076226** is under **kfc-runtime/profiles/enshrouded/client/**.
 
 Only reviewed information needed by native action, thread, and storage adapters
 belongs in a release profile. Component and execution-system discovery use the
@@ -346,9 +346,9 @@ investigation material; keep them in the maintainer tools area or local **devdat
 
 Before approval, check the game and build identity, where the information came from, the component map, and the required observations from the live game. The launcher installs profile files under `shroudforge/runtime/profiles/`, selects the matching profile automatically, and lets the player choose another profile. Structural execution-profile revalidation stays within the detected KFC format. A KFC3 execution profile cannot authorize a KFC4 process. Verified signatures and live layout checks still decide which execution operations work.
 
-Maintainer tools live under **src/loader/runtime/profile-tools/**. Start with the [profile development guide](../../src/loader/runtime/profile-tools/dev/README.md).
+Maintainer tools live under **dev/profiles/**. Start with the [profile development guide](../../dev/profiles/README.md).
 
-The [runtime discovery tools](../../src/loader/runtime/profile-tools/dev/DISCOVERY.md)
+The [runtime discovery tools](runtime-discovery.md)
 extract all reflected types and inspect client/server code and live tables per
 executable SHA-256. Lua resolves reflected types by qualified name and can pass
 those names or returned `Type` objects to ECS query/read/write operations. `runtime.ecs.get_catalog()`
@@ -360,11 +360,11 @@ function's calling convention or effects.
 
 | Path | What it contains |
 | --- | --- |
-| **src/loader/runtime/native/runtime.h** | The shared interface. |
-| **src/loader/runtime/native/** | C++ runtime source and build files. |
-| **src/loader/runtime/profiles/** | Reviewed game profiles. |
-| **src/loader/runtime/profile-tools/** | Maintainer tools for examining profiles. |
-| **src/loader/modules/runtime-diagnostics/** | Status and measurements shown by the loader. |
+| **kfc-runtime/native/abi/runtime.h** | The shared interface. |
+| **kfc-runtime/native/** | C++ runtime source and build files. |
+| **kfc-runtime/profiles/** | Reviewed game profiles. |
+| **dev/profiles/** | Maintainer tools for examining profiles. |
+| **modules/runtime-diagnostics/** | Status and measurements shown by the loader. |
 
 The root **CMakeLists.txt** builds the runtime. **build.ps1** assembles the complete Windows release.
 

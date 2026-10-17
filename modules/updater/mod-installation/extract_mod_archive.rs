@@ -1,0 +1,62 @@
+use crate::mod_package::{MAX_ARCHIVE_ENTRIES, MAX_EXTRACTED_BYTES};
+use std::{
+    fs::{self, File},
+    path::{Component, Path},
+};
+
+pub fn extract_zip(archive_path: &Path, target: &Path) -> Result<(), String> {
+    let file = File::open(archive_path).map_err(|error| error.to_string())?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|error| error.to_string())?;
+    if archive.len() > MAX_ARCHIVE_ENTRIES {
+        return Err("Update archive contains too many entries".into());
+    }
+    let mut expanded = 0_u64;
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).map_err(|error| error.to_string())?;
+        let Some(relative) = entry.enclosed_name() else {
+            return Err(format!("Unsicherer Archivpfad: {}", entry.name()));
+        };
+        if relative.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        }) {
+            return Err(format!("Unsicherer Archivpfad: {}", entry.name()));
+        }
+        if entry
+            .unix_mode()
+            .is_some_and(|mode| mode & 0o170000 == 0o120000)
+        {
+            return Err(format!(
+                "Update archive contains a disallowed symbolic link: {}",
+                entry.name()
+            ));
+        }
+        expanded = expanded.saturating_add(entry.size());
+        if expanded > MAX_EXTRACTED_BYTES {
+            return Err("Extracted update exceeds 2 GiB".into());
+        }
+        let output = target.join(relative);
+        ensure_child(target, &output)?;
+        if entry.is_dir() {
+            fs::create_dir_all(&output).map_err(|error| error.to_string())?;
+            continue;
+        }
+        if let Some(parent) = output.parent() {
+            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        let mut destination = File::create(output).map_err(|error| error.to_string())?;
+        std::io::copy(&mut entry, &mut destination).map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+pub fn ensure_child(root: &Path, child: &Path) -> Result<(), String> {
+    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let candidate = child.canonicalize().unwrap_or_else(|_| child.to_path_buf());
+    if !candidate.starts_with(&root) {
+        return Err(format!("Path resolves outside {}", root.display()));
+    }
+    Ok(())
+}

@@ -1,14 +1,11 @@
-# ShroudForge Parser
+# KFC-Parser
 
-The `src/parser/` crate converts Enshrouded data into snapshots consumed by the
-loader API and compatibility modules. It also owns parser status and the KFC
-asset transaction adapter.
+`kfc-parser/` ist direkt das Git-Submodul. Alle Rust-Verbraucher verwenden die dortigen Crates über lokale Cargo-Pfade. Eine zusätzliche Parserhülle gibt es nicht.
 
-The KFC parser is pinned as an upstream submodule at
-`src/parser/kfc-parser/`. The Rust packages also pin an upstream Git revision.
-After changing the submodule, publish that revision and update the Cargo pins
-before the parser and modloader consume the change. ShroudForge's parser
-adapter and snapshot logic remain in `src/parser/`.
+Formatzugriff und Ressourcenauflösung liegen in `crates/kfc-base`, die vorhandenen Codecs in `crates/kfc-content` und `crates/kfc-resource`. `crates/kfc/src/schema.rs` und `snapshot.rs` enthalten die bisherige Schemaprojektion und den Snapshotexport. Die lokale Integration erhält den vorher tatsächlich verwendeten Parserstand `a404b15c`, während der vorhandene `mod-loader-bridge` seinen bisherigen Stand behält.
 
-Cargo workspace membership and the root build are defined in `Cargo.toml` and
-`build.ps1`.
+Die ursprüngliche Submodulrevision bleibt `34a156f6`. Die vollständige lokale Integration wird als Patch unter `dev/kfc-parser-integration.patch` mitgeführt. Nach einem frischen Checkout `dev/prepare_parser.ps1` ausführen. `build.ps1` erledigt diesen Vorbereitungsschritt ebenfalls. Bereits angewendete Änderungen werden erkannt. Vor einer eigenständigen Veröffentlichung des Parser-Submoduls müssen dessen Änderungen dort versioniert und veröffentlicht werden.
+
+Konkrete Spiel-Dateiauswahl liegt in `entrypoints/loader/game_files.rs`. Originale, Parserstatus und die persistente Dateitransaktion gehören zu `game-assets/`. Den Fingerprint für die gewählte Modkonfiguration berechnet `modules/modloader/calculate_preparation_fingerprint.rs`. Live-Spielzugriff und native ABI gehören zu `kfc-runtime/`.
+
+Workspace und Releasezusammensetzung stehen in `Cargo.toml` und `build.ps1`. Die Strukturumstellung führt keine neuen Parserformate oder Modformate ein.

@@ -1,5 +1,5 @@
 <Project>
   <PropertyGroup>
-    <IntDir>$(MSBuildThisFileDirectory)x64\obj\$(Configuration)\$(MSBuildProjectName)\</IntDir>
+    <IntDir>$(MSBuildThisFileDirectory)build\obj\$(Configuration)\$(MSBuildProjectName)\</IntDir>
   </PropertyGroup>
 </Project>

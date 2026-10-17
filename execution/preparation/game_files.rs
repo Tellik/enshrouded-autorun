@@ -1,0 +1,483 @@
+use sha2::{Digest, Sha256};
+use std::{fs::File, io::BufReader, rc::Rc};
+
+use kfc::{
+    container::{KFCCursor, KFCFile, KFCReader, KFCReaderOptions, KFCWriteOptions, KFCWriter},
+    reflection::TypeRegistry,
+};
+
+use crate::{
+    type_aliases::{Path, PathBuf},
+    logging::{debug, error, info, warn},
+};
+
+pub fn load_kfc_file(kfc_path: impl AsRef<Path>) -> Result<Rc<KFCFile>, ()> {
+    let kfc_path = kfc_path.as_ref();
+
+    match KFCFile::from_path(kfc_path, false) {
+        Ok(file) => Ok(Rc::new(file)),
+        Err(e) => {
+            error!(
+                error = %e,
+                path = ?kfc_path,
+                "Failed to open KFC file",
+            );
+            Err(())
+        }
+    }
+}
+
+pub fn create_reader(dir: &Path, file_name: &str) -> Result<KFCCursor<KFCReader>, ()> {
+    create_reader_with_extension(dir, file_name, "kfc.bak")
+}
+
+pub fn create_reader_with_extension(
+    dir: &Path,
+    file_name: &str,
+    extension: &str,
+) -> Result<KFCCursor<KFCReader>, ()> {
+    match KFCReader::new_with_options(
+        dir,
+        file_name,
+        KFCReaderOptions {
+            kfc_extension: extension,
+            ..Default::default()
+        },
+    )
+    .and_then(|reader| reader.into_cursor())
+    {
+        Ok(reader) => Ok(reader),
+        Err(e) => {
+            error!(
+                path = ?dir,
+                file_name = %file_name,
+                error = %e,
+                "Failed to create KFC reader",
+            );
+            Err(())
+        }
+    }
+}
+
+pub fn create_writer(
+    dir: &Path,
+    file_name: &str,
+    type_registry: &Rc<TypeRegistry>,
+    ref_file: &Rc<KFCFile>,
+) -> Result<KFCWriter<Rc<KFCFile>, Rc<TypeRegistry>>, ()> {
+    let writer = match KFCWriter::new_incremental_with_options(
+        dir,
+        file_name,
+        ref_file.clone(),
+        type_registry.clone(),
+        KFCWriteOptions {
+            overwrite_containers: true,
+            ..Default::default()
+        },
+    ) {
+        Ok(writer) => writer,
+        Err(e) => {
+            error!(
+                path = ?dir,
+                file_name = %file_name,
+                error = %e,
+                "Failed to create KFC writer",
+            );
+            return Err(());
+        }
+    };
+
+    Ok(writer)
+}
+
+pub fn create_backup(kfc_path: impl AsRef<Path>) -> Result<PathBuf, ()> {
+    let path = kfc_path.as_ref();
+    let mut bak_path = path.to_string();
+    bak_path.push_str(".bak");
+    let bak_path = Path::new(&bak_path);
+
+    if bak_path.exists() && !validate_backup(path, bak_path) {
+        debug!(
+            path = ?path,
+            backup_path = ?bak_path,
+            "Backup file is not compatible with the current KFC file, creating a new backup.",
+        );
+
+        if !bak_path.is_file() {
+            error!(
+                path = ?bak_path,
+                "Backup path is not a file, please remove it manually.",
+            );
+
+            return Err(());
+        }
+
+        if let Err(e) = std::fs::remove_file(bak_path) {
+            warn!(
+                path = ?bak_path,
+                error = %e,
+                "Failed to remove old backup file",
+            );
+        }
+    }
+
+    if !bak_path.exists() {
+        if let Err(e) = std::fs::copy(path, bak_path) {
+            error!(
+                path = ?bak_path,
+                error = %e,
+                "Failed to create backup file",
+            );
+
+            return Err(());
+        } else {
+            info!(
+                path = ?bak_path,
+                "Backup file created successfully",
+            );
+        }
+    }
+
+    Ok(bak_path.to_path_buf())
+}
+
+pub fn restore_backup(kfc_path: impl AsRef<Path>) -> Result<(), ()> {
+    let path = kfc_path.as_ref();
+    let mut bak_path = path.to_string();
+    bak_path.push_str(".bak");
+    let bak_path = Path::new(&bak_path);
+
+    if !bak_path.exists() {
+        warn!(
+            path = ?bak_path,
+            "Backup file does not exist, cannot restore.",
+        );
+        return Err(());
+    }
+
+    if !bak_path.is_file() {
+        error!(
+            path = ?bak_path,
+            "Backup path is not a file, please remove it manually.",
+        );
+        return Err(());
+    }
+
+    if !validate_backup(path, bak_path) {
+        warn!(
+            path = ?path,
+            backup_path = ?bak_path,
+            "Backup file is not compatible with the current KFC file, cannot restore.",
+        );
+        return Err(());
+    }
+
+    if let Err(e) = std::fs::copy(bak_path, path) {
+        error!(
+            path = ?path,
+            backup_path = ?bak_path,
+            error = %e,
+            "Failed to restore backup file",
+        );
+        return Err(());
+    } else {
+        info!(
+            path = ?path,
+            backup_path = ?bak_path,
+            "Backup file restored successfully",
+        );
+    }
+
+    Ok(())
+}
+
+/// Keeps the original companion resource file before pregame asset mods run.
+pub fn create_companion_backup(
+    path: impl AsRef<std::path::Path>,
+) -> Result<std::path::PathBuf, ()> {
+    let path = path.as_ref();
+    let backup = std::path::PathBuf::from(format!("{}.bak", path.display()));
+    if backup.exists() {
+        if backup.is_file() {
+            return Ok(backup);
+        }
+        error!(path = ?backup, "Companion backup path is not a file");
+        return Err(());
+    }
+    std::fs::copy(path, &backup).map_err(|error| {
+        error!(path = ?path, backup_path = ?backup, error = %error, "Failed to create companion backup");
+    })?;
+    info!(path = ?path, backup_path = ?backup, "Companion backup created");
+    Ok(backup)
+}
+
+/// Restores a companion file when ShroudForge has a saved original.
+pub fn restore_companion_backup(path: impl AsRef<std::path::Path>) -> Result<bool, ()> {
+    let path = path.as_ref();
+    let backup = std::path::PathBuf::from(format!("{}.bak", path.display()));
+    if !backup.exists() {
+        return Ok(false);
+    }
+    if !backup.is_file() {
+        error!(path = ?backup, "Companion backup path is not a file");
+        return Err(());
+    }
+    std::fs::copy(&backup, path).map_err(|error| {
+        error!(path = ?path, backup_path = ?backup, error = %error, "Failed to restore companion backup");
+    })?;
+    info!(path = ?path, backup_path = ?backup, "Companion backup restored");
+    Ok(true)
+}
+
+#[cfg(test)]
+mod companion_backup_tests {
+    use super::{create_companion_backup, restore_companion_backup};
+
+    #[test]
+    fn companion_resource_backup_restores_original_bytes() {
+        let root = std::env::temp_dir().join(format!(
+            "shroudforge-resource-backup-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let resource = root.join("enshrouded_server.kfc_resources");
+        std::fs::write(&resource, b"original resources").unwrap();
+
+        create_companion_backup(&resource).unwrap();
+        std::fs::write(&resource, b"modded resources").unwrap();
+
+        assert!(restore_companion_backup(&resource).unwrap());
+        assert_eq!(std::fs::read(&resource).unwrap(), b"original resources");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+pub fn validate_backup(kfc_path: &Path, kfc_path_bak: &Path) -> bool {
+    let file_bak = match KFCFile::from_path(kfc_path_bak, true) {
+        Ok(file) => file,
+        Err(_) => return false,
+    };
+
+    let file = match KFCFile::from_path(kfc_path, true) {
+        Ok(file) => file,
+        Err(_) => return false,
+    };
+
+    file.game_version() == file_bak.game_version() && file.format() == file_bak.format()
+}
+
+pub fn load_type_registry(
+    game_dir: &Path,
+    cache_dir: &Path,
+    file_name: &str,
+) -> Result<(TypeRegistry, bool), ()> {
+    if let Err(e) = std::fs::create_dir_all(cache_dir) {
+        error!(
+            error = %e,
+            path = ?cache_dir,
+            "Failed to create cache directory, unable to load or save type registry",
+        );
+        return Err(());
+    }
+
+    let types_path = cache_dir.join(format!("types-{file_name}.json"));
+    let identity_path = cache_dir.join(format!("types-{file_name}.identity.json"));
+    let exe_path = game_dir.join(file_name).with_extension("exe");
+    let kfc_path = game_dir.join(file_name).with_extension("kfc");
+    // File length and mtime are not an executable identity (restores and
+    // repackaging can preserve both). Schema 2 invalidates the old cache once.
+    let identity = std::fs::read(&exe_path).ok().map(|bytes| {
+        serde_json::json!({"schemaVersion": 2, "executableSha256": format!("{:x}", Sha256::digest(bytes)),
+            "reflectionExtractor": "kfc-a404b15cde40fc7bd43d812bb460ce40d2a9d3b1"})
+    });
+    let cached_identity = std::fs::read(&identity_path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+    let identity_matches = identity.is_some() && identity == cached_identity;
+
+    let type_registry = match File::open(&types_path).and_then(|file| {
+        if identity_matches {
+            Ok(file)
+        } else {
+            Err(std::io::Error::other("game executable changed"))
+        }
+    }) {
+        Ok(file) => {
+            let reader = BufReader::new(file);
+
+            match serde_json::from_reader::<_, TypeRegistry>(reader) {
+                Ok(registry) => Some(registry),
+                Err(e) => {
+                    debug!(
+                        error = %e,
+                        path = ?types_path,
+                        "Failed to read type registry from file, attempting to extract types...",
+                    );
+
+                    None
+                }
+            }
+        }
+        Err(e) => {
+            debug!(
+                error = %e,
+                path = ?types_path,
+                "Failed to read type registry from file, attempting to extract types...",
+            );
+
+            None
+        }
+    };
+
+    let version_tag = match KFCFile::get_version_tag(&kfc_path) {
+        Ok(tag) => Some(tag),
+        Err(e) => {
+            warn!(
+                error = %e,
+                path = ?types_path,
+                kfc_path = ?kfc_path,
+                "Failed to get version tag from KFC file, assuming types are outdated, attempting to extract types...",
+            );
+
+            None
+        }
+    };
+
+    let type_registry = match type_registry {
+        Some(type_registry) => {
+            if let Some(version_tag) = &version_tag {
+                if version_tag != &type_registry.version {
+                    debug!(
+                        path = ?types_path,
+                        kfc_path = ?kfc_path,
+                        "Type registry is outdated, attempting to extract types again..."
+                    );
+
+                    None
+                } else {
+                    Some(type_registry)
+                }
+            } else {
+                None
+            }
+        }
+        None => None,
+    };
+
+    let (type_registry, is_dirty) = match type_registry {
+        Some(type_registry) => (type_registry, false),
+        None => match TypeRegistry::load_from_executable(&exe_path) {
+            Ok(mut registry) => {
+                if let Some(version_tag) = version_tag {
+                    registry.version = version_tag;
+
+                    match serde_json::to_value(&registry) {
+                        Ok(json) => {
+                            if let Err(e) =
+                                shroudforge_loader_config::config::write_json(types_path.as_std_path(), &json)
+                            {
+                                debug!(
+                                    error = %e,
+                                    path = ?types_path,
+                                    "Failed to write type registry to file",
+                                );
+                            } else if let Some(identity) = &identity {
+                                if let Err(error) = shroudforge_loader_config::config::write_json(
+                                    identity_path.as_std_path(),
+                                    identity,
+                                ) {
+                                    debug!(%error, "Could not save executable identity for type cache");
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            debug!(
+                                error = %e,
+                                path = ?types_path,
+                                "Failed to serialize type registry to JSON",
+                            );
+                        }
+                    }
+                } else {
+                    debug!(
+                        path = ?types_path,
+                        kfc_path = ?kfc_path,
+                        "No version tag found, type registry cannot be saved",
+                    );
+                }
+
+                (registry, true)
+            }
+            Err(e) => {
+                error!(
+                    error = %e,
+                    path = ?types_path,
+                    exe_path = ?exe_path,
+                    "Failed to load type registry",
+                );
+
+                return Err(());
+            }
+        },
+    };
+
+    debug!(
+        path = ?types_path,
+        exe_path = ?exe_path,
+        kfc_path = ?kfc_path,
+        version = type_registry.version,
+        is_dirty = is_dirty,
+        "Type registry loaded successfully",
+    );
+
+    Ok((type_registry, is_dirty))
+}
+
+pub fn export_lua_definitions(cache_dir: &Path, type_registry: &TypeRegistry, force: bool) {
+    let lua_cache_dir = cache_dir.join("lua");
+
+    if let Err(e) = std::fs::create_dir_all(&lua_cache_dir) {
+        debug!(
+            error = %e,
+            path = ?lua_cache_dir,
+            "Failed to create lua cache directory, unable to generate lua definitions",
+        );
+    } else {
+        let lua_type_def_path = lua_cache_dir.join("types.lua");
+        let lua_base_def_path = lua_cache_dir.join("base.lua");
+
+        if force || !lua_type_def_path.exists() {
+            let def = crate::definition::generator::generate(type_registry);
+
+            match std::fs::write(&lua_type_def_path, def) {
+                Ok(_) => debug!(
+                    path = ?lua_type_def_path,
+                    "Lua type definition file has been generated",
+                ),
+                Err(e) => {
+                    debug!(
+                        error = %e,
+                        path = ?lua_type_def_path,
+                        "Failed to write lua type definition file",
+                    );
+                }
+            }
+        }
+
+        if force || !lua_base_def_path.exists() {
+            match std::fs::write(&lua_base_def_path, crate::definition::DEFINITION_FILE) {
+                Ok(_) => debug!(
+                    path = ?lua_base_def_path,
+                    "Lua base definition file has been generated",
+                ),
+                Err(e) => {
+                    debug!(
+                        error = %e,
+                        path = ?lua_base_def_path,
+                        "Failed to write lua base definition file",
+                    );
+                }
+            }
+        }
+    }
+}

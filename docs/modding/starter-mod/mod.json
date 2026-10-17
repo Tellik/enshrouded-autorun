@@ -1,0 +1,16 @@
+{
+  "$schema": "../../../modules/modloader/manifest/manifest.schema.json",
+  "id": "example.hello-ember",
+  "name": "Hello Ember",
+  "version": "1.0.0",
+  "description": "A small ShroudForge starter mod that demonstrates saved settings, a Modloader action, and runtime logging.",
+  "authors": [
+    "Your Name"
+  ],
+  "license": null,
+  "icon": "icon.svg",
+  "dependencies": [],
+  "capabilities": [
+    "runtime"
+  ]
+}

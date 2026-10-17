@@ -1,0 +1,74 @@
+"""Read original component tracking selection, with live registration checks."""
+import json
+import struct
+import sys
+from collections import Counter
+from datetime import datetime, timezone
+from pathlib import Path
+
+sys.path.insert(0, 'src/loader/runtime/profile-tools/dev/tools/enshrouded')
+from discovery.live import Process
+from discovery.pe import PE
+
+root = Path('src/loader/runtime/profile-tools/devdata/creative-mode-146')
+capture = json.loads((root/'current-attributes-host-live-20261016.json').read_text(encoding='utf8'))
+attributes = json.loads(Path('target/enshrouded-attribute-resolution.json').read_text())
+freshness = json.loads((root/'current-player-tracking-freshness-20261016.json').read_text())
+pe = PE(Path(r'C:\Program Files (x86)\Steam\steamapps\common\Enshrouded\enshrouded.exe'))
+process = Process(24432, pe)
+def q(a): return struct.unpack('<Q', process.read(a, 8))[0]
+
+try:
+    manager = int(freshness['manager'], 16)
+    owner = q(manager)
+    count = q(owner+16)
+    records = q(owner+8)
+    assert count == 640
+    rows = process.read(records, count*256)
+    mask_bytes = ((count+63)//64)*8
+    mask_a = process.read(owner+0x190, mask_bytes)
+    mask_b = process.read(owner+0x230, mask_bytes)
+    roots_by_component = {}
+    for layout in attributes['component_layouts']:
+        roots_by_component[layout['qualified_name']] = layout
+    counts = Counter()
+    entries = []
+    for name, registration in sorted(capture['registrations'].items(), key=lambda item:item[1]['index']):
+        index = registration['index']
+        row = rows[index*256:(index+1)*256]
+        name_pointer, name_length = struct.unpack_from('<QQ', row, 16)
+        live_name = process.read(name_pointer, name_length).rstrip(b'\0').decode()
+        assert live_name == registration['registrationName']
+        assert struct.unpack_from('<I', row, 32)[0] == struct.unpack_from('<I', bytes.fromhex(registration['recordPrefix']), 32)[0]
+        assert struct.unpack_from('<Q', row, 40)[0] == process.base + registration['metadataRva']
+        a = bool(mask_a[index//8] & (1 << (index%8)))
+        b = bool(mask_b[index//8] & (1 << (index%8)))
+        policy = 'A+B' if a and b else 'A' if a else 'B' if b else 'untracked'
+        entry = dict(index=index, qualifiedName=name, registrationName=live_name,
+            trackingA=a, trackingB=b, selection=policy, isAttributeLayout=name in roots_by_component)
+        if name in roots_by_component:
+            entry['attributeLayout'] = roots_by_component[name]
+            counts['attributeLayouts'] += 1
+            counts['attributeLayoutSelection:'+policy] += 1
+        counts['runtimeTypes'] += 1
+        counts['runtimeSelection:'+policy] += 1
+        entries.append(entry)
+    assert q(manager) == owner and q(owner+8) == records and q(owner+16) == count
+    assert process.read(owner+0x190, mask_bytes) == mask_a
+    assert process.read(owner+0x230, mask_bytes) == mask_b
+    assert process.read(records, count*256) == rows
+    result = dict(capturedAt=datetime.now(timezone.utc).isoformat(), pid=24432,
+        executable=pe.identity(), processWrites=False, nativeGameCalls=False, readOnly=True,
+        manager=hex(manager), registryOwner=hex(owner), registryCount=count,
+        registrationAndMaskReadbackStable=True, maskAOffset=0x190, maskBOffset=0x230,
+        originalGateRvas=dict(categoryA=0x9c59bc, categoryB=0x9c5a41),
+        attributeDefinitionCount=len(attributes['entries']), counts=dict(counts), entries=entries,
+        scope='541 live storage registrations, with all59 reflected attribute layouts joined by canonical type name',
+        limitations=['No live mutation performed', 'Untracked does not prove lasting gameplay effect'])
+    out=root/'current-tracking-selection-inventory-20261016.json'
+    out.write_text(json.dumps(result,indent=2))
+    selected=[{k:x[k] for k in ('index','qualifiedName','trackingA','trackingB','selection')} for x in entries
+              if x['qualifiedName'] in ('keen::ecs::Health','keen::ecs::Stamina','keen::ecs::NetworkPlayerAttributes','keen::ecs::Movement','keen::ecs::Glider')]
+    print(json.dumps(dict(counts=result['counts'], attributeDefinitions=result['attributeDefinitionCount'], selected=selected, path=str(out))))
+finally:
+    process.close()

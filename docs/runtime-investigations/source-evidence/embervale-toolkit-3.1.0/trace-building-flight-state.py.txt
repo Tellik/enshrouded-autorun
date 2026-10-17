@@ -1,0 +1,118 @@
+"""Trace toolkit sites into the original building flight state and gravity path."""
+import importlib.util
+import json
+import struct
+from pathlib import Path
+from unicorn.x86_const import (UC_X86_REG_RAX, UC_X86_REG_RCX, UC_X86_REG_RDX,
+    UC_X86_REG_R8, UC_X86_REG_R9, UC_X86_REG_RBP, UC_X86_REG_RSP, UC_X86_REG_RIP)
+
+directory = Path(__file__).parent
+spec = importlib.util.spec_from_file_location('flight_trace',directory/'trace-infinite-flight-operands.py')
+t = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(t)
+u = t.u
+state, gravity = 0x77000000, 0x77001000
+u.mem_map(state,0x2000)
+def write(address,fmt,*values): u.mem_write(address,struct.pack(fmt,*values))
+def read(address,fmt): return struct.unpack(fmt,u.mem_read(address,struct.calcsize(fmt)))[0]
+
+state_cases = []
+for other_inputs in (0,0xdeadbeef):
+    write(state+0x59,'<B',11)
+    rsp=t.oracle.STACK+0xff08
+    write(rsp,'<Q',t.oracle.STOP)
+    for reg,value in ((UC_X86_REG_RCX,other_inputs),(UC_X86_REG_RDX,other_inputs),
+        (UC_X86_REG_R8,state),(UC_X86_REG_R9,other_inputs),(UC_X86_REG_RSP,rsp)):
+        u.reg_write(reg,value)
+    u.emu_start(t.pe.base+0x41e030,t.oracle.STOP,timeout=100000,count=100000)
+    assert u.reg_read(UC_X86_REG_RIP)==t.oracle.STOP
+    assert u.reg_read(UC_X86_REG_RAX)&255==11
+    state_cases.append(dict(inputState=11,otherInputs=other_inputs,outputState=11,originalReturnVerified=True))
+
+gravity_cases=[]
+for locomotion_state in (9,10,11):
+    for initially_active in (0,1):
+        write(state+0x59,'<B',locomotion_state)
+        write(gravity+0x10,'<B',initially_active)
+        rsp=t.oracle.STACK+0x8000
+        rbp=t.oracle.STACK+0x9000
+        write(rsp+0x50,'<Q',state)
+        write(rsp+0x58,'<Q',gravity)
+        write(rbp-0x80,'<Q',0)
+        u.reg_write(UC_X86_REG_RSP,rsp)
+        u.reg_write(UC_X86_REG_RBP,rbp)
+        u.emu_start(t.pe.base+0x29eb2f,t.pe.base+0x29eeb9,timeout=100000,count=10000)
+        assert u.reg_read(UC_X86_REG_RIP)==t.pe.base+0x29eeb9
+        assert read(gravity+0x10,'<B')==0
+        gravity_cases.append(dict(locomotionState=locomotion_state,initiallyActive=initially_active,
+            resultActive=0,originalStoresExecuted=True))
+
+dispatch=[]
+for table_rva in (0x43672c,0x43675c):
+    targets=struct.unpack('<12I',t.pe.read(table_rva,48))
+    assert targets[11]==0x436549
+    dispatch.append(dict(tableRva=table_rva,state=11,targetRva=targets[11],helperCallRva=0x436555,helperRva=0x429790))
+
+def complete(rva):
+    fragments=[f for f in t.pe.functions if f['primaryBeginRva']==rva]
+    return dict(rva=rva,fragments=[dict(beginRva=f['beginRva'],endRva=f['endRva'],
+        instructions=t.instructions(f['beginRva'],f['endRva'])) for f in fragments])
+
+systems=json.loads(Path('build/kfc4-system-dependencies-six-slots-20261016.json').read_text())
+frame_maps={}
+for system in systems['systems']:
+    for descriptor in system['engine_descriptors']:
+        if descriptor['name'] not in ('player_control_action_sequence','locomotion_execution','actor_rotation'):
+            continue
+        offset=8
+        mapping=[]
+        for role in ('configuration-read','read','write'):
+            all_entries=[]
+            for slot in descriptor['dependency_slots']:
+                if slot['access_mode']==role:
+                    all_entries.extend(slot['resolved_entries'])
+            all_entries.sort(key=lambda entry:entry['registrations'][0]['index'])
+            for entry in all_entries:
+                reg=entry['registrations'][0]
+                mapping.append(dict(offset=offset,originalName=entry['name'],
+                    runtimeName=reg.get('runtime_type',{}).get('qualified_name') if reg.get('runtime_type') else None,
+                    registrationIndex=reg['index'],role=role))
+                offset+=48 if role=='write' else 8
+        frame_maps[descriptor['name']]=mapping
+
+result=dict(image=t.pe.identity(),processOpened=False,processWrites=False,nativeGameCalls=False,
+    originalToolkitSites=dict(flyMode=0x2d7f5c,flyModeAnywhere=0x2d7ec0,buildFlight=0x29e6cf),
+    reflectedState=dict(type='keen::ecs::DynamicLocomotion',field='state',offset=0x59,
+        enumType='keen::ecs::LocomotionState',enumName='BuildingFlying',enumValue=11,
+        runtimeRegistrationIndex=325,trackingSelection=t.tracking['keen::ecs::DynamicLocomotion']['selection']),
+    originalInitializer=dict(functionRva=0x2bd590,stateStoreRva=0x2bdbe0,
+        constructorComponents=['CurrentTransform','Actor','DynamicLocomotion'],
+        destinationField='keen::ecs::PlayerState.buildingSparkEntityId',destinationOffset=0x50,
+        realPlayerState='Sitting',realPlayerStateBit=9),
+    originalEligibility=dict(nearBuildingState='IsNearBuildingZone',nearBuildingBit=54,
+        excludedActorStates=['Dead','HangGliding'],basicPlayerInfosFlag=4,
+        basicPlayerInfosRecordStride=160,basicPlayerInfosFlagsOffset=157,
+        skillId=0x4475e8dd,skillMaskField='keen::ecs::PlayerSkillsUi.skillUnlockMasks',
+        skillIndexLookup='g38_skilltree::SkillTree + 0xf8 map, original helper 0xe8aff0',
+        inputEnum='keen::ecs::PlayerInputType.BuildingModeFly',inputValue=39),
+    stateCases=state_cases,gravityCases=gravity_cases,dispatch=dispatch,frameMaps=frame_maps,
+    originalFunctions=dict(stateChooser=complete(0x41e030),gravityActor=complete(0x29ea30),
+        movement=complete(0x429790),buildingInput=complete(0x2db960)),
+    slices=dict(flyEligibility=t.instructions(0x2d7ec0,0x2d7f7f),
+        inputToggle=t.instructions(0x2d806b,0x2d80d1),
+        stateConstruction=t.instructions(0x2bdbe0,0x2bdc46),
+        originalBodySitting=t.instructions(0x2bdd88,0x2bddd4),
+        sparkIdStore=t.instructions(0x2bdcf4,0x2bdcfe)),
+    findings=dict(originalBuildingFlyingStateIsSticky=True,
+        originalBuildingFlyingStateDisablesGravity=True,
+        originalBuildingFlyingStateSelectsOriginalMovement=True,
+        settingOnlyStateIsCompleteFlyMode=False,
+        sameEffectAsUnlimitedGliderPitchProven=False,
+        velocityControllerIntroduced=False),
+    limits=['No live field write or flight test performed',
+        'Original builder mode controls a separate buildingSpark entity and leaves the player sitting',
+        'Whether state alone gives full 3D player input, collision behavior and restore remains untested',
+        'Skill and permission bypass are not provided by the untracked-components API policy'])
+out=directory/'building-flight-state-20261016.json'
+out.write_text(json.dumps(result,indent=2))
+print(json.dumps(dict(stateCases=len(state_cases),gravityCases=len(gravity_cases),passed=True,path=str(out))))

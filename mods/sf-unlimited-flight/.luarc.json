@@ -27,7 +27,7 @@
   },
   "workspace": {
     "library": [
-      "../../src/loader/api/src/"
+      "../../execution/lua/"
     ]
   }
 }

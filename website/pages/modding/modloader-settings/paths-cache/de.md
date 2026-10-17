@@ -36,4 +36,4 @@ Dies ist ein Teilausschnitt der Konfiguration. Andere Einträge bleiben bestehen
 
 `shroudforge/config/modloader-config.json`, JSON-Pfad `/paths/cache`. Diese Einstellung konfiguriert den Loader und wird nicht in das Mod-Paket kopiert.
 
-Quelle: `src/loader/package/src/config/loader.schema.json` und `loader.default.json`.
+Quelle: `modules/loader-config/loader.schema.json` und `loader.default.json`.

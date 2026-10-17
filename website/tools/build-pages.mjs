@@ -3,7 +3,7 @@ import path from "node:path";
 
 const website = path.resolve(import.meta.dirname, "..");
 const pagesRoot = path.join(website, "pages");
-const output = path.join(pagesRoot, "index.js");
+const output = path.resolve(website, "../build/website/pages/index.js");
 
 const pages = walk(pagesRoot)
   .filter(file => path.basename(file) === "page.json")
@@ -28,6 +28,7 @@ for (const page of pages) {
   ids.add(page.id);
 }
 
+fs.mkdirSync(path.dirname(output), { recursive: true });
 fs.writeFileSync(output, `export default ${JSON.stringify(pages, null, 2)};\n`);
 console.log(`Indexed ${pages.length} Markdown pages for the ShroudForge website.`);
 

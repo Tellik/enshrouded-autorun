@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const data = path.resolve(import.meta.dirname, "../data");
+const data = path.resolve(import.meta.dirname, "../../build/website/data");
 for (const entry of fs.readdirSync(data, { withFileTypes: true })) {
   if (!entry.isDirectory()) continue;
   const file = path.join(data, entry.name, "types.json");
