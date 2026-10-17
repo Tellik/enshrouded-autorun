@@ -49,8 +49,22 @@ document.querySelector('meta[name="description"]')?.setAttribute("content", loca
   : "Set up ShroudForge for PC and servers, install mods, and learn how the loader, Lua runtime, and KFC Runtime work.");
 localStorage.setItem("sf-language", locale);
 
+function renderNavigationEntry(entry, depth = 0) {
+  if (entry.type === "page") {
+    return `<button class="nav-item${depth ? " nav-child" : ""} ${entry.id === "home" ? "active" : ""}" style="--nav-depth:${depth}" data-view="${entry.id}"><span>${esc(entry.label)}</span>${entry.id === "home" ? '<i class="nav-glow"></i>' : ""}</button>`;
+  }
+
+  const contents = entry.entries.map(child => renderNavigationEntry(child, depth + 1)).join("");
+  if (entry.hasOverview || entry.pageCount < 2) {
+    return `<div class="nav-subgroup nav-subgroup-section" style="--nav-depth:${depth}"><div class="nav-subgroup-title">${esc(entry.label)}</div>${contents}</div>`;
+  }
+
+  const countLabel = locale === "de" ? "Einträge" : "items";
+  return `<details class="nav-subgroup" style="--nav-depth:${depth}"><summary><span>${esc(entry.label)}</span><small>${fmt(entry.pageCount)} ${countLabel}</small></summary><div class="nav-subgroup-items">${contents}</div></details>`;
+}
+
 const siteNavigation = navGroups.map(group =>
-  `<div class="nav-group"><div class="nav-group-title">${esc(group.label)}</div>${group.items.map(item => `<button class="nav-item${item.id.startsWith("doc-") ? " nav-child" : ""} ${item.id === "home" ? "active" : ""}" data-view="${item.id}"><span>${esc(item.label)}</span>${item.id === "home" ? '<i class="nav-glow"></i>' : ""}</button>`).join("")}</div>`,
+  `<div class="nav-group"><div class="nav-group-title">${esc(group.label)}</div>${group.entries.map(entry => renderNavigationEntry(entry)).join("")}</div>`,
 ).join("");
 const pageMarkup = pageIds.map(id => docPageByRoute.has(id)
   ? `<section id="view-${id}" class="view doc-view"><article class="markdown-page" data-doc-page="${id}"><div class="doc-loading">${locale === "de" ? "Artikel wird geladen …" : "Loading article …"}</div></article></section>`

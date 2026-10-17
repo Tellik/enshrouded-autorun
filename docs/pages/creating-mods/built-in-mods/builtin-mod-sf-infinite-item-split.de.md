@@ -6,7 +6,8 @@
   "summary": "Behält beim Teilen von Gegenständen den ursprünglichen Stapel. Das wirkt sich auch auf weitere Inventaraktionen aus.",
   "navigation": {
     "path": [
-      "Eingebaute Mods · Archiv"
+      "Eingebaute Mods",
+      "Archiv"
     ]
   }
 }

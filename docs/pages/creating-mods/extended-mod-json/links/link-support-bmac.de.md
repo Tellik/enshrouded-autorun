@@ -6,7 +6,9 @@
   "summary": "Bekannte Modloader-Schaltfläche für support-bmac.",
   "navigation": {
     "path": [
-      "Link-IDs"
+      "extended.mod.json",
+      "Link-IDs",
+      "Unterstützte IDs"
     ]
   }
 }

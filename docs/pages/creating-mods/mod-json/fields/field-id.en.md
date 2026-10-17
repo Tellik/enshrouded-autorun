@@ -6,7 +6,8 @@
   "summary": "Stable identifier that other mods can depend on.",
   "navigation": {
     "path": [
-      "mod.json"
+      "mod.json",
+      "Basic fields"
     ]
   }
 }

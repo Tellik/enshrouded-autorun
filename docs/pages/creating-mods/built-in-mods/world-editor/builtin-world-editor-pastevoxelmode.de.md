@@ -6,7 +6,9 @@
   "summary": "Bestimmt, wie Voxel beim Einfügen zusammengeführt werden. `replace` ersetzt die Zielzellen, `add` fügt nur belegte Quellzellen hinzu.",
   "navigation": {
     "path": [
-      "Eingebaute Mods · Archiv"
+      "Eingebaute Mods",
+      "Archiv",
+      "World Editor"
     ]
   }
 }

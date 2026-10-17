@@ -6,8 +6,11 @@
   "summary": "Other mods whose availability or version the loader checks before startup.",
   "navigation": {
     "path": [
-      "mod.json"
-    ]
+      "mod.json",
+      "Dependencies"
+    ],
+    "overview": true,
+    "label": "Overview"
   }
 }
 ---

@@ -6,7 +6,8 @@
   "summary": "Bekannte Link-IDs und HTTPS-Adressen für Modloader-Schaltflächen.",
   "navigation": {
     "path": [
-      "extended.mod.json"
+      "extended.mod.json",
+      "Felder"
     ]
   }
 }

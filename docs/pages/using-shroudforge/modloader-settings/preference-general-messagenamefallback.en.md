@@ -6,7 +6,8 @@
   "summary": "Name used by notices when automatic detection cannot find one player name.",
   "navigation": {
     "path": [
-      "General"
+      "Modloader settings",
+      "General settings"
     ]
   }
 }

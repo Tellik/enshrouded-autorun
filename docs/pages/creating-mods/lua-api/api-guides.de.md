@@ -7,7 +7,9 @@
   "navigation": {
     "path": [
       "Lua-API-Anleitungen"
-    ]
+    ],
+    "overview": true,
+    "label": "Übersicht"
   }
 }
 ---

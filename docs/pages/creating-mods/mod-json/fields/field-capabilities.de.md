@@ -6,8 +6,11 @@
   "summary": "Zugriffsarten, die der Mod anfordert.",
   "navigation": {
     "path": [
-      "mod.json"
-    ]
+      "mod.json",
+      "Zugriffsrechte"
+    ],
+    "overview": true,
+    "label": "Übersicht"
   }
 }
 ---

@@ -6,7 +6,8 @@
   "summary": "targets selects the game process in which a mod runs. Client, server, or both are available.",
   "navigation": {
     "path": [
-      "extended.mod.json"
+      "extended.mod.json",
+      "Targets"
     ]
   }
 }

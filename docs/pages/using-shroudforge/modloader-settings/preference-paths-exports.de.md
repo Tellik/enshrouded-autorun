@@ -6,7 +6,8 @@
   "summary": "Zielordner für Dateien, die Mods exportieren.",
   "navigation": {
     "path": [
-      "Speicherorte"
+      "Modloader-Einstellungen",
+      "Speicherpfade"
     ]
   }
 }

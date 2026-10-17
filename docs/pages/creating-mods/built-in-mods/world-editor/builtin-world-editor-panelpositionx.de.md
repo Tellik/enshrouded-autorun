@@ -6,7 +6,9 @@
   "summary": "Horizontale Position relativ zum Spielfenster. Der Wert −1 zentriert das Fenster, nichtnegative Werte legen den linken Abstand fest.",
   "navigation": {
     "path": [
-      "Eingebaute Mods · Archiv"
+      "Eingebaute Mods",
+      "Archiv",
+      "World Editor"
     ]
   }
 }

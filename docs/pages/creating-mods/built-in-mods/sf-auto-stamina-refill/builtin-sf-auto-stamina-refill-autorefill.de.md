@@ -6,7 +6,9 @@
   "summary": "Schaltet die wiederholte Auffüllung der Ausdauer bis zum Maximum ein oder aus.",
   "navigation": {
     "path": [
-      "Eingebaute Mods · Archiv"
+      "Eingebaute Mods",
+      "Archiv",
+      "SF Auto Stamina Refill"
     ]
   }
 }

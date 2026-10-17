@@ -6,7 +6,8 @@
   "summary": "runtime.network stellt einen eigenen Steam-Nachrichtenkanal bereit. Er versendet keine normalen Enshrouded-Spielpakete.",
   "navigation": {
     "path": [
-      "Lua-API-Anleitungen"
+      "Lua-API-Anleitungen",
+      "Funktionsanleitungen"
     ]
   },
   "apiPrefixes": [

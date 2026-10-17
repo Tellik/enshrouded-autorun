@@ -6,7 +6,9 @@
   "summary": "Für einen Farbwert, der im Modloader als Farbfeld bearbeitet wird.",
   "navigation": {
     "path": [
-      "Steuerelemente"
+      "extended.mod.json",
+      "Steuerelemente",
+      "Steuerelementtypen"
     ]
   }
 }

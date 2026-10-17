@@ -6,7 +6,9 @@
   "summary": "Mindestlänge eines Textwerts.",
   "navigation": {
     "path": [
-      "Einstellungen"
+      "extended.mod.json",
+      "Einstellungen",
+      "Einstellungsfelder"
     ]
   }
 }

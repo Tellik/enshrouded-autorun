@@ -6,7 +6,9 @@
   "summary": "Runtime handle for a prop returned by the List props action. It is valid only in the current process and is intended for advanced native actions.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
+      "Built-in mods",
+      "Archive",
+      "World Editor"
     ]
   }
 }

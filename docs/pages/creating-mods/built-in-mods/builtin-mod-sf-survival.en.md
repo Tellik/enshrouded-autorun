@@ -10,7 +10,7 @@
   "summary": "Eight optional survival settings from the current mod package.",
   "navigation": {
     "path": [
-      "Built-in mods · SF Survival"
+      "Built-in mods"
     ]
   }
 }

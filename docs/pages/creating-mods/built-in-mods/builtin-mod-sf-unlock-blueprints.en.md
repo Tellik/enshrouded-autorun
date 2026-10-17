@@ -6,7 +6,8 @@
   "summary": "Changes recipe unlock requirements to the first Flame Altar hint.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
+      "Built-in mods",
+      "Archive"
     ]
   }
 }

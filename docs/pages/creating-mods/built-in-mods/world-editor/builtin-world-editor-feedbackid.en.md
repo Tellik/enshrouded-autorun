@@ -6,7 +6,9 @@
   "summary": "Material feedback ID from the ItemInfo placement definition. The advanced Place at coordinates action requires it, Destroy at coordinates does not.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
+      "Built-in mods",
+      "Archive",
+      "World Editor"
     ]
   }
 }

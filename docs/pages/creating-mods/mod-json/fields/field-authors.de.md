@@ -6,7 +6,8 @@
   "summary": "Namen der Personen, die den Mod erstellt haben.",
   "navigation": {
     "path": [
-      "mod.json"
+      "mod.json",
+      "Grundfelder"
     ]
   }
 }

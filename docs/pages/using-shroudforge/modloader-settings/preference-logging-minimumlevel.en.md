@@ -6,7 +6,7 @@
   "summary": "Lowest level ShroudForge writes to log files. The Debug Console also has its own display filter.",
   "navigation": {
     "path": [
-      "Logging"
+      "Modloader settings"
     ]
   }
 }

@@ -6,7 +6,9 @@
   "summary": "Exact mod ID from the required mod's mod.json.",
   "navigation": {
     "path": [
-      "mod.json, dependencies"
+      "mod.json",
+      "Dependencies",
+      "Dependency fields"
     ]
   }
 }

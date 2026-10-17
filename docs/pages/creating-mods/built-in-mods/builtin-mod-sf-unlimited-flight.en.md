@@ -6,7 +6,7 @@
   "summary": "Five adjustable settings for flight duration, yaw rate, forward movement, and air resistance.",
   "navigation": {
     "path": [
-      "Built-in mods · SF Unlimited Flight"
+      "Built-in mods"
     ]
   },
   "source": {

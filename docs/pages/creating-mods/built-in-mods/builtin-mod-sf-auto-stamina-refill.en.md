@@ -6,8 +6,12 @@
   "summary": "Repeatedly refills stamina to maximum.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
-    ]
+      "Built-in mods",
+      "Archive",
+      "SF Auto Stamina Refill"
+    ],
+    "overview": true,
+    "label": "Overview"
   }
 }
 ---

@@ -6,7 +6,9 @@
   "summary": "Der Schlüssel benennt eine Einstellung und ist zugleich der Name, den Lua zum Lesen ihres aktuellen Werts verwendet.",
   "navigation": {
     "path": [
-      "Einstellungen"
+      "extended.mod.json",
+      "Einstellungen",
+      "Einstellungsfelder"
     ]
   }
 }

@@ -6,7 +6,9 @@
   "summary": "For longer text edited across multiple lines.",
   "navigation": {
     "path": [
-      "Controls"
+      "extended.mod.json",
+      "Controls",
+      "Control types"
     ]
   }
 }

@@ -6,7 +6,9 @@
   "summary": "Für eine Tastenkombination, die der Modloader als Schlüsselwert speichert.",
   "navigation": {
     "path": [
-      "Steuerelemente"
+      "extended.mod.json",
+      "Steuerelemente",
+      "Steuerelementtypen"
     ]
   }
 }

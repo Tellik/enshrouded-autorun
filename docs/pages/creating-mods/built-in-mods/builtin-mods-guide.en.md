@@ -7,7 +7,9 @@
   "navigation": {
     "path": [
       "Built-in mods"
-    ]
+    ],
+    "overview": true,
+    "label": "Overview"
   }
 }
 ---

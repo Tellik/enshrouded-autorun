@@ -6,7 +6,9 @@
   "summary": "Short text shown on the mod page.",
   "navigation": {
     "path": [
-      "Groups and actions"
+      "extended.mod.json",
+      "Groups and actions",
+      "Group fields"
     ]
   }
 }

@@ -6,7 +6,9 @@
   "summary": "Zeigt Auswahlwerte als eine Reihe von Schaltflächen.",
   "navigation": {
     "path": [
-      "Steuerelemente"
+      "extended.mod.json",
+      "Steuerelemente",
+      "Steuerelementtypen"
     ]
   }
 }

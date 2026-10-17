@@ -6,7 +6,8 @@
   "summary": "Ordner für heruntergeladene oder vorbereitete Updates.",
   "navigation": {
     "path": [
-      "Speicherorte"
+      "Modloader-Einstellungen",
+      "Speicherpfade"
     ]
   }
 }

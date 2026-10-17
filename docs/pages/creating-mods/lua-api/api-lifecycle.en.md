@@ -6,7 +6,8 @@
   "summary": "on_load, on_update, and on_unload control when your Lua mod runs during a game session.",
   "navigation": {
     "path": [
-      "Lua API guides"
+      "Lua API guides",
+      "Feature guides"
     ]
   },
   "apiSymbols": [

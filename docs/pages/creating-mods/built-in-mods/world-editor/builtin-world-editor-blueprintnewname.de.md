@@ -6,7 +6,9 @@
   "summary": "Zielname für die Mod-Aktionen zum Umbenennen oder Duplizieren eines Blueprints.",
   "navigation": {
     "path": [
-      "Eingebaute Mods · Archiv"
+      "Eingebaute Mods",
+      "Archiv",
+      "World Editor"
     ]
   }
 }

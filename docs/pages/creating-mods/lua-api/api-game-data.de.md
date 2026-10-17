@@ -6,7 +6,8 @@
   "summary": "Asset- und Runtime-Funktionen arbeiten in unterschiedlichen Phasen und brauchen passende Fähigkeiten oder ein unterstütztes Spielprofil.",
   "navigation": {
     "path": [
-      "Lua-API-Anleitungen"
+      "Lua-API-Anleitungen",
+      "Funktionsanleitungen"
     ]
   },
   "apiSymbols": [

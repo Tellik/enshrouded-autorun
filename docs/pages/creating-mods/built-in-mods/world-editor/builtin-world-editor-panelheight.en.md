@@ -6,7 +6,9 @@
   "summary": "Height of the World Editor window in logical pixels. Changes apply while the game is running.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
+      "Built-in mods",
+      "Archive",
+      "World Editor"
     ]
   }
 }

@@ -6,7 +6,9 @@
   "summary": "Manual X coordinate of the source cell when capturing without both cursor corners marked. Normally mark the selection with F5.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
+      "Built-in mods",
+      "Archive",
+      "World Editor"
     ]
   }
 }

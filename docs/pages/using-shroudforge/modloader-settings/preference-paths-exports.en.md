@@ -6,6 +6,7 @@
   "summary": "Destination folder for files exported by mods.",
   "navigation": {
     "path": [
+      "Modloader settings",
       "Storage paths"
     ]
   }

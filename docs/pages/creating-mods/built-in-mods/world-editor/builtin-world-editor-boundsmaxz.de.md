@@ -6,7 +6,9 @@
   "summary": "Z-Maximum der Begrenzung, die an die erweiterten nativen Props-Platzierungs- und Entfernungsaktionen übergeben wird.",
   "navigation": {
     "path": [
-      "Eingebaute Mods · Archiv"
+      "Eingebaute Mods",
+      "Archiv",
+      "World Editor"
     ]
   }
 }

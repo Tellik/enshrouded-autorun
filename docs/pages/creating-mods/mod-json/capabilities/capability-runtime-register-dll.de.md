@@ -6,7 +6,9 @@
   "summary": "Registrierung einer DLL aus dem Mod-Paket im Runtime-Schritt",
   "navigation": {
     "path": [
-      "Berechtigungen in mod.json"
+      "mod.json",
+      "Zugriffsrechte",
+      "Einzelne Zugriffsrechte"
     ]
   }
 }

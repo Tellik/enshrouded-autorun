@@ -6,7 +6,9 @@
   "summary": "Material-Feedback-ID aus der ItemInfo-Platzierungsdefinition. Die erweiterte Aktion Place at coordinates benötigt sie, Destroy at coordinates nicht.",
   "navigation": {
     "path": [
-      "Eingebaute Mods · Archiv"
+      "Eingebaute Mods",
+      "Archiv",
+      "World Editor"
     ]
   }
 }

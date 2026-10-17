@@ -6,7 +6,9 @@
   "summary": "Vertical offset of the World Editor window from the top of the game window.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
+      "Built-in mods",
+      "Archive",
+      "World Editor"
     ]
   }
 }

@@ -10,7 +10,7 @@
   "summary": "Acht optionale Überlebenseinstellungen aus dem aktuellen Modpaket.",
   "navigation": {
     "path": [
-      "Eingebaute Mods · SF Survival"
+      "Eingebaute Mods"
     ]
   }
 }

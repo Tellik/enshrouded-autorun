@@ -6,7 +6,9 @@
   "summary": "Nichtnuller Tracking-Wert aus der ItemInfo-Platzierungsdefinition. Die erweiterten nativen Spawn- und Platzierungsaktionen benötigen ihn.",
   "navigation": {
     "path": [
-      "Eingebaute Mods · Archiv"
+      "Eingebaute Mods",
+      "Archiv",
+      "World Editor"
     ]
   }
 }

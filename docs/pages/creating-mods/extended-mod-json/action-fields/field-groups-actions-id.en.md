@@ -6,7 +6,9 @@
   "summary": "Unique action name that the mod registers in Lua.",
   "navigation": {
     "path": [
-      "Groups and actions"
+      "extended.mod.json",
+      "Groups and actions",
+      "Action fields"
     ]
   }
 }

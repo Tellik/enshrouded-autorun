@@ -7,7 +7,9 @@
   "navigation": {
     "path": [
       "Modloader-Einstellungen"
-    ]
+    ],
+    "overview": true,
+    "label": "Übersicht"
   }
 }
 ---

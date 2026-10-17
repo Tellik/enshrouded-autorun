@@ -6,7 +6,9 @@
   "summary": "Default name for saving a blueprint and the first name used by rename or duplicate actions.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
+      "Built-in mods",
+      "Archive",
+      "World Editor"
     ]
   }
 }

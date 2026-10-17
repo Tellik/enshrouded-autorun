@@ -6,7 +6,9 @@
   "summary": "Vorbereitung unterstützter Spieldateien vor dem Start",
   "navigation": {
     "path": [
-      "Berechtigungen in mod.json"
+      "mod.json",
+      "Zugriffsrechte",
+      "Einzelne Zugriffsrechte"
     ]
   }
 }

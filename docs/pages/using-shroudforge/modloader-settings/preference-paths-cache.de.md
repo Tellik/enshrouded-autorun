@@ -6,7 +6,8 @@
   "summary": "Ordner für wiederverwendbare Zwischendaten.",
   "navigation": {
     "path": [
-      "Speicherorte"
+      "Modloader-Einstellungen",
+      "Speicherpfade"
     ]
   }
 }

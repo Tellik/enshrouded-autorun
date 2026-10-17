@@ -6,7 +6,8 @@
   "summary": "Verdichtet die Modloader-Oberfläche.",
   "navigation": {
     "path": [
-      "Allgemein"
+      "Modloader-Einstellungen",
+      "Allgemeine Einstellungen"
     ]
   }
 }

@@ -6,7 +6,8 @@
   "summary": "Version dieser Mod-Veröffentlichung im SemVer-Grundformat.",
   "navigation": {
     "path": [
-      "mod.json"
+      "mod.json",
+      "Grundfelder"
     ]
   }
 }

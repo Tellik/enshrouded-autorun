@@ -6,7 +6,8 @@
   "summary": "Asset and runtime functions operate in different phases and need the right capabilities or a supported game profile.",
   "navigation": {
     "path": [
-      "Lua API guides"
+      "Lua API guides",
+      "Feature guides"
     ]
   },
   "apiSymbols": [

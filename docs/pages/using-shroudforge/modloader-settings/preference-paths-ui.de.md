@@ -6,7 +6,8 @@
   "summary": "Ordner für persistente Daten und das WebView-Profil der Modloader-Oberfläche.",
   "navigation": {
     "path": [
-      "Speicherorte"
+      "Modloader-Einstellungen",
+      "Speicherpfade"
     ]
   }
 }

@@ -6,7 +6,8 @@
   "summary": "Package origin used in the Modloader display.",
   "navigation": {
     "path": [
-      "extended.mod.json"
+      "extended.mod.json",
+      "Fields"
     ]
   }
 }

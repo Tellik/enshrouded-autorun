@@ -6,7 +6,9 @@
   "summary": "Art des Eingabefelds, das der Modloader zeigt.",
   "navigation": {
     "path": [
-      "Einstellungen"
+      "extended.mod.json",
+      "Einstellungen",
+      "Einstellungsfelder"
     ]
   }
 }

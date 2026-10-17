@@ -6,7 +6,9 @@
   "summary": "Destination name for the mod actions that rename or duplicate a blueprint.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
+      "Built-in mods",
+      "Archive",
+      "World Editor"
     ]
   }
 }

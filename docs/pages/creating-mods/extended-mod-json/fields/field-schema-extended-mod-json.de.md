@@ -6,7 +6,8 @@
   "summary": "Dieses Feld konfiguriert `$schema`. Der genaue technische Vertrag steht im Schema.",
   "navigation": {
     "path": [
-      "extended.mod.json"
+      "extended.mod.json",
+      "Felder"
     ]
   }
 }

@@ -6,7 +6,9 @@
   "summary": "Allowed choices and the labels players see.",
   "navigation": {
     "path": [
-      "Settings"
+      "extended.mod.json",
+      "Settings",
+      "Setting fields"
     ]
   }
 }

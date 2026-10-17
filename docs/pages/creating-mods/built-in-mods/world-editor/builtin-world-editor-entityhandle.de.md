@@ -6,7 +6,9 @@
   "summary": "Laufzeit-Handle eines Props aus der Aktion List props. Es gilt nur für den aktuellen Prozess und ist für die erweiterten nativen Aktionen gedacht.",
   "navigation": {
     "path": [
-      "Eingebaute Mods · Archiv"
+      "Eingebaute Mods",
+      "Archiv",
+      "World Editor"
     ]
   }
 }

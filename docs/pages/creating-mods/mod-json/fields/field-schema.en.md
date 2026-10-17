@@ -6,7 +6,8 @@
   "summary": "This field configures `$schema`. The exact technical contract is defined by the schema.",
   "navigation": {
     "path": [
-      "mod.json"
+      "mod.json",
+      "Basic fields"
     ]
   }
 }

@@ -6,7 +6,9 @@
   "summary": "Optional confirmation prompt before running an action.",
   "navigation": {
     "path": [
-      "Groups and actions"
+      "extended.mod.json",
+      "Groups and actions",
+      "Action fields"
     ]
   }
 }

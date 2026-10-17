@@ -6,7 +6,9 @@
   "summary": "Startwert und erwarteter Lua-Datentyp der Einstellung.",
   "navigation": {
     "path": [
-      "Einstellungen"
+      "extended.mod.json",
+      "Einstellungen",
+      "Einstellungsfelder"
     ]
   }
 }

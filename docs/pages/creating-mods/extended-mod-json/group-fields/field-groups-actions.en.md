@@ -6,7 +6,9 @@
   "summary": "Action buttons whose IDs call Lua callbacks.",
   "navigation": {
     "path": [
-      "Groups and actions"
+      "extended.mod.json",
+      "Groups and actions",
+      "Group fields"
     ]
   }
 }

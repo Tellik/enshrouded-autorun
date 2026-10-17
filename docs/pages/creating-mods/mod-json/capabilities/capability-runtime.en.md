@@ -6,7 +6,9 @@
   "summary": "Runtime callbacks and ShroudForge runtime functions",
   "navigation": {
     "path": [
-      "mod.json capabilities"
+      "mod.json",
+      "Capabilities",
+      "Capability types"
     ]
   }
 }

@@ -6,8 +6,12 @@
   "summary": "Copy, rotate, save, and paste parts of the world.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
-    ]
+      "Built-in mods",
+      "Archive",
+      "World Editor"
+    ],
+    "overview": true,
+    "label": "Overview"
   }
 }
 ---

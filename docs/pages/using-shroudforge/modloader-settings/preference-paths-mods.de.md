@@ -6,7 +6,8 @@
   "summary": "Ordner, in dem ShroudForge installierte Mod-Pakete sucht.",
   "navigation": {
     "path": [
-      "Speicherorte"
+      "Modloader-Einstellungen",
+      "Speicherpfade"
     ]
   }
 }

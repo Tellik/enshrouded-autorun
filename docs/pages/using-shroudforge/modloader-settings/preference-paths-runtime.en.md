@@ -6,6 +6,7 @@
   "summary": "Folder for Lua and native runtime data and detected game profiles.",
   "navigation": {
     "path": [
+      "Modloader settings",
       "Storage paths"
     ]
   }

@@ -7,7 +7,8 @@
   "view": "server-windows",
   "navigation": {
     "path": [
-      "QUICKSTART"
+      "QUICKSTART",
+      "Server guides"
     ],
     "label": "Windows Dedicated Server"
   }

@@ -6,7 +6,8 @@
   "summary": "Uses a denser Modloader layout.",
   "navigation": {
     "path": [
-      "General"
+      "Modloader settings",
+      "General settings"
     ]
   }
 }

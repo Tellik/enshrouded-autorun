@@ -6,8 +6,12 @@
   "summary": "Legt eine Basisdauer für zeitgesteuerte Produktionsrezepte fest. Weltgeschwindigkeitseinstellungen gelten weiterhin.",
   "navigation": {
     "path": [
-      "Eingebaute Mods · Archiv"
-    ]
+      "Eingebaute Mods",
+      "Archiv",
+      "SF Production Time"
+    ],
+    "overview": true,
+    "label": "Übersicht"
   }
 }
 ---

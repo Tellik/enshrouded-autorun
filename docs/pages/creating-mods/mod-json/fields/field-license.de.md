@@ -6,7 +6,8 @@
   "summary": "Lizenzkennung, falls der Mod eine Lizenz erklärt.",
   "navigation": {
     "path": [
-      "mod.json"
+      "mod.json",
+      "Grundfelder"
     ]
   }
 }

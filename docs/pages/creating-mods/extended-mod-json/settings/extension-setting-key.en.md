@@ -6,7 +6,9 @@
   "summary": "The key names a setting and is also the name Lua uses to read its current value.",
   "navigation": {
     "path": [
-      "Settings"
+      "extended.mod.json",
+      "Settings",
+      "Setting fields"
     ]
   }
 }

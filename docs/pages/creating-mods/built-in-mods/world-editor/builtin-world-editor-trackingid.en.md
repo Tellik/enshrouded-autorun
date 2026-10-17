@@ -6,7 +6,9 @@
   "summary": "Nonzero tracking value from the ItemInfo placement definition. The advanced native spawn and placement actions require it.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
+      "Built-in mods",
+      "Archive",
+      "World Editor"
     ]
   }
 }

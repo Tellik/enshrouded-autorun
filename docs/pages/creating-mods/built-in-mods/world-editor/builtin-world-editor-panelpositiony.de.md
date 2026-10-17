@@ -6,7 +6,9 @@
   "summary": "Vertikaler Abstand des World-Editor-Fensters vom oberen Rand des Spielfensters.",
   "navigation": {
     "path": [
-      "Eingebaute Mods · Archiv"
+      "Eingebaute Mods",
+      "Archiv",
+      "World Editor"
     ]
   }
 }

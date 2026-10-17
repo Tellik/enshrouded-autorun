@@ -6,7 +6,9 @@
   "summary": "Sets the base duration in seconds for timed production recipes. Set the same value on the client and host or server before starting the game.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
+      "Built-in mods",
+      "Archive",
+      "SF Production Time"
     ]
   }
 }

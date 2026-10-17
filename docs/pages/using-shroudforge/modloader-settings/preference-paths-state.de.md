@@ -6,7 +6,8 @@
   "summary": "Ordner für den persistenten Loader-Zustand, darunter Aktivierungs- und Laufzeitstatus.",
   "navigation": {
     "path": [
-      "Speicherorte"
+      "Modloader-Einstellungen",
+      "Speicherpfade"
     ]
   }
 }

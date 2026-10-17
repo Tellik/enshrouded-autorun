@@ -6,7 +6,8 @@
   "summary": "Runtime mods start in a selected game process. Native game operations also depend on the game build and a supported profile.",
   "navigation": {
     "path": [
-      "Lua API guides"
+      "Lua API guides",
+      "Feature guides"
     ]
   },
   "apiPrefixes": [

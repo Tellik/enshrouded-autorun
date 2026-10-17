@@ -6,7 +6,9 @@
   "summary": "Für längere Texte, die über mehrere Zeilen bearbeitet werden.",
   "navigation": {
     "path": [
-      "Steuerelemente"
+      "extended.mod.json",
+      "Steuerelemente",
+      "Steuerelementtypen"
     ]
   }
 }

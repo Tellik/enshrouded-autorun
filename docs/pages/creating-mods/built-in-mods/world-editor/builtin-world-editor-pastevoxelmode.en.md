@@ -6,7 +6,9 @@
   "summary": "Controls how voxels are combined during paste. `replace` replaces target cells, while `add` adds only occupied source cells.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
+      "Built-in mods",
+      "Archive",
+      "World Editor"
     ]
   }
 }

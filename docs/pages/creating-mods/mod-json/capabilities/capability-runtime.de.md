@@ -6,7 +6,9 @@
   "summary": "Laufzeit-Callbacks und ShroudForge-Laufzeitfunktionen",
   "navigation": {
     "path": [
-      "Berechtigungen in mod.json"
+      "mod.json",
+      "Zugriffsrechte",
+      "Einzelne Zugriffsrechte"
     ]
   }
 }

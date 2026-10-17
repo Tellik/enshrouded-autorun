@@ -6,7 +6,9 @@
   "summary": "Shows every option with exactly one active choice.",
   "navigation": {
     "path": [
-      "Controls"
+      "extended.mod.json",
+      "Controls",
+      "Control types"
     ]
   }
 }

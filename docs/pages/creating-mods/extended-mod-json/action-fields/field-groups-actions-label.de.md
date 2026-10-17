@@ -6,7 +6,9 @@
   "summary": "Spielerfreundlicher Name, der im Modloader angezeigt wird.",
   "navigation": {
     "path": [
-      "Gruppen und Aktionen"
+      "extended.mod.json",
+      "Gruppen und Aktionen",
+      "Aktionsfelder"
     ]
   }
 }

@@ -6,7 +6,9 @@
   "summary": "Displays an on/off switch for a boolean value.",
   "navigation": {
     "path": [
-      "Controls"
+      "extended.mod.json",
+      "Controls",
+      "Control types"
     ]
   }
 }

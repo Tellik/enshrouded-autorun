@@ -6,7 +6,9 @@
   "summary": "Export functions for mod output",
   "navigation": {
     "path": [
-      "mod.json capabilities"
+      "mod.json",
+      "Capabilities",
+      "Capability types"
     ]
   }
 }

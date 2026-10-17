@@ -6,6 +6,7 @@
   "summary": "Folder for downloaded or staged updates.",
   "navigation": {
     "path": [
+      "Modloader settings",
       "Storage paths"
     ]
   }

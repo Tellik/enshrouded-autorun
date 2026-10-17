@@ -6,7 +6,8 @@
   "summary": "Logs sollen zeigen, was der Mod tut, in welcher Phase er ist und ob die Aktion bestätigt wurde oder scheiterte.",
   "navigation": {
     "path": [
-      "Lua-API-Anleitungen"
+      "Lua-API-Anleitungen",
+      "Funktionsanleitungen"
     ]
   },
   "apiSymbols": [

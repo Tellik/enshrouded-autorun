@@ -6,7 +6,9 @@
   "summary": "Appearance of the action button, without changing its behavior.",
   "navigation": {
     "path": [
-      "Groups and actions"
+      "extended.mod.json",
+      "Groups and actions",
+      "Action fields"
     ]
   }
 }

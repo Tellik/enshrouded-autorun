@@ -6,7 +6,9 @@
   "summary": "For numbers players adjust within a range.",
   "navigation": {
     "path": [
-      "Controls"
+      "extended.mod.json",
+      "Controls",
+      "Control types"
     ]
   }
 }

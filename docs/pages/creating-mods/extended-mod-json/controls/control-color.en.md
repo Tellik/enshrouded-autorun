@@ -6,7 +6,9 @@
   "summary": "For a color value edited through a color input in Modloader.",
   "navigation": {
     "path": [
-      "Controls"
+      "extended.mod.json",
+      "Controls",
+      "Control types"
     ]
   }
 }

@@ -6,7 +6,9 @@
   "summary": "Spielerfreundlicher Name, der im Modloader angezeigt wird.",
   "navigation": {
     "path": [
-      "Einstellungen"
+      "extended.mod.json",
+      "Einstellungen",
+      "Einstellungsfelder"
     ]
   }
 }

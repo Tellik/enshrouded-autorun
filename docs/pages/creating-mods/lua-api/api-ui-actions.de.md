@@ -6,7 +6,8 @@
   "summary": "Eine Aktions-ID in der Moddatei verbindet den sichtbaren Knopf mit einer Callback-Funktion deines Mods.",
   "navigation": {
     "path": [
-      "Lua-API-Anleitungen"
+      "Lua-API-Anleitungen",
+      "Funktionsanleitungen"
     ]
   },
   "apiSymbols": [

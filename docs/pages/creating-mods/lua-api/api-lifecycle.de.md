@@ -6,7 +6,8 @@
   "summary": "on_load, on_update und on_unload steuern, wann dein Lua-Mod während einer Spielsitzung arbeitet.",
   "navigation": {
     "path": [
-      "Lua-API-Anleitungen"
+      "Lua-API-Anleitungen",
+      "Funktionsanleitungen"
     ]
   },
   "apiSymbols": [

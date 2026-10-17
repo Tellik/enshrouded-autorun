@@ -6,7 +6,9 @@
   "summary": "Short text shown on the mod page.",
   "navigation": {
     "path": [
-      "Settings"
+      "extended.mod.json",
+      "Settings",
+      "Setting fields"
     ]
   }
 }

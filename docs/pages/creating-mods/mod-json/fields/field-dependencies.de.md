@@ -6,8 +6,11 @@
   "summary": "Andere Mods, deren Verfügbarkeit oder Version der Loader vor dem Start prüfen muss.",
   "navigation": {
     "path": [
-      "mod.json"
-    ]
+      "mod.json",
+      "Abhängigkeiten"
+    ],
+    "overview": true,
+    "label": "Übersicht"
   }
 }
 ---

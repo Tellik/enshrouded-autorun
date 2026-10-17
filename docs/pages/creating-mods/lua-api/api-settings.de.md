@@ -6,7 +6,8 @@
   "summary": "Der Schlüssel in extended.mod.json ist derselbe Schlüssel, den dein Lua-Code an shroudforge.settings.get übergibt.",
   "navigation": {
     "path": [
-      "Lua-API-Anleitungen"
+      "Lua-API-Anleitungen",
+      "Funktionsanleitungen"
     ]
   },
   "apiSymbols": [

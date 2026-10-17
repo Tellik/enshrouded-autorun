@@ -6,8 +6,11 @@
   "summary": "Access categories requested by the mod.",
   "navigation": {
     "path": [
-      "mod.json"
-    ]
+      "mod.json",
+      "Capabilities"
+    ],
+    "overview": true,
+    "label": "Overview"
   }
 }
 ---

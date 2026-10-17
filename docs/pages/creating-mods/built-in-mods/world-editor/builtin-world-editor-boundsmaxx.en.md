@@ -6,7 +6,9 @@
   "summary": "X maximum of the bounds passed to the advanced native prop placement and removal actions.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
+      "Built-in mods",
+      "Archive",
+      "World Editor"
     ]
   }
 }

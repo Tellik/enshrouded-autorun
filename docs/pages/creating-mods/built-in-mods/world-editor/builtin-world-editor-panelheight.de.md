@@ -6,7 +6,9 @@
   "summary": "Höhe des World-Editor-Fensters in logischen Pixeln. Änderungen gelten während des laufenden Spiels.",
   "navigation": {
     "path": [
-      "Eingebaute Mods · Archiv"
+      "Eingebaute Mods",
+      "Archiv",
+      "World Editor"
     ]
   }
 }

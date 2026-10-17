@@ -6,7 +6,9 @@
   "summary": "Schlüssel vorhandener Mod-Einstellungen, die in dieser Gruppe angezeigt werden.",
   "navigation": {
     "path": [
-      "Gruppen und Aktionen"
+      "extended.mod.json",
+      "Gruppen und Aktionen",
+      "Gruppenfelder"
     ]
   }
 }

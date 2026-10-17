@@ -6,7 +6,9 @@
   "summary": "Für genau eine Auswahl aus options.",
   "navigation": {
     "path": [
-      "Steuerelemente"
+      "extended.mod.json",
+      "Steuerelemente",
+      "Steuerelementtypen"
     ]
   }
 }

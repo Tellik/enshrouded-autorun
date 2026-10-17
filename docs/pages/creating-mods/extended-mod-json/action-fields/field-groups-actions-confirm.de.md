@@ -6,7 +6,9 @@
   "summary": "Optionale Rückfrage vor dem Ausführen einer Aktion.",
   "navigation": {
     "path": [
-      "Gruppen und Aktionen"
+      "extended.mod.json",
+      "Gruppen und Aktionen",
+      "Aktionsfelder"
     ]
   }
 }

@@ -6,7 +6,8 @@
   "summary": "Verhindert Lebenspunkteverlust durch Stürze.",
   "navigation": {
     "path": [
-      "Eingebaute Mods · Archiv"
+      "Eingebaute Mods",
+      "Archiv"
     ]
   }
 }

@@ -6,7 +6,9 @@
   "summary": "Allows several values. value is a list and options defines the available items.",
   "navigation": {
     "path": [
-      "Controls"
+      "extended.mod.json",
+      "Controls",
+      "Control types"
     ]
   }
 }

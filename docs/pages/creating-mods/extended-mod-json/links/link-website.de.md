@@ -6,7 +6,9 @@
   "summary": "Bekannte Modloader-Schaltfläche für website.",
   "navigation": {
     "path": [
-      "Link-IDs"
+      "extended.mod.json",
+      "Link-IDs",
+      "Unterstützte IDs"
     ]
   }
 }

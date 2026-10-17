@@ -6,7 +6,9 @@
   "summary": "Controls whether props at the target are kept or safely verified intersecting props are replaced.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
+      "Built-in mods",
+      "Archive",
+      "World Editor"
     ]
   }
 }

@@ -6,7 +6,8 @@
   "summary": "Saved enabled state for this mod.",
   "navigation": {
     "path": [
-      "extended.mod.json"
+      "extended.mod.json",
+      "Fields"
     ]
   }
 }

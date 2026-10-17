@@ -6,8 +6,12 @@
   "summary": "Sets timed production recipes to a chosen base duration. World speed settings still apply.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
-    ]
+      "Built-in mods",
+      "Archive",
+      "SF Production Time"
+    ],
+    "overview": true,
+    "label": "Overview"
   }
 }
 ---

@@ -6,7 +6,9 @@
   "summary": "SemVer range accepted for the required mod's version.",
   "navigation": {
     "path": [
-      "mod.json, dependencies"
+      "mod.json",
+      "Dependencies",
+      "Dependency fields"
     ]
   }
 }

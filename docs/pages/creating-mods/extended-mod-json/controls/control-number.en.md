@@ -6,7 +6,9 @@
   "summary": "For numeric values. min, max, and step can constrain input.",
   "navigation": {
     "path": [
-      "Controls"
+      "extended.mod.json",
+      "Controls",
+      "Control types"
     ]
   }
 }

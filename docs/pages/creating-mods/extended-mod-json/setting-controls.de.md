@@ -6,8 +6,11 @@
   "summary": "Jede Einstellung hat einen Schlüssel und einen Startwert. Metadaten bestimmen Beschriftung, Hilfe, Eingabefeld, Grenzen und Auswahlwerte.",
   "navigation": {
     "path": [
-      "Einstellungen"
-    ]
+      "extended.mod.json",
+      "Steuerelemente"
+    ],
+    "overview": true,
+    "label": "Übersicht"
   }
 }
 ---

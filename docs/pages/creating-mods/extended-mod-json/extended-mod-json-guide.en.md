@@ -7,7 +7,9 @@
   "navigation": {
     "path": [
       "extended.mod.json"
-    ]
+    ],
+    "overview": true,
+    "label": "Overview"
   }
 }
 ---

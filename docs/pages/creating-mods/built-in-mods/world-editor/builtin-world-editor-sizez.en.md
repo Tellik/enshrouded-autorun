@@ -6,7 +6,9 @@
   "summary": "Manual capture extent along Z in voxel cells. Used only when there is no complete selection marked by cursor corners.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
+      "Built-in mods",
+      "Archive",
+      "World Editor"
     ]
   }
 }

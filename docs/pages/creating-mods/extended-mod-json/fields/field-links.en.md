@@ -6,7 +6,8 @@
   "summary": "Recognized link IDs and HTTPS addresses for Modloader buttons.",
   "navigation": {
     "path": [
-      "extended.mod.json"
+      "extended.mod.json",
+      "Fields"
     ]
   }
 }

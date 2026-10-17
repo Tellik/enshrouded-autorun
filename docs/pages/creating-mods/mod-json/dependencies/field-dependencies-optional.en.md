@@ -6,7 +6,9 @@
   "summary": "Whether a missing or incompatible dependency blocks startup.",
   "navigation": {
     "path": [
-      "mod.json, dependencies"
+      "mod.json",
+      "Dependencies",
+      "Dependency fields"
     ]
   }
 }

@@ -6,7 +6,7 @@
   "summary": "Schaltet die Exportfunktionen für Mod-Ausgaben ein oder aus.",
   "navigation": {
     "path": [
-      "Exporte"
+      "Modloader-Einstellungen"
     ]
   }
 }

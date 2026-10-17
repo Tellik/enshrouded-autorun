@@ -6,7 +6,8 @@
   "summary": "Stabile Kennung, auf die andere Mods verweisen können.",
   "navigation": {
     "path": [
-      "mod.json"
+      "mod.json",
+      "Grundfelder"
     ]
   }
 }

@@ -6,7 +6,9 @@
   "summary": "Bestimmt, ob Props am Ziel erhalten bleiben oder sicher überprüfte, sich überschneidende Props ersetzt werden.",
   "navigation": {
     "path": [
-      "Eingebaute Mods · Archiv"
+      "Eingebaute Mods",
+      "Archiv",
+      "World Editor"
     ]
   }
 }

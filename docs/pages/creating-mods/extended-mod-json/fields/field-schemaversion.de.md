@@ -6,7 +6,8 @@
   "summary": "Version der extended.mod.json-Struktur.",
   "navigation": {
     "path": [
-      "extended.mod.json"
+      "extended.mod.json",
+      "Felder"
     ]
   }
 }

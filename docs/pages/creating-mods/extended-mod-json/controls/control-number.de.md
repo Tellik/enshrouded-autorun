@@ -6,7 +6,9 @@
   "summary": "Für numerische Werte. min, max und step können den Eingabebereich begrenzen.",
   "navigation": {
     "path": [
-      "Steuerelemente"
+      "extended.mod.json",
+      "Steuerelemente",
+      "Steuerelementtypen"
     ]
   }
 }

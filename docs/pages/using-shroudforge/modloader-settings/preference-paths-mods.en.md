@@ -6,6 +6,7 @@
   "summary": "Folder where ShroudForge searches for installed mod packages.",
   "navigation": {
     "path": [
+      "Modloader settings",
       "Storage paths"
     ]
   }

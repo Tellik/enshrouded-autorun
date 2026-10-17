@@ -6,7 +6,9 @@
   "summary": "World coordinate X for the advanced native prop spawn, placement, or removal actions.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
+      "Built-in mods",
+      "Archive",
+      "World Editor"
     ]
   }
 }

@@ -6,7 +6,7 @@
   "summary": "Niedrigste Stufe, die ShroudForge in Logdateien speichert. Die Debug Console hat zusätzlich einen eigenen Anzeigefilter.",
   "navigation": {
     "path": [
-      "Protokollierung"
+      "Modloader-Einstellungen"
     ]
   }
 }

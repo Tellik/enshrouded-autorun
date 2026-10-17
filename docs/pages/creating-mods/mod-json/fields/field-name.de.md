@@ -6,7 +6,8 @@
   "summary": "Name, den Spieler im Modloader sehen.",
   "navigation": {
     "path": [
-      "mod.json"
+      "mod.json",
+      "Grundfelder"
     ]
   }
 }

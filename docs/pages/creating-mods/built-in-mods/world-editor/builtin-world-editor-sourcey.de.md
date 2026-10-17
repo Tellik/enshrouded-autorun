@@ -6,7 +6,9 @@
   "summary": "Manueller Y-Koordinatenwert der Quellzelle für eine Aufnahme ohne vollständig markierte Cursor-Ecken. Normalerweise die Auswahl mit F5 markieren.",
   "navigation": {
     "path": [
-      "Eingebaute Mods · Archiv"
+      "Eingebaute Mods",
+      "Archiv",
+      "World Editor"
     ]
   }
 }

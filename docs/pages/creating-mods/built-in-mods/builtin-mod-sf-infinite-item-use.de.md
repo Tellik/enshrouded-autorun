@@ -6,7 +6,8 @@
   "summary": "Verhindert, dass Gegenstände bei der Verwendung verbraucht werden.",
   "navigation": {
     "path": [
-      "Eingebaute Mods · Archiv"
+      "Eingebaute Mods",
+      "Archiv"
     ]
   }
 }

@@ -6,7 +6,8 @@
   "summary": "Laufzeit-Mods starten in einem bestimmten Spielprozess. Native Spielfunktionen hängen zusätzlich vom Spielbuild und freigegebenem Profil ab.",
   "navigation": {
     "path": [
-      "Lua-API-Anleitungen"
+      "Lua-API-Anleitungen",
+      "Funktionsanleitungen"
     ]
   },
   "apiPrefixes": [

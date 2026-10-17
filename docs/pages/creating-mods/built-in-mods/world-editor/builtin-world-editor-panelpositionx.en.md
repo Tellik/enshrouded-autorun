@@ -6,7 +6,9 @@
   "summary": "Horizontal position relative to the game window. A value of −1 centers the window, nonnegative values set its left offset.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
+      "Built-in mods",
+      "Archive",
+      "World Editor"
     ]
   }
 }

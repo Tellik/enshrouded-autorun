@@ -6,7 +6,9 @@
   "summary": "Zeigt einen Ein/Aus-Schalter für einen booleschen Wert.",
   "navigation": {
     "path": [
-      "Steuerelemente"
+      "extended.mod.json",
+      "Steuerelemente",
+      "Steuerelementtypen"
     ]
   }
 }

@@ -6,7 +6,9 @@
   "summary": "Recognized Modloader button for wiki.",
   "navigation": {
     "path": [
-      "Link IDs"
+      "extended.mod.json",
+      "Link IDs",
+      "Supported IDs"
     ]
   }
 }

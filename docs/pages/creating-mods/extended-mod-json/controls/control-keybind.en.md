@@ -6,7 +6,9 @@
   "summary": "For a keyboard shortcut stored by Modloader as a key value.",
   "navigation": {
     "path": [
-      "Controls"
+      "extended.mod.json",
+      "Controls",
+      "Control types"
     ]
   }
 }

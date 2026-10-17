@@ -7,7 +7,9 @@
   "navigation": {
     "path": [
       "mod.json"
-    ]
+    ],
+    "overview": true,
+    "label": "Overview"
   }
 }
 ---

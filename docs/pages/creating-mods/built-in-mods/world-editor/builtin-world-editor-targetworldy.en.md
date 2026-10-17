@@ -6,7 +6,9 @@
   "summary": "World coordinate Y as the manual paste target for props-only blueprints when neither the cursor nor a marked target is used.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
+      "Built-in mods",
+      "Archive",
+      "World Editor"
     ]
   }
 }

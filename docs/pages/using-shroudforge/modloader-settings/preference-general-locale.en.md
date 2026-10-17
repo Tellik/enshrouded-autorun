@@ -6,7 +6,8 @@
   "summary": "Language of the Modloader interface, as a valid language tag.",
   "navigation": {
     "path": [
-      "General"
+      "Modloader settings",
+      "General settings"
     ]
   }
 }

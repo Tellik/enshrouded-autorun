@@ -6,7 +6,8 @@
   "summary": "Package files and exported files use different locations and permissions. Choose the matching API surface.",
   "navigation": {
     "path": [
-      "Lua API guides"
+      "Lua API guides",
+      "Feature guides"
     ]
   },
   "apiPrefixes": [

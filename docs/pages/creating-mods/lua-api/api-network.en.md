@@ -6,7 +6,8 @@
   "summary": "runtime.network provides a separate Steam messaging channel. It does not send normal Enshrouded game packets.",
   "navigation": {
     "path": [
-      "Lua API guides"
+      "Lua API guides",
+      "Feature guides"
     ]
   },
   "apiPrefixes": [

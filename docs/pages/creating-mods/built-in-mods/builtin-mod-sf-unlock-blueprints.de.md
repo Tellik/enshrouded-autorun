@@ -6,7 +6,8 @@
   "summary": "Ändert die Freischaltbedingungen von Rezepten auf den ersten Hinweis am Flammenaltar.",
   "navigation": {
     "path": [
-      "Eingebaute Mods · Archiv"
+      "Eingebaute Mods",
+      "Archiv"
     ]
   }
 }

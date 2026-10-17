@@ -44,6 +44,9 @@ export function collectWebsitePages(documentsRoot) {
     if (!de || !en) throw new Error(`${page.id}: missing ${de ? "en" : "de"} translation`);
     const deMeta = de.metadata;
     const enMeta = en.metadata;
+    if ((deMeta.navigation?.overview === true) !== (enMeta.navigation?.overview === true)) {
+      throw new Error(`${page.id}: navigation.overview differs between de and en documents`);
+    }
     const shared = ["view", "source", "apiSymbols", "apiPrefixes"];
     for (const key of shared) {
       if (JSON.stringify(deMeta[key] ?? null) !== JSON.stringify(enMeta[key] ?? null)) {
@@ -62,9 +65,14 @@ export function collectWebsitePages(documentsRoot) {
         de: deMeta.navigation?.label ?? deMeta.title,
         en: enMeta.navigation?.label ?? enMeta.title,
       },
+      navPath: {
+        de: deMeta.navigation?.path ?? [],
+        en: enMeta.navigation?.path ?? [],
+      },
+      navOverview: deMeta.navigation?.overview === true,
       navGroup: {
-        de: deMeta.navigation?.path?.slice(0, -1).join(" / ") || deMeta.navigation?.path?.[0] || "",
-        en: enMeta.navigation?.path?.slice(0, -1).join(" / ") || enMeta.navigation?.path?.[0] || "",
+        de: deMeta.navigation?.path?.[0] || "",
+        en: enMeta.navigation?.path?.[0] || "",
       },
       sourceOrder: deOrder,
       apiSymbols: deMeta.apiSymbols,

@@ -6,7 +6,9 @@
   "summary": "Erlaubte Auswahlwerte mit den Namen, die Spieler sehen.",
   "navigation": {
     "path": [
-      "Einstellungen"
+      "extended.mod.json",
+      "Einstellungen",
+      "Einstellungsfelder"
     ]
   }
 }

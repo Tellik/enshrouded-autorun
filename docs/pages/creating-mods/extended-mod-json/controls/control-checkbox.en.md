@@ -6,7 +6,9 @@
   "summary": "Displays a boolean value as a checkbox.",
   "navigation": {
     "path": [
-      "Controls"
+      "extended.mod.json",
+      "Controls",
+      "Control types"
     ]
   }
 }

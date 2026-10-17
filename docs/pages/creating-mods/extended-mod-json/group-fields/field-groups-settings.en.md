@@ -6,7 +6,9 @@
   "summary": "Keys of existing mod settings displayed in this group.",
   "navigation": {
     "path": [
-      "Groups and actions"
+      "extended.mod.json",
+      "Groups and actions",
+      "Group fields"
     ]
   }
 }

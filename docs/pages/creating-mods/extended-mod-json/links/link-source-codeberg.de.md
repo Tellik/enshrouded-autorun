@@ -6,7 +6,9 @@
   "summary": "Bekannte Modloader-Schaltfläche für source-codeberg.",
   "navigation": {
     "path": [
-      "Link-IDs"
+      "extended.mod.json",
+      "Link-IDs",
+      "Unterstützte IDs"
     ]
   }
 }

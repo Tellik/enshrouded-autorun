@@ -6,7 +6,8 @@
   "summary": "Selects the client process, the Dedicated Server, or both as mod execution targets.",
   "navigation": {
     "path": [
-      "extended.mod.json"
+      "extended.mod.json",
+      "Targets"
     ]
   }
 }

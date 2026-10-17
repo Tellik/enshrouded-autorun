@@ -6,7 +6,9 @@
   "summary": "Kleinster zulässiger Eingabewert.",
   "navigation": {
     "path": [
-      "Einstellungen"
+      "extended.mod.json",
+      "Einstellungen",
+      "Einstellungsfelder"
     ]
   }
 }

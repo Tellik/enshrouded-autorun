@@ -6,7 +6,8 @@
   "summary": "Chooses automatic player-name detection or a manual name.",
   "navigation": {
     "path": [
-      "General"
+      "Modloader settings",
+      "General settings"
     ]
   }
 }

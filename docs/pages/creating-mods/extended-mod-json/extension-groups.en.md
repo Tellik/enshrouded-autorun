@@ -6,7 +6,8 @@
   "summary": "Optional groups for setting fields and Lua actions.",
   "navigation": {
     "path": [
-      "extended.mod.json"
+      "extended.mod.json",
+      "Groups and actions"
     ]
   }
 }

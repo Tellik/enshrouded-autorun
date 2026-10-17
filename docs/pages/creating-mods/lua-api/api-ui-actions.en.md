@@ -6,7 +6,8 @@
   "summary": "An action ID in the mod file connects a visible button to a callback in your mod.",
   "navigation": {
     "path": [
-      "Lua API guides"
+      "Lua API guides",
+      "Feature guides"
     ]
   },
   "apiSymbols": [

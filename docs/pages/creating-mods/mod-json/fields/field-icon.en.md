@@ -6,7 +6,8 @@
   "summary": "Icon file in the package root or under assets/.",
   "navigation": {
     "path": [
-      "mod.json"
+      "mod.json",
+      "Basic fields"
     ]
   }
 }

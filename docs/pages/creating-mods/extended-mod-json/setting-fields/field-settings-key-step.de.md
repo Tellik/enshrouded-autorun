@@ -6,7 +6,9 @@
   "summary": "Schrittweite für Zahlen- und Reglerfelder.",
   "navigation": {
     "path": [
-      "Einstellungen"
+      "extended.mod.json",
+      "Einstellungen",
+      "Einstellungsfelder"
     ]
   }
 }

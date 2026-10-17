@@ -6,7 +6,9 @@
   "summary": "Exportfunktionen für Mod-Ausgaben",
   "navigation": {
     "path": [
-      "Berechtigungen in mod.json"
+      "mod.json",
+      "Zugriffsrechte",
+      "Einzelne Zugriffsrechte"
     ]
   }
 }

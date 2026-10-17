@@ -6,7 +6,8 @@
   "summary": "Prevents health loss from falling.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
+      "Built-in mods",
+      "Archive"
     ]
   }
 }

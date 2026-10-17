@@ -6,7 +6,8 @@
   "summary": "Name, den Nachrichten verwenden, wenn die automatische Erkennung keinen eindeutigen Spielernamen findet.",
   "navigation": {
     "path": [
-      "Allgemein"
+      "Modloader-Einstellungen",
+      "Allgemeine Einstellungen"
     ]
   }
 }

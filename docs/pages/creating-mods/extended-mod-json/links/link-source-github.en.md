@@ -6,7 +6,9 @@
   "summary": "Recognized Modloader button for source-github.",
   "navigation": {
     "path": [
-      "Link IDs"
+      "extended.mod.json",
+      "Link IDs",
+      "Supported IDs"
     ]
   }
 }

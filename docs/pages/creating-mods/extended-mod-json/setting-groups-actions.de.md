@@ -6,8 +6,11 @@
   "summary": "Gruppen ordnen Mod-Einstellungen. Aktionsknöpfe rufen eine benannte Funktion deines Lua-Mods auf.",
   "navigation": {
     "path": [
-      "Einstellungen"
-    ]
+      "extended.mod.json",
+      "Gruppen und Aktionen"
+    ],
+    "overview": true,
+    "label": "Übersicht"
   }
 }
 ---

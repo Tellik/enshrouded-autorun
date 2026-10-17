@@ -6,7 +6,9 @@
   "summary": "Obere hexadezimale Hälfte der nativen Template-UUID für die erweiterte Aktion Queue prop spawn.",
   "navigation": {
     "path": [
-      "Eingebaute Mods · Archiv"
+      "Eingebaute Mods",
+      "Archiv",
+      "World Editor"
     ]
   }
 }

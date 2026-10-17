@@ -6,7 +6,9 @@
   "summary": "Für kurze Texte und Namen.",
   "navigation": {
     "path": [
-      "Steuerelemente"
+      "extended.mod.json",
+      "Steuerelemente",
+      "Steuerelementtypen"
     ]
   }
 }

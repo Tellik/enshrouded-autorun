@@ -6,6 +6,7 @@
   "summary": "Folder for persistent loader state, including enablement and runtime status.",
   "navigation": {
     "path": [
+      "Modloader settings",
       "Storage paths"
     ]
   }

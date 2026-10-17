@@ -6,7 +6,9 @@
   "summary": "Darstellung des Aktionsknopfs, ohne die Funktion zu ändern.",
   "navigation": {
     "path": [
-      "Gruppen und Aktionen"
+      "extended.mod.json",
+      "Gruppen und Aktionen",
+      "Aktionsfelder"
     ]
   }
 }

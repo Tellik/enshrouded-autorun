@@ -6,8 +6,11 @@
   "summary": "Groups organize mod settings. Action buttons call a named function in your Lua mod.",
   "navigation": {
     "path": [
-      "Settings"
-    ]
+      "extended.mod.json",
+      "Groups and actions"
+    ],
+    "overview": true,
+    "label": "Overview"
   }
 }
 ---

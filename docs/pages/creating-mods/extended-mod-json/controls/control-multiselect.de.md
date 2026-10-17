@@ -6,7 +6,9 @@
   "summary": "Erlaubt mehrere Werte. value ist eine Liste und options muss die möglichen Elemente enthalten.",
   "navigation": {
     "path": [
-      "Steuerelemente"
+      "extended.mod.json",
+      "Steuerelemente",
+      "Steuerelementtypen"
     ]
   }
 }

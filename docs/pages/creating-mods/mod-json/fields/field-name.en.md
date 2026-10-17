@@ -6,7 +6,8 @@
   "summary": "Name players see in the Modloader.",
   "navigation": {
     "path": [
-      "mod.json"
+      "mod.json",
+      "Basic fields"
     ]
   }
 }

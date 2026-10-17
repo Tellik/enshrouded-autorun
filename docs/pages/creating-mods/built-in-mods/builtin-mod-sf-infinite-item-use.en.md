@@ -6,7 +6,8 @@
   "summary": "Prevents items from being consumed when used.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
+      "Built-in mods",
+      "Archive"
     ]
   }
 }

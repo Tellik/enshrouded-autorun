@@ -6,7 +6,8 @@
   "summary": "targets legt fest, in welchem Spielprozess ein Mod ausgeführt wird. Client, Server oder beide sind möglich.",
   "navigation": {
     "path": [
-      "extended.mod.json"
+      "extended.mod.json",
+      "Ziele"
     ]
   }
 }

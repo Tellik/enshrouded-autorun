@@ -6,7 +6,9 @@
   "summary": "Shows choices as a row of buttons.",
   "navigation": {
     "path": [
-      "Controls"
+      "extended.mod.json",
+      "Controls",
+      "Control types"
     ]
   }
 }

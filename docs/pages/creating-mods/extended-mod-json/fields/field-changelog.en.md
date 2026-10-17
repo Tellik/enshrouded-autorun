@@ -6,7 +6,8 @@
   "summary": "Short version notes on the mod page.",
   "navigation": {
     "path": [
-      "extended.mod.json"
+      "extended.mod.json",
+      "Fields"
     ]
   }
 }

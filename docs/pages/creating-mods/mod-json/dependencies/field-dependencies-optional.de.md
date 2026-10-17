@@ -6,7 +6,9 @@
   "summary": "Ob eine fehlende oder inkompatible Abhängigkeit den Start blockiert.",
   "navigation": {
     "path": [
-      "mod.json, Abhängigkeiten"
+      "mod.json",
+      "Abhängigkeiten",
+      "Abhängigkeitsfelder"
     ]
   }
 }

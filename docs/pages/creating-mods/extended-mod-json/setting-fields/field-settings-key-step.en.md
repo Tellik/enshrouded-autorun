@@ -6,7 +6,9 @@
   "summary": "Increment for number and slider inputs.",
   "navigation": {
     "path": [
-      "Settings"
+      "extended.mod.json",
+      "Settings",
+      "Setting fields"
     ]
   }
 }

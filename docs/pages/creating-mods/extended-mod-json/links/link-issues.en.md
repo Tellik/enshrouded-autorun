@@ -6,7 +6,9 @@
   "summary": "Recognized Modloader button for issues.",
   "navigation": {
     "path": [
-      "Link IDs"
+      "extended.mod.json",
+      "Link IDs",
+      "Supported IDs"
     ]
   }
 }

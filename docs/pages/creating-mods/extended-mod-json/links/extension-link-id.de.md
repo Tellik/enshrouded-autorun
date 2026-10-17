@@ -6,8 +6,11 @@
   "summary": "Die Link-ID entscheidet, welche bekannte Schaltfläche der Modloader anzeigt.",
   "navigation": {
     "path": [
-      "Gruppen und Aktionen"
-    ]
+      "extended.mod.json",
+      "Link-IDs"
+    ],
+    "overview": true,
+    "label": "Übersicht"
   }
 }
 ---

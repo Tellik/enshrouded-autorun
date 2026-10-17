@@ -6,7 +6,9 @@
   "summary": "Zeigt alle Werte aus options, von denen genau einer aktiv ist.",
   "navigation": {
     "path": [
-      "Steuerelemente"
+      "extended.mod.json",
+      "Steuerelemente",
+      "Steuerelementtypen"
     ]
   }
 }

@@ -6,7 +6,9 @@
   "summary": "Register a package-local DLL during the runtime phase",
   "navigation": {
     "path": [
-      "mod.json capabilities"
+      "mod.json",
+      "Capabilities",
+      "Capability types"
     ]
   }
 }

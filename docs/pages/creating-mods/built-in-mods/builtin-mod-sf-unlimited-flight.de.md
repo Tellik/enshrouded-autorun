@@ -6,7 +6,7 @@
   "summary": "Fünf veränderbare Einstellungen für Flugdauer, Drehrate, Vorwärtsbewegung und Luftwiderstand.",
   "navigation": {
     "path": [
-      "Eingebaute Mods · SF Unlimited Flight"
+      "Eingebaute Mods"
     ]
   },
   "source": {

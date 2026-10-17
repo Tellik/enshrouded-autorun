@@ -6,7 +6,8 @@
   "summary": "Kurzer Text für die Modseite.",
   "navigation": {
     "path": [
-      "mod.json"
+      "mod.json",
+      "Grundfelder"
     ]
   }
 }

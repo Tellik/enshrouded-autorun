@@ -6,7 +6,8 @@
   "summary": "Kurze Versionshinweise auf der Modseite.",
   "navigation": {
     "path": [
-      "extended.mod.json"
+      "extended.mod.json",
+      "Felder"
     ]
   }
 }

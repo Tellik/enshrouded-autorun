@@ -6,8 +6,12 @@
   "summary": "Weltbereiche kopieren, drehen, speichern und einfügen.",
   "navigation": {
     "path": [
-      "Eingebaute Mods · Archiv"
-    ]
+      "Eingebaute Mods",
+      "Archiv",
+      "World Editor"
+    ],
+    "overview": true,
+    "label": "Übersicht"
   }
 }
 ---

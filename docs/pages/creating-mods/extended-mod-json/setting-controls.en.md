@@ -6,8 +6,11 @@
   "summary": "Each setting has a key and starting value. Metadata controls its label, help text, input, limits, and choices.",
   "navigation": {
     "path": [
-      "Settings"
-    ]
+      "extended.mod.json",
+      "Controls"
+    ],
+    "overview": true,
+    "label": "Overview"
   }
 }
 ---

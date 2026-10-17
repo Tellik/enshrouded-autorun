@@ -6,7 +6,9 @@
   "summary": "Weltkoordinate X für die erweiterten nativen Props-Aktionen zum Erstellen, Platzieren oder Entfernen.",
   "navigation": {
     "path": [
-      "Eingebaute Mods · Archiv"
+      "Eingebaute Mods",
+      "Archiv",
+      "World Editor"
     ]
   }
 }

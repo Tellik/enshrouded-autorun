@@ -6,7 +6,8 @@
   "summary": "Paketdateien und Exportdateien haben unterschiedliche Orte und Berechtigungen. Verwende den passenden API-Bereich.",
   "navigation": {
     "path": [
-      "Lua-API-Anleitungen"
+      "Lua-API-Anleitungen",
+      "Funktionsanleitungen"
     ]
   },
   "apiPrefixes": [

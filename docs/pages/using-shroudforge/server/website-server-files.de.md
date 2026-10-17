@@ -7,7 +7,8 @@
   "view": "server-files",
   "navigation": {
     "path": [
-      "QUICKSTART"
+      "QUICKSTART",
+      "Server-Anleitungen"
     ],
     "label": "Serverdateien"
   }

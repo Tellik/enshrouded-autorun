@@ -6,7 +6,9 @@
   "summary": "Zeigt einen booleschen Wert als Kontrollkästchen.",
   "navigation": {
     "path": [
-      "Steuerelemente"
+      "extended.mod.json",
+      "Steuerelemente",
+      "Steuerelementtypen"
     ]
   }
 }

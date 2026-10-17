@@ -7,7 +7,9 @@
   "navigation": {
     "path": [
       "Eingebaute Mods"
-    ]
+    ],
+    "overview": true,
+    "label": "Übersicht"
   }
 }
 ---

@@ -6,7 +6,8 @@
   "summary": "Removes resource consumption in supported building, crafting, and item-use actions.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
+      "Built-in mods",
+      "Archive"
     ]
   }
 }

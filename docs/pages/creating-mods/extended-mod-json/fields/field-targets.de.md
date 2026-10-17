@@ -6,7 +6,8 @@
   "summary": "Wählt den Client-Prozess, den Dedicated Server oder beide als Ausführungsort des Mods.",
   "navigation": {
     "path": [
-      "extended.mod.json"
+      "extended.mod.json",
+      "Ziele"
     ]
   }
 }

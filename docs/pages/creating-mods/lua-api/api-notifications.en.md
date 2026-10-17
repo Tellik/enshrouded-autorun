@@ -6,7 +6,8 @@
   "summary": "Notices tell players about meaningful mod events. They are stored locally and are published only when your mod calls the function.",
   "navigation": {
     "path": [
-      "Lua API guides"
+      "Lua API guides",
+      "Feature guides"
     ]
   },
   "apiSymbols": [

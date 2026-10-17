@@ -6,7 +6,8 @@
   "summary": "Mitteilungen zeigen Spielern wichtige Mod-Ereignisse. Sie werden lokal gespeichert und nur veröffentlicht, wenn dein Mod die Funktion aufruft.",
   "navigation": {
     "path": [
-      "Lua-API-Anleitungen"
+      "Lua-API-Anleitungen",
+      "Funktionsanleitungen"
     ]
   },
   "apiSymbols": [

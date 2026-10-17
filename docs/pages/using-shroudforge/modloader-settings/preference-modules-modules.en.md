@@ -6,7 +6,7 @@
   "summary": "The loader configuration has separate sections for modules. There is no `modules.modules` entry.",
   "navigation": {
     "path": [
-      "Modloader"
+      "Modloader settings"
     ]
   }
 }

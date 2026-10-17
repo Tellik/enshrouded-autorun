@@ -6,7 +6,8 @@
   "summary": "Sprache der Modloader-Oberfläche, als gültiger Sprach-Tag.",
   "navigation": {
     "path": [
-      "Allgemein"
+      "Modloader-Einstellungen",
+      "Allgemeine Einstellungen"
     ]
   }
 }

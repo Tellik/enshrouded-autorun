@@ -6,7 +6,8 @@
   "summary": "License identifier when the mod declares a license.",
   "navigation": {
     "path": [
-      "mod.json"
+      "mod.json",
+      "Basic fields"
     ]
   }
 }

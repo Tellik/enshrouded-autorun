@@ -6,7 +6,8 @@
   "summary": "Ordner für ShroudForge- und Mod-Logdateien. Client und Dedicated Server schreiben getrennte Dateien.",
   "navigation": {
     "path": [
-      "Speicherorte"
+      "Modloader-Einstellungen",
+      "Speicherpfade"
     ]
   }
 }

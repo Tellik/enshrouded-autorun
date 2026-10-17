@@ -6,7 +6,9 @@
   "summary": "Prepare supported game files before launch",
   "navigation": {
     "path": [
-      "mod.json capabilities"
+      "mod.json",
+      "Capabilities",
+      "Capability types"
     ]
   }
 }

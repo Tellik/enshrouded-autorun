@@ -6,7 +6,9 @@
   "summary": "Manual Y target coordinate in voxel cells for a blueprint with voxels when neither the cursor nor a marked target is used.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
+      "Built-in mods",
+      "Archive",
+      "World Editor"
     ]
   }
 }

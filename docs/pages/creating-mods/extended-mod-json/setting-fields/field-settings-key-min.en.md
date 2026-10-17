@@ -6,7 +6,9 @@
   "summary": "Smallest accepted input value.",
   "navigation": {
     "path": [
-      "Settings"
+      "extended.mod.json",
+      "Settings",
+      "Setting fields"
     ]
   }
 }

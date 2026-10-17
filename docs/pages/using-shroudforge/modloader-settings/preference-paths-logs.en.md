@@ -6,6 +6,7 @@
   "summary": "Folder for ShroudForge and mod log files. The client and Dedicated Server write separate files.",
   "navigation": {
     "path": [
+      "Modloader settings",
       "Storage paths"
     ]
   }

@@ -6,7 +6,9 @@
   "summary": "Starting value and expected Lua data type of the setting.",
   "navigation": {
     "path": [
-      "Settings"
+      "extended.mod.json",
+      "Settings",
+      "Setting fields"
     ]
   }
 }

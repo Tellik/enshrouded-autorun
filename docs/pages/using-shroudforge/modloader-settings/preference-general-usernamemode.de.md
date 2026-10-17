@@ -6,7 +6,8 @@
   "summary": "Legt fest, ob der Spielername automatisch erkannt oder manuell festgelegt wird.",
   "navigation": {
     "path": [
-      "Allgemein"
+      "Modloader-Einstellungen",
+      "Allgemeine Einstellungen"
     ]
   }
 }

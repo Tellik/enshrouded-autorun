@@ -6,7 +6,8 @@
   "summary": "Ordner für Lua- und native Laufzeitdaten sowie erkannte Spielprofile.",
   "navigation": {
     "path": [
-      "Speicherorte"
+      "Modloader-Einstellungen",
+      "Speicherpfade"
     ]
   }
 }

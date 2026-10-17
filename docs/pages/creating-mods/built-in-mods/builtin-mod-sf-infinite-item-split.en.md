@@ -6,7 +6,8 @@
   "summary": "Keeps the original stack when splitting items. Also affects other inventory operations.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
+      "Built-in mods",
+      "Archive"
     ]
   }
 }

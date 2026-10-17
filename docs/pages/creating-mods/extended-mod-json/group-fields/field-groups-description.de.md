@@ -6,7 +6,9 @@
   "summary": "Kurzer Text für die Modseite.",
   "navigation": {
     "path": [
-      "Gruppen und Aktionen"
+      "extended.mod.json",
+      "Gruppen und Aktionen",
+      "Gruppenfelder"
     ]
   }
 }

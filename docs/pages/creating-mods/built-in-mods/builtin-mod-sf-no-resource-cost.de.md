@@ -6,7 +6,8 @@
   "summary": "Entfernt den Ressourcenverbrauch bei unterstützten Bau-, Herstellungs- und Verwendungsaktionen.",
   "navigation": {
     "path": [
-      "Eingebaute Mods · Archiv"
+      "Eingebaute Mods",
+      "Archiv"
     ]
   }
 }

@@ -6,7 +6,7 @@
   "summary": "Enables or disables mod export functions.",
   "navigation": {
     "path": [
-      "Exports"
+      "Modloader settings"
     ]
   }
 }

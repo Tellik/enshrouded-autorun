@@ -6,7 +6,9 @@
   "summary": "Minimum length of a text value.",
   "navigation": {
     "path": [
-      "Settings"
+      "extended.mod.json",
+      "Settings",
+      "Setting fields"
     ]
   }
 }

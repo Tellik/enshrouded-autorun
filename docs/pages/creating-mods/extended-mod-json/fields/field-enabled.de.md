@@ -6,7 +6,8 @@
   "summary": "Gespeicherter Aktivierungszustand für diesen Mod.",
   "navigation": {
     "path": [
-      "extended.mod.json"
+      "extended.mod.json",
+      "Felder"
     ]
   }
 }

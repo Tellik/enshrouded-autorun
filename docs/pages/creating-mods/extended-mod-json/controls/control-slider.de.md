@@ -6,7 +6,9 @@
   "summary": "Für Zahlen, die Spieler innerhalb eines Bereichs einstellen.",
   "navigation": {
     "path": [
-      "Steuerelemente"
+      "extended.mod.json",
+      "Steuerelemente",
+      "Steuerelementtypen"
     ]
   }
 }

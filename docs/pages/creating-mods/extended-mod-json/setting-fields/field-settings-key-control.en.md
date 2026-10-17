@@ -6,7 +6,9 @@
   "summary": "Input control displayed by the Modloader.",
   "navigation": {
     "path": [
-      "Settings"
+      "extended.mod.json",
+      "Settings",
+      "Setting fields"
     ]
   }
 }

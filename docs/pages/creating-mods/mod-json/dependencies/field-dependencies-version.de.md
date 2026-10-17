@@ -6,7 +6,9 @@
   "summary": "SemVer-Bereich, der für die Version des benötigten Mods akzeptiert wird.",
   "navigation": {
     "path": [
-      "mod.json, Abhängigkeiten"
+      "mod.json",
+      "Abhängigkeiten",
+      "Abhängigkeitsfelder"
     ]
   }
 }

@@ -6,7 +6,8 @@
   "summary": "Reduces motion and transition effects.",
   "navigation": {
     "path": [
-      "General"
+      "Modloader settings",
+      "General settings"
     ]
   }
 }

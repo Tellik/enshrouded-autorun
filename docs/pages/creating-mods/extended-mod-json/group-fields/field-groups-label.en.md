@@ -6,7 +6,9 @@
   "summary": "Player-facing name displayed in the Modloader.",
   "navigation": {
     "path": [
-      "Groups and actions"
+      "extended.mod.json",
+      "Groups and actions",
+      "Group fields"
     ]
   }
 }

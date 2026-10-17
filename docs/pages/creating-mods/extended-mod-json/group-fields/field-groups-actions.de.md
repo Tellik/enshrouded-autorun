@@ -6,7 +6,9 @@
   "summary": "Aktionsknöpfe, deren IDs Lua-Callbacks aufrufen.",
   "navigation": {
     "path": [
-      "Gruppen und Aktionen"
+      "extended.mod.json",
+      "Gruppen und Aktionen",
+      "Gruppenfelder"
     ]
   }
 }

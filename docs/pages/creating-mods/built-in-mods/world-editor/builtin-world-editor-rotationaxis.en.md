@@ -6,7 +6,9 @@
   "summary": "Up axis for new captures. It is stored in the blueprint, and existing blueprints keep their own axis.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
+      "Built-in mods",
+      "Archive",
+      "World Editor"
     ]
   }
 }

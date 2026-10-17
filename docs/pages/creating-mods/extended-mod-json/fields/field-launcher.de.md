@@ -6,7 +6,8 @@
   "summary": "Herkunft des Mod-Pakets für die Modloader-Anzeige.",
   "navigation": {
     "path": [
-      "extended.mod.json"
+      "extended.mod.json",
+      "Felder"
     ]
   }
 }

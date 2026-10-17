@@ -6,8 +6,11 @@
   "summary": "The link ID selects which recognized button the Modloader displays.",
   "navigation": {
     "path": [
-      "Groups and actions"
-    ]
+      "extended.mod.json",
+      "Link IDs"
+    ],
+    "overview": true,
+    "label": "Overview"
   }
 }
 ---

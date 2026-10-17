@@ -6,7 +6,9 @@
   "summary": "Player-facing name displayed in the Modloader.",
   "navigation": {
     "path": [
-      "Settings"
+      "extended.mod.json",
+      "Settings",
+      "Setting fields"
     ]
   }
 }

@@ -6,6 +6,7 @@
   "summary": "Folder for reusable cached data.",
   "navigation": {
     "path": [
+      "Modloader settings",
       "Storage paths"
     ]
   }

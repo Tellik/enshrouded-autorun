@@ -7,7 +7,8 @@
   "view": "server-docker",
   "navigation": {
     "path": [
-      "QUICKSTART"
+      "QUICKSTART",
+      "Server guides"
     ],
     "label": "Proton Docker"
   }

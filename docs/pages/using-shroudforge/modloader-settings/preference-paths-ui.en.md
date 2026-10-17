@@ -6,6 +6,7 @@
   "summary": "Folder for persistent data and the Modloader interface WebView profile.",
   "navigation": {
     "path": [
+      "Modloader settings",
       "Storage paths"
     ]
   }

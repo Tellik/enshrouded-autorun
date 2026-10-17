@@ -6,7 +6,9 @@
   "summary": "For short text and names.",
   "navigation": {
     "path": [
-      "Controls"
+      "extended.mod.json",
+      "Controls",
+      "Control types"
     ]
   }
 }

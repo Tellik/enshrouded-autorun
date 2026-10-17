@@ -6,7 +6,9 @@
   "summary": "Maximum props per blueprint. Capture, save, load, and paste reject larger blueprints instead of silently dropping props.",
   "navigation": {
     "path": [
-      "Built-in mods · Archive"
+      "Built-in mods",
+      "Archive",
+      "World Editor"
     ]
   }
 }

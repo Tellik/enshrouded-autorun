@@ -6,8 +6,11 @@
   "summary": "Dynamic keys and values that Modloader presents as mod settings and Lua can read.",
   "navigation": {
     "path": [
-      "extended.mod.json"
-    ]
+      "extended.mod.json",
+      "Settings"
+    ],
+    "overview": true,
+    "label": "Overview"
   }
 }
 ---
