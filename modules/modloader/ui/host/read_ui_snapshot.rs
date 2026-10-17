@@ -15,16 +15,16 @@ use super::validate_message_name::normalize_message_name;
 use crate::character_name;
 use shroudforge_loader_config::runtime_status::runtime_is_active;
 use shroudforge_package::config_revision;
-use shroudforge_updater::installed_version;
 use shroudforge_updater::catalog_search_state::CatalogState;
-use shroudforge_updater::provider_config::ProviderConfig;
+use shroudforge_updater::installed_version;
+use shroudforge_updater::provider_config::CatalogProviderConfig;
 use shroudforge_updater::release_state::ReleaseState;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 pub(crate) fn read_ui_snapshot(
     arguments: &Arguments,
-    provider: &ProviderConfig,
+    provider: &CatalogProviderConfig,
     release: &Arc<Mutex<ReleaseState>>,
     catalog: &Arc<Mutex<CatalogState>>,
     central: serde_json::Value,
@@ -53,6 +53,10 @@ pub(crate) fn read_ui_snapshot(
         .and_then(|value| normalize_message_name(value).ok())
         .unwrap_or_else(default_message_name_fallback);
     let detected_username = character_name::detect_active_character_name();
+    let diagnostic_jobs = shroudforge_runtime_diagnostics::diagnostic_job_catalog(
+        &arguments.root,
+        &central["modules"]["runtimeDiagnostics"],
+    );
     let notification_mods: Vec<_> = mods
         .iter()
         .map(|item| shroudforge_news::ModNotification {
@@ -127,10 +131,12 @@ pub(crate) fn read_ui_snapshot(
             )
             .display()
             .to_string(),
-            update_enabled: provider.enabled,
+            diagnostic_jobs: diagnostic_jobs.jobs,
+            diagnostic_job_errors: diagnostic_jobs.errors,
+            diagnostic_job_directory: diagnostic_jobs.directory,
+            diagnostic_selected_job_id: diagnostic_jobs.selected_job_id,
             base_url: provider.base_url.clone(),
             project_id: provider.project_id.clone(),
-            check_minutes: provider.check_minutes,
             paths: storage_paths(&arguments.root),
         },
         catalog: catalog

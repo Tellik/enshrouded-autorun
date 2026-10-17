@@ -32,7 +32,6 @@ export function ModulePreferencesEditor({
   const system = prefs.updates?.system || {
     enabled: true,
     checkMinutes: 60,
-    channel: 'stable',
     includePrereleases: false,
   }
   const saveModule = (module: string, key: string, value: unknown) =>
@@ -185,6 +184,10 @@ export function ModulePreferencesEditor({
                   prefs={prefs}
                   module={module}
                   change={change}
+                  jobs={data.settings.diagnosticJobs || []}
+                  jobErrors={data.settings.diagnosticJobErrors || []}
+                  jobDirectory={data.settings.diagnosticJobDirectory || ''}
+                  selectedJobId={data.settings.diagnosticSelectedJobId || 'runtime.overview'}
                 />
               )}
             </section>

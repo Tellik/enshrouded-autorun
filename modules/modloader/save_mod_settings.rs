@@ -1,5 +1,4 @@
 use crate::package_lookup::find_mod_package;
-use crate::update_mod_extension;
 use std::path::Path;
 
 pub fn save_mod_settings(
@@ -11,7 +10,7 @@ pub fn save_mod_settings(
     let package = find_mod_package(root, id).ok_or("mod package not found")?;
     let manifest = crate::config::read_manifest_path(root, &package)?;
     crate::config::validate_settings(&manifest.settings, values)?;
-    update_mod_extension(root, id, revision, |extension| {
+    crate::update_mod_configuration::update_mod_configuration(root, id, revision, |extension| {
         let next = values.as_object().ok_or("settings must be an object")?;
         let settings = extension
             .get_mut("settings")

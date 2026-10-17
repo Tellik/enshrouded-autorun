@@ -1,7 +1,7 @@
 use crate as shroudforge_updater;
 use crate::extract_mod_archive::extract_zip;
 use crate::mod_package::{ApiVersion, MAX_MOD_BYTES, ResolvedContent};
-use crate::provider_config::ProviderConfig;
+use crate::provider_config::CatalogProviderConfig;
 use crate::verify_mod_checksum::verify_mod_hash;
 use shroudforge_package::package_lookup::find_mod_package;
 use std::{
@@ -13,7 +13,7 @@ use std::{
 
 pub fn download_catalog_version(
     root: &Path,
-    provider: &ProviderConfig,
+    provider: &CatalogProviderConfig,
     client: &reqwest::blocking::Client,
     resolved: &ResolvedContent,
     update_mod_id: Option<&str>,

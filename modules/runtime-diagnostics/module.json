@@ -2,5 +2,5 @@
   "id": "shroudforge.runtime-diagnostics",
   "name": "ShroudForge Runtime Diagnostics",
   "version": "1.0.0",
-  "description": "Explicit, time-limited native runtime diagnostics with shared logging."
+  "description": "Selectable, time-limited runtime diagnostic jobs with shared logging."
 }

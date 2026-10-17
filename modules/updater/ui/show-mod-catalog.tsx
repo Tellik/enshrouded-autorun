@@ -34,13 +34,7 @@ export function Discover({ data }: { data: Snapshot }) {
           {t('discover.search')}
         </button>
       </form>
-      {!data.settings.updateEnabled ? (
-        <Empty
-          title={t('discover.catalog.offline.title')}
-          text={t('discover.catalog.offline.text')}
-          icon="discover"
-        />
-      ) : catalog.state === 'loading' ? (
+      {catalog.state === 'loading' ? (
         <Loading text={t('discover.catalog.loading')} />
       ) : catalog.items.length ? (
         <div className="catalog-grid">

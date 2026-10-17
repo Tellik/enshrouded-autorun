@@ -17,8 +17,6 @@ pub(crate) struct UiSettings {
     pub(crate) log_level: String,
     #[serde(default)]
     pub(crate) export_enabled: bool,
-    pub(crate) update_enabled: bool,
     pub(crate) base_url: String,
     pub(crate) project_id: String,
-    pub(crate) check_minutes: u64,
 }

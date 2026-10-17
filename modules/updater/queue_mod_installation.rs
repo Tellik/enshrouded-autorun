@@ -1,24 +1,24 @@
 use crate::command_result::AsyncUiResult;
-use crate::provider_config::ProviderConfig;
+use crate::provider_config::CatalogProviderConfig;
 use shroudforge_package::package_lookup::valid_identifier;
 use std::path::PathBuf;
 use std::sync::mpsc;
 
 pub fn start_mod_install(
     root: PathBuf,
-    provider: ProviderConfig,
+    provider: CatalogProviderConfig,
     project_id: String,
     title: String,
     results: mpsc::Sender<AsyncUiResult>,
     request_id: String,
 ) {
-    if !provider.enabled || provider.kind != "shroudedit" {
+    if provider.kind != "shroudedit" {
         let _ = results.send(AsyncUiResult {
             request_id,
             source: "ShroudEdit".into(),
             action: "Install mod".into(),
             success_message: "mod.install.queued".into(),
-            result: Err("ShroudEdit access is disabled".into()),
+            result: Err("Unsupported catalog provider".into()),
         });
         return;
     }

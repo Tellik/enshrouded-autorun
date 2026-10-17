@@ -3,7 +3,7 @@ use serde_json::json;
 use std::time::Instant;
 
 impl Session {
-    pub(super) fn stop_measurement(&mut self) {
+    pub(super) fn stop_diagnostic_job(&mut self) {
         self.sample();
         self.active = false;
         self.reason = "stopped";
@@ -11,7 +11,7 @@ impl Session {
         tracing::info!(target:"shroudforge::diagnostics","Diagnostic session stopped");
     }
 
-    pub(super) fn complete_measurement(&mut self) {
+    pub(super) fn complete_diagnostic_job(&mut self) {
         self.active = false;
         self.reason = if self.settings["continuous"] == true {
             "duration-complete"

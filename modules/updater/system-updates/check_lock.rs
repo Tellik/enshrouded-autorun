@@ -5,46 +5,84 @@ use std::path::Path;
 #[cfg(windows)]
 use sha2::{Digest, Sha256};
 
-pub const SYSTEM_UPDATE_CHECK_COOLDOWN_SECONDS: u64 = 5 * 60;
 const SYSTEM_UPDATE_CHECK_LOCK_WAIT_MILLIS: u32 = 45_000;
+
+#[derive(Clone, Copy)]
+pub enum SystemUpdateCheckMode {
+    Automatic,
+    Manual,
+}
 
 pub enum SystemUpdateCheckStart {
     Started(SystemUpdateCheckLock),
     CoolingDown { remaining_seconds: u64 },
     AlreadyRunning,
+    Disabled,
 }
 
-/// Acquires the per-installation check lock and applies the automatic cooldown.
+pub(crate) fn system_update_check_interval_seconds(settings: Option<&serde_json::Value>) -> u64 {
+    settings
+        .and_then(|value| value.pointer("/modules/updates/system/checkMinutes"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(60)
+        .clamp(5, 1440)
+        * 60
+}
+
+pub(crate) fn last_system_update_check_at(settings: Option<&serde_json::Value>) -> Option<u64> {
+    let system = settings?.pointer("/modules/updates/system")?;
+    ["lastCheckAt", "lastCheckAttemptAt"]
+        .into_iter()
+        .filter_map(|key| system.get(key).and_then(serde_json::Value::as_u64))
+        .max()
+}
+
+/// Acquires the per-installation lock and records the start of an allowed check.
 ///
-/// `manual` bypasses the cooldown, but never starts a parallel check.
+/// Automatic checks use the configured interval, including after failed attempts.
+/// Manual checks bypass that interval, but never start a parallel check.
 pub fn begin_system_update_check(
     root: &Path,
-    manual: bool,
+    mode: SystemUpdateCheckMode,
 ) -> Result<SystemUpdateCheckStart, String> {
+    let config = shroudforge_loader_config::config::read_loader(root).ok();
+    let enabled = config
+        .as_ref()
+        .and_then(|value| value.pointer("/modules/updates/system/enabled"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(true);
+    if matches!(mode, SystemUpdateCheckMode::Automatic) && !enabled {
+        return Ok(SystemUpdateCheckStart::Disabled);
+    }
+
     let request_started_at = unix_timestamp();
     let Some((lock, waited_for_running_check)) = SystemUpdateCheckLock::try_acquire(root)? else {
         return Ok(SystemUpdateCheckStart::AlreadyRunning);
     };
 
-    let last_check_at = shroudforge_loader_config::config::read_loader(root).ok().and_then(|value| {
-        value
-            .pointer("/modules/updates/system/lastCheckAt")
-            .and_then(serde_json::Value::as_u64)
-    });
+    let interval_seconds = system_update_check_interval_seconds(config.as_ref());
+    let last_check_at = last_system_update_check_at(config.as_ref());
     if let Some(checked_at) = last_check_at {
         let now = unix_timestamp();
         let elapsed = now.saturating_sub(checked_at);
-        let recent_automatic_result = !manual && elapsed < SYSTEM_UPDATE_CHECK_COOLDOWN_SECONDS;
-        let completed_while_manual_waited =
-            manual && waited_for_running_check && checked_at >= request_started_at;
+        let recent_automatic_result =
+            matches!(mode, SystemUpdateCheckMode::Automatic) && elapsed < interval_seconds;
+        let completed_while_manual_waited = matches!(mode, SystemUpdateCheckMode::Manual)
+            && waited_for_running_check
+            && checked_at >= request_started_at;
         if recent_automatic_result || completed_while_manual_waited {
             drop(lock);
             return Ok(SystemUpdateCheckStart::CoolingDown {
-                remaining_seconds: SYSTEM_UPDATE_CHECK_COOLDOWN_SECONDS.saturating_sub(elapsed),
+                remaining_seconds: interval_seconds.saturating_sub(elapsed),
             });
         }
     }
 
+    let started_at = unix_timestamp();
+    shroudforge_loader_config::config::update_loader(root, |value| {
+        value["modules"]["updates"]["system"]["lastCheckAttemptAt"] = serde_json::json!(started_at);
+        Ok(())
+    })?;
     Ok(SystemUpdateCheckStart::Started(lock))
 }
 

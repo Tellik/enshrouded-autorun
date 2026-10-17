@@ -89,9 +89,14 @@ thread_local! {
 pub fn set_enabled(enabled: bool) {
     let was_enabled = ENABLED.replace(enabled);
     if enabled && !was_enabled {
-        GENERATION.set(GENERATION.get().wrapping_add(1));
-        MEASUREMENTS.with(|measurements| *measurements.borrow_mut() = Measurements::default());
+        reset_session();
     }
+}
+
+/// Clear samples when a new diagnostics request replaces an active job.
+pub fn reset_session() {
+    GENERATION.set(GENERATION.get().wrapping_add(1));
+    MEASUREMENTS.with(|measurements| *measurements.borrow_mut() = Measurements::default());
 }
 
 /// Thread-bound so dropping a span on another worker cannot mix measurements.

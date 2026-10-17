@@ -9,7 +9,7 @@ import { Field, SettingsRow, Toggle } from '../../ui-resources/edit-setting'
 import { Flag } from '../../ui-resources/show-flag'
 import { PageHeader } from '../../ui-resources/show-page-header'
 import { Segmented } from '../../ui-resources/choose-segment'
-import { GamefileBackupManagement } from '../../../game-assets/ui/show-backups'
+import { GamefileBackupManagement } from '../../game-files/ui/show-game-file-backups'
 import { StoragePathsEditor } from './show-storage-paths'
 import { ModulePreferencesEditor } from './show-module-settings'
 

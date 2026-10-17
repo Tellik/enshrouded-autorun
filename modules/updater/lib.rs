@@ -229,6 +229,7 @@ mod read_action_parameters;
 
 #[path = "control/check_due_system_update.rs"]
 mod check_due_system_update;
+pub use check_due_system_update::system_update_check_delay;
 
 #[path = "mod-installation/run_mod_installation_worker.rs"]
 mod run_mod_installation_worker;

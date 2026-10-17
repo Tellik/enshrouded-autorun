@@ -53,16 +53,15 @@ use super::{
 use sha2::Digest;
 use sha2::Sha256;
 use shroudforge_logging::write_activity;
+use shroudforge_updater::catalog_search_state::CatalogState;
+use shroudforge_updater::command_result::AsyncUiResult;
 use shroudforge_updater::installed_release;
+use shroudforge_updater::provider_config::default_system_provider;
+use shroudforge_updater::release_state::ReleaseState;
 use shroudforge_updater::start_catalog_search;
 use shroudforge_updater::start_mod_install;
 use shroudforge_updater::start_mod_update;
 use shroudforge_updater::start_update_check;
-use shroudforge_updater::command_result::AsyncUiResult;
-use shroudforge_updater::catalog_search_state::CatalogState;
-use shroudforge_updater::provider_config::ProviderConfig;
-use shroudforge_updater::release_state::ReleaseState;
-use shroudforge_updater::provider_config::default_system_provider;
 use std::fs;
 use std::process::Child;
 use std::sync::Arc;
@@ -140,7 +139,6 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
     let mut module_config = load_module_config(&arguments.root).unwrap_or_else(|_| ModuleConfig {
         toggle_key: default_toggle_key(),
         refresh_milliseconds: default_refresh(),
-        update_provider: ProviderConfig::default(),
         system_update_provider: default_system_provider(),
     });
     if !arguments.desktop
@@ -150,11 +148,8 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
     {
         return Ok(());
     }
-    if arguments.updater_window {
-        module_config.system_update_provider.enabled = true;
-    }
     let user_config = load_user_config(&arguments.root);
-    let provider = effective_provider(&module_config, &user_config);
+    let provider = effective_provider(&user_config);
     let installed = installed_release(&arguments.root);
     let staged = shroudforge_loader_config::paths::updates_dir(&arguments.root)
         .join("pending.ready")
@@ -285,7 +280,7 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
     let mut next_window_state_refresh = Instant::now();
     let mut next_control_poll = Instant::now();
     let mut next_update_check = if module_config.system_update_provider.enabled {
-        Instant::now()
+        Instant::now() + shroudforge_updater::system_update_check_delay(&arguments.root)
     } else {
         Instant::now() + Duration::from_secs(86400)
     };
@@ -331,10 +326,8 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                         if let Ok(updated_module_config) = load_module_config(&arguments.root) {
                             module_config = updated_module_config;
                             hotkey_key.store(module_config.toggle_key, Ordering::Relaxed);
-                            active_provider = effective_provider(
-                                &module_config,
-                                &load_user_config(&arguments.root),
-                            );
+                            active_provider =
+                                effective_provider(&load_user_config(&arguments.root));
                             let updated_system_provider =
                                 module_config.system_update_provider.clone();
                             if serde_json::to_value(&updated_system_provider).ok()
@@ -343,6 +336,9 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                                 system_provider = updated_system_provider;
                                 next_update_check = if system_provider.enabled {
                                     Instant::now()
+                                        + shroudforge_updater::system_update_check_delay(
+                                            &arguments.root,
+                                        )
                                 } else {
                                     Instant::now() + Duration::from_secs(86400)
                                 };
@@ -433,13 +429,19 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                             &webview,
                             &mut next_refresh,
                         ),
-                        Command::CheckUpdates(request_id) => start_update_check(
-                            arguments.root.clone(),
-                            system_provider.clone(),
-                            release_state.clone(),
-                            async_sender.clone(),
-                            Some(request_id),
-                        ),
+                        Command::CheckUpdates(request_id) => {
+                            start_update_check(
+                                arguments.root.clone(),
+                                system_provider.clone(),
+                                release_state.clone(),
+                                async_sender.clone(),
+                                Some(request_id),
+                            );
+                            next_update_check = Instant::now()
+                                + Duration::from_secs(
+                                    system_provider.check_minutes.clamp(5, 1440) * 60,
+                                );
+                        }
                         Command::StageUpdate(request_id, wait_for_game) => stage_system_update(
                             request_id,
                             wait_for_game,
@@ -633,8 +635,9 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                             &webview,
                             &mut next_refresh,
                         ),
-                        Command::Diagnostics(action, request_id) => request_diagnostics(
+                        Command::Diagnostics(action, job_id, request_id) => request_diagnostics(
                             action,
+                            job_id,
                             request_id,
                             &arguments,
                             &webview,
@@ -682,7 +685,10 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                         if shown {
                             window.set_focus();
                             if arguments.updater_window {
-                                next_update_check = Instant::now();
+                                next_update_check = Instant::now()
+                                    + shroudforge_updater::system_update_check_delay(
+                                        &arguments.root,
+                                    );
                             }
                         }
                         let _ = shroudforge_loader_config::config::publish_window_visibility(
@@ -733,21 +739,18 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                         position_window(&window, &next_position, false);
                         saved_position = next_position;
                     }
-                    if let Ok(mut next) = load_module_config(&arguments.root) {
-                        if arguments.updater_window {
-                            next.system_update_provider.enabled = true;
-                        }
+                    if let Ok(next) = load_module_config(&arguments.root) {
                         if next.system_update_provider.enabled != system_provider.enabled
                             || next.system_update_provider.check_minutes
                                 != system_provider.check_minutes
                             || next.system_update_provider.include_prereleases
                                 != system_provider.include_prereleases
                         {
-                            next_update_check = Instant::now();
+                            next_update_check = Instant::now()
+                                + shroudforge_updater::system_update_check_delay(&arguments.root);
                         }
                         system_provider = next.system_update_provider.clone();
-                        active_provider =
-                            effective_provider(&next, &load_user_config(&arguments.root));
+                        active_provider = effective_provider(&load_user_config(&arguments.root));
                         module_config = next;
                     }
                     next_refresh = Instant::now()

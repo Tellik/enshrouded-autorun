@@ -16,7 +16,7 @@ pub(crate) fn stage_stored_system_update(
         .cloned()
         .filter(serde_json::Value::is_object);
     if release.is_none() {
-        headless_check_system_updates(root, true)?;
+        headless_check_system_updates(root, crate::update_check::SystemUpdateCheckMode::Automatic)?;
         release = shroudforge_loader_config::config::read_loader(root)?
             .pointer("/modules/updates/system/latestRelease")
             .cloned()

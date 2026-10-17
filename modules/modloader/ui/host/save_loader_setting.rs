@@ -129,21 +129,33 @@ pub(crate) fn save_setting(
         "network" => matches!(key, "serverSteamId" | "allowedClientSteamIds"),
         "runtimeDiagnostics" => matches!(
             key,
-            "intervalMilliseconds"
+            "jobId"
+                | "intervalMilliseconds"
                 | "maximumDurationSeconds"
                 | "slowCallbackMilliseconds"
                 | "continuous"
                 | "onlyChanges"
-                | "areas"
         ),
-        "updates.system" => matches!(
-            key,
-            "enabled" | "checkMinutes" | "channel" | "includePrereleases"
-        ),
+        "updates.system" => matches!(key, "enabled" | "checkMinutes" | "includePrereleases"),
         _ => false,
     };
     if !valid {
         return Err("unsupported module setting".into());
+    }
+    if module == "runtimeDiagnostics" && key == "jobId" {
+        let job_id = setting.as_str().ok_or("diagnostic job id must be text")?;
+        let config = shroudforge_loader_config::config::read_loader(root)?;
+        let catalog = shroudforge_runtime_diagnostics::diagnostic_job_catalog(
+            root,
+            &config["modules"]["runtimeDiagnostics"],
+        );
+        if !catalog.jobs.iter().any(|job| job.id == job_id) {
+            return Err(format!("diagnostic job was not found: {job_id}"));
+        }
+        return shroudforge_loader_config::config::update_loader(root, |config| {
+            config["modules"]["runtimeDiagnostics"]["jobId"] = setting.clone();
+            Ok(())
+        });
     }
     if module == "network" {
         let text = setting.as_str().ok_or("Network settings must be text")?;

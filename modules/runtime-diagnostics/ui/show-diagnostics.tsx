@@ -1,22 +1,60 @@
 import { postRequest } from '../../transport/ui/send-host-command'
 import { TranslationKey, useI18n } from '../../ui-resources/i18n'
 import type { DiagnosticStatus } from './diagnostic-status'
+import type { DiagnosticJob } from '../../loader-config/ui/loader-settings'
+
+const builtInJobLabels: Record<string, [TranslationKey, TranslationKey]> = {
+  'runtime.overview': [
+    'settings.modules.diagnosticJob.overview',
+    'settings.modules.diagnosticJob.overviewDescription',
+  ],
+  'runtime.health': [
+    'settings.modules.diagnosticJob.health',
+    'settings.modules.diagnosticJob.healthDescription',
+  ],
+  'runtime.queue': [
+    'settings.modules.diagnosticJob.queue',
+    'settings.modules.diagnosticJob.queueDescription',
+  ],
+  'runtime.callbacks': [
+    'settings.modules.diagnosticJob.callbacks',
+    'settings.modules.diagnosticJob.callbacksDescription',
+  ],
+  'runtime.operations': [
+    'settings.modules.diagnosticJob.operations',
+    'settings.modules.diagnosticJob.operationsDescription',
+  ],
+}
 
 export function DiagnosticsControls({
   data,
   prefs,
   module,
   change,
+  jobs,
+  jobErrors,
+  jobDirectory,
+  selectedJobId,
 }: {
   data: { diagnostics?: DiagnosticStatus }
   prefs: Record<string, Record<string, any>>
   module: string
   change(module: string, key: string, value: unknown): void
+  jobs: DiagnosticJob[]
+  jobErrors: string[]
+  jobDirectory: string
+  selectedJobId: string
 }) {
   const { t } = useI18n()
-  const diagnosticAreas = Array.isArray(prefs.runtimeDiagnostics?.areas)
-    ? prefs.runtimeDiagnostics.areas
-    : []
+  const preferredJobId = prefs.runtimeDiagnostics?.jobId
+  const jobId = jobs.some((job) => job.id === preferredJobId)
+    ? preferredJobId
+    : selectedJobId
+  const selectedJob = jobs.find((job) => job.id === jobId)
+  const jobLabel = (job: DiagnosticJob, description = false) => {
+    const keys = builtInJobLabels[job.id]
+    return keys ? t(keys[description ? 1 : 0]) : description ? job.description : job.name
+  }
   const statusText = data.diagnostics?.fresh
     ? data.diagnostics.active
       ? `${t('settings.modules.diagnosticActive')} · ${data.diagnostics.remainingSeconds}s`
@@ -24,30 +62,33 @@ export function DiagnosticsControls({
     : t('settings.modules.diagnosticUnavailable')
   return (
     <div className="settings-diagnostics">
-      <p className="hint">{t('settings.modules.diagnosticAreas')}</p>
-      <div className="settings-area-list">
-        {['runtime', 'queue', 'mods'].map((area) => (
-          <label key={area}>
-            <input
-              className="settings-checkbox"
-              type="checkbox"
-              checked={diagnosticAreas.includes(area)}
-              onChange={(e) =>
-                change(
-                  module,
-                  'areas',
-                  e.target.checked
-                    ? [...diagnosticAreas, area]
-                    : diagnosticAreas.filter((value: string) => value !== area),
-                )
-              }
-            />
-            {area}
-          </label>
-        ))}
-      </div>
+      <label className="settings-diagnostic-job">
+        <span>{t('settings.modules.diagnosticJobSelector')}</span>
+        <select
+          value={jobId}
+          onChange={(event) => change(module, 'jobId', event.target.value)}
+        >
+          {!jobs.some((job) => job.id === jobId) && (
+            <option value={jobId} disabled>
+              {t('settings.modules.diagnosticJobMissing', { jobId })}
+            </option>
+          )}
+          {jobs.map((job) => (
+            <option key={job.id} value={job.id}>
+              {jobLabel(job)}
+            </option>
+          ))}
+        </select>
+      </label>
+      {selectedJob && <p className="hint">{jobLabel(selectedJob, true)}</p>}
       <p className="hint">
         {statusText}
+        {data.diagnostics?.active && data.diagnostics.jobId && (
+          <>
+            {' · '}
+            {t('settings.modules.diagnosticJobActive')}: {data.diagnostics.jobId}
+          </>
+        )}
         {' · '}
         {t('settings.modules.lastSample')}
         {': '}
@@ -56,12 +97,29 @@ export function DiagnosticsControls({
           : '—'}
       </p>
       <p className="hint">{t('settings.modules.saveHint')}</p>
+      <p className="hint">
+        {t('settings.modules.diagnosticJobFolder')}: <code>{jobDirectory}</code>
+      </p>
+      <button
+        className="button ghost settings-module-action"
+        onClick={() => postRequest('open-path', { key: 'diagnostic-jobs' })}
+      >
+        {t('settings.modules.openDiagnosticJobFolder')}
+      </button>
+      {jobErrors.length > 0 && (
+        <details className="settings-diagnostic-job-errors">
+          <summary>{t('settings.modules.diagnosticJobErrors', { count: jobErrors.length })}</summary>
+          <ul>
+            {jobErrors.map((error) => <li key={error}>{error}</li>)}
+          </ul>
+        </details>
+      )}
       <div className="settings-diagnostic-actions">
         {(['start', 'stop', 'snapshot'] as const).map((action) => (
           <button
             className="button ghost"
             key={action}
-            onClick={() => postRequest('diagnostics', { action })}
+            onClick={() => postRequest('diagnostics', { action, jobId })}
           >
             {t(`settings.modules.${action}`)}
           </button>
@@ -94,6 +152,5 @@ export const diagnosticSettingsFields: Array<
     'slowCallbackMilliseconds',
     'settings.modules.field.threshold',
   ],
-  ['runtimeDiagnostics', 'continuous', 'settings.modules.field.continuous'],
   ['runtimeDiagnostics', 'onlyChanges', 'settings.modules.field.onlyChanges'],
 ]

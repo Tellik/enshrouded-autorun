@@ -1,24 +1,24 @@
 use crate::command_result::AsyncUiResult;
 use crate::mod_installation::catalog::catalog_project_for_mod;
-use crate::provider_config::ProviderConfig;
+use crate::provider_config::CatalogProviderConfig;
 use std::path::PathBuf;
 use std::sync::mpsc;
 
 pub fn start_mod_update(
     root: PathBuf,
-    provider: ProviderConfig,
+    provider: CatalogProviderConfig,
     mod_id: String,
     title: String,
     results: mpsc::Sender<AsyncUiResult>,
     request_id: String,
 ) {
-    if !provider.enabled || provider.kind != "shroudedit" {
+    if provider.kind != "shroudedit" {
         let _ = results.send(AsyncUiResult {
             request_id,
             source: mod_id,
             action: "Update mod".into(),
             success_message: "mod.update.queued".into(),
-            result: Err("ShroudEdit access is disabled".into()),
+            result: Err("Unsupported catalog provider".into()),
         });
         return;
     }

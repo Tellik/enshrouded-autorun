@@ -1,5 +1,5 @@
 use crate::install_catalog_mod::install_mod_from_catalog;
-use crate::provider_config::ProviderConfig;
+use crate::provider_config::CatalogProviderConfig;
 use shroudforge_logging::write_activity;
 use shroudforge_package::package_lookup::valid_identifier;
 use std::{fs, path::PathBuf};
@@ -24,7 +24,7 @@ pub fn run_catalog_install_worker() -> Result<(), String> {
         let project_id = request["projectId"]
             .as_str()
             .ok_or("request has no projectId")?;
-        let provider: ProviderConfig = serde_json::from_value(request["provider"].clone())
+        let provider: CatalogProviderConfig = serde_json::from_value(request["provider"].clone())
             .map_err(|e| format!("invalid provider settings: {e}"))?;
         if !valid_identifier(project_id) {
             return Err("invalid mod project ID".into());

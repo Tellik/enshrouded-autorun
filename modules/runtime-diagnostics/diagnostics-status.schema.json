@@ -4,7 +4,7 @@
   "required":["schemaVersion","pid","updatedAt","active","reason","remainingSeconds","lastSampleAt"],
   "properties":{
     "schemaVersion":{"const":1},"pid":{"type":"integer","minimum":1},"updatedAt":{"type":"integer","minimum":0},
-    "active":{"type":"boolean"},"reason":{"enum":["disabled","active","stopped","duration-complete","snapshot-complete","process-stopped"]},
+    "active":{"type":"boolean"},"jobId":{"type":["string","null"],"maxLength":80},"reason":{"enum":["disabled","active","stopped","duration-complete","snapshot-complete","process-stopped","job-unavailable"]},
     "remainingSeconds":{"type":"integer","minimum":0},"lastSampleAt":{"type":"integer","minimum":0},"report":{}
   },"additionalProperties":false
 }

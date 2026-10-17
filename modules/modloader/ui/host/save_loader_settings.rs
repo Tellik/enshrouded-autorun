@@ -1,19 +1,16 @@
 use super::loader_settings_input::UiSettings;
 use super::validate_message_name::normalize_message_name;
-use shroudforge_updater::provider_config::ProviderConfig;
+use shroudforge_updater::provider_config::CatalogProviderConfig;
 use shroudforge_updater::provider_config::default_loader;
 use shroudforge_updater::provider_config::default_provider_kind;
 use std::path::Path;
 
 pub(crate) fn save_settings(root: &Path, settings: &UiSettings) -> Result<(), String> {
-    let provider = ProviderConfig {
-        enabled: settings.update_enabled,
+    let provider = CatalogProviderConfig {
         kind: default_provider_kind(),
         base_url: settings.base_url.trim_end_matches('/').to_owned(),
         project_id: settings.project_id.trim().to_owned(),
         loader: default_loader(),
-        check_minutes: settings.check_minutes.clamp(5, 1440),
-        include_prereleases: false,
     };
     if provider.base_url.is_empty() || provider.project_id.is_empty() {
         return Err("update provider fields must not be empty".into());
@@ -44,18 +41,31 @@ pub(crate) fn save_settings(root: &Path, settings: &UiSettings) -> Result<(), St
                 (
                     "runtimeDiagnostics",
                     &[
+                        "jobId",
                         "intervalMilliseconds",
                         "maximumDurationSeconds",
                         "slowCallbackMilliseconds",
                         "continuous",
                         "onlyChanges",
-                        "areas",
                     ][..],
                 ),
             ] {
                 for key in keys {
                     if let Some(setting) = preferences.get(module).and_then(|value| value.get(*key))
                     {
+                        if module == "runtimeDiagnostics" && *key == "jobId" {
+                            let job_id =
+                                setting.as_str().ok_or("diagnostic job id must be text")?;
+                            let catalog = shroudforge_runtime_diagnostics::diagnostic_job_catalog(
+                                root,
+                                &value["modules"]["runtimeDiagnostics"],
+                            );
+                            if !catalog.jobs.iter().any(|job| job.id == job_id) {
+                                return Err(format!("diagnostic job was not found: {job_id}"));
+                            }
+                            value["modules"][module]["jobId"] = setting.clone();
+                            continue;
+                        }
                         value["modules"][module][*key] = setting.clone();
                     }
                 }
@@ -66,7 +76,7 @@ pub(crate) fn save_settings(root: &Path, settings: &UiSettings) -> Result<(), St
                     value["modules"][module]["window"]["position"] = position.clone();
                 }
             }
-            for key in ["enabled", "checkMinutes", "channel", "includePrereleases"] {
+            for key in ["enabled", "checkMinutes", "includePrereleases"] {
                 if let Some(setting) = preferences.pointer(&format!("/updates/system/{key}")) {
                     value["modules"]["updates"]["system"][key] = setting.clone();
                 }

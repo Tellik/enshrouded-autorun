@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 impl Session {
     pub fn tick(&mut self) {
         self.refresh();
+        crate::diagnostics_jobs::operation_timings::set_enabled(self.operation_timings_enabled());
         let now = Instant::now();
         if now < self.next_sample
             && !(self.active && self.started.elapsed().as_secs() >= self.limit())
@@ -22,9 +23,10 @@ impl Session {
             if self.started.elapsed().as_secs() >= self.limit()
                 || self.settings["continuous"] != true
             {
-                self.complete_measurement();
+                self.complete_diagnostic_job();
             }
         }
+        crate::diagnostics_jobs::operation_timings::set_enabled(self.operation_timings_enabled());
         self.publish();
     }
 }

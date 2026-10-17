@@ -5,7 +5,7 @@ use crate::mod_installation::catalog::{
     remember_catalog_install,
 };
 use crate::mod_package::ResolveContentPlan;
-use crate::provider_config::ProviderConfig;
+use crate::provider_config::CatalogProviderConfig;
 use crate::replace_installed_mod::replace_catalog_mod;
 use shroudforge_loader_config::runtime_status::runtime_is_active;
 use shroudforge_package::package_lookup::find_mod_package;
@@ -17,13 +17,13 @@ use std::{
 
 pub fn install_mod_from_catalog(
     root: &Path,
-    provider: &ProviderConfig,
+    provider: &CatalogProviderConfig,
     project_id: &str,
     update_mod_id: Option<&str>,
     queue_item_id: &str,
 ) -> Result<Vec<String>, String> {
-    if !provider.enabled || provider.kind != "shroudedit" {
-        return Err("ShroudEdit access is disabled".into());
+    if provider.kind != "shroudedit" {
+        return Err("unsupported catalog provider".into());
     }
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(60))

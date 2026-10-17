@@ -3840,6 +3840,7 @@ dependencies = [
 name = "shroudforge-runtime-diagnostics"
 version = "1.0.0"
 dependencies = [
+ "serde",
  "serde_json",
  "shroudforge-loader-config",
  "tempfile",

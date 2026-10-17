@@ -18,7 +18,7 @@ pub(crate) fn queue_requested_mod_installation(
         root,
         project_id,
         title,
-        crate::read_action_parameters::read_enabled_catalog_provider(root)?,
+        crate::read_action_parameters::read_catalog_provider(root)?,
     )?;
     Ok(format!(
         "Mod installation for {project_id} added to the shared update queue"

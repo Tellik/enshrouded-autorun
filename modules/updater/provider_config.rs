@@ -2,6 +2,30 @@ use serde::{Serialize, Deserialize};
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CatalogProviderConfig {
+    #[serde(default = "default_provider_kind")]
+    pub kind: String,
+    #[serde(default = "default_base_url")]
+    pub base_url: String,
+    #[serde(default = "default_project_id")]
+    pub project_id: String,
+    #[serde(default = "default_loader")]
+    pub loader: String,
+}
+
+impl Default for CatalogProviderConfig {
+    fn default() -> Self {
+        Self {
+            kind: default_provider_kind(),
+            base_url: default_base_url(),
+            project_id: default_project_id(),
+            loader: default_loader(),
+        }
+    }
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProviderConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -22,7 +46,7 @@ pub struct ProviderConfig {
 impl Default for ProviderConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             kind: default_provider_kind(),
             base_url: default_base_url(),
             project_id: default_project_id(),
@@ -51,7 +75,7 @@ pub fn default_loader() -> String {
 }
 
 pub fn default_check_minutes() -> u64 {
-    30
+    60
 }
 
 pub fn default_system_provider() -> ProviderConfig {

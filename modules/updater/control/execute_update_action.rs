@@ -20,7 +20,9 @@ pub(crate) fn execute_headless_control_action(
 ) -> Result<String, String> {
     let parameters = &action.parameters;
     match action.name.as_str() {
-        "checkUpdates" => headless_check_system_updates(root, true),
+        "checkUpdates" => {
+            headless_check_system_updates(root, crate::update_check::SystemUpdateCheckMode::Manual)
+        }
         "queueSystemUpdate" => {
             crate::queue_stored_system_update::queue_stored_system_update(root, parameters)
         }

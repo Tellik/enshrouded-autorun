@@ -197,6 +197,22 @@ pub fn run_module() -> Result<(), String> {
             .parent()
             .ok_or("updater executable is not inside the ShroudForge module directory")?
             .to_path_buf();
+        match crate::headless_check_system_updates(
+            &root,
+            crate::update_check::SystemUpdateCheckMode::Manual,
+        ) {
+            Ok(message) => {
+                let _ = shroudforge_logging::append(&root, 'I', "updater", &message);
+            }
+            Err(error) => {
+                let _ = shroudforge_logging::append(
+                    &root,
+                    'W',
+                    "updater",
+                    &format!("Manual update check did not complete: {error}"),
+                );
+            }
+        }
         return scheduled::open_update_window(&root).map_err(|error| {
             let _ = shroudforge_logging::append(&root, 'E', "updater-window", &error);
             error

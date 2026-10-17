@@ -17,16 +17,20 @@ pub(crate) fn read_control_action_ids(
 }
 
 #[cfg(windows)]
-pub(crate) fn read_enabled_catalog_provider(
+pub(crate) fn read_catalog_provider(
     root: &std::path::Path,
 ) -> Result<serde_json::Value, String> {
-    let provider =
-        shroudforge_loader_config::config::read_loader(root)?["catalog"]["provider"].clone();
-    if !provider.is_object()
-        || provider["enabled"].as_bool() != Some(true)
-        || provider["kind"].as_str() != Some("shroudedit")
-    {
-        return Err("ShroudEdit catalog access is not enabled in modloader-config.json".into());
+    let config = shroudforge_loader_config::config::read_loader(root)?;
+    let provider = config.pointer("/catalog/provider").cloned();
+    let provider = match provider {
+        Some(provider) if provider.is_object() => {
+            serde_json::from_value::<crate::provider_config::CatalogProviderConfig>(provider)
+                .map_err(|error| format!("invalid catalog provider: {error}"))?
+        }
+        _ => crate::provider_config::CatalogProviderConfig::default(),
+    };
+    if provider.kind != "shroudedit" {
+        return Err("unsupported catalog provider".into());
     }
-    Ok(provider)
+    serde_json::to_value(provider).map_err(|error| error.to_string())
 }

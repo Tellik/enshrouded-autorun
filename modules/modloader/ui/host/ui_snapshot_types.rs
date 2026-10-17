@@ -2,9 +2,9 @@ use super::read_ui_configuration::{default_refresh, default_toggle_key};
 use serde::Deserialize;
 use serde::Serialize;
 use shroudforge_updater::catalog_search_state::CatalogState;
-use shroudforge_updater::provider_config::ProviderConfig;
-use shroudforge_updater::release_state::ReleaseState;
 use shroudforge_updater::provider_config::default_system_provider;
+use shroudforge_updater::provider_config::{CatalogProviderConfig, ProviderConfig};
+use shroudforge_updater::release_state::ReleaseState;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -13,9 +13,7 @@ pub(crate) struct ModuleConfig {
     pub(crate) toggle_key: u32,
     #[serde(default = "default_refresh")]
     pub(crate) refresh_milliseconds: u64,
-    #[serde(default)]
-    pub(crate) update_provider: ProviderConfig,
-    #[serde(default = "default_system_provider")]
+    #[serde(skip, default = "default_system_provider")]
     pub(crate) system_update_provider: ProviderConfig,
 }
 
@@ -23,7 +21,7 @@ pub(crate) struct ModuleConfig {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UserConfig {
     #[serde(default)]
-    pub(crate) update_provider: Option<ProviderConfig>,
+    pub(crate) update_provider: Option<CatalogProviderConfig>,
     #[serde(default)]
     pub(crate) locale: Option<String>,
 }
@@ -114,10 +112,12 @@ pub(crate) struct SnapshotSettings {
     pub(crate) active_runtime_profile: Option<String>,
     pub(crate) runtime_profiles: Vec<String>,
     pub(crate) runtime_profile_directory: String,
-    pub(crate) update_enabled: bool,
+    pub(crate) diagnostic_jobs: Vec<shroudforge_runtime_diagnostics::DiagnosticJob>,
+    pub(crate) diagnostic_job_errors: Vec<String>,
+    pub(crate) diagnostic_job_directory: String,
+    pub(crate) diagnostic_selected_job_id: String,
     pub(crate) base_url: String,
     pub(crate) project_id: String,
-    pub(crate) check_minutes: u64,
     pub(crate) paths: Vec<StoragePath>,
 }
 

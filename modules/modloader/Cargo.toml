@@ -10,7 +10,7 @@ path = "lib.rs"
 
 [dependencies]
 shroudforge-loader-config.workspace = true
-shroudforge-game-assets = { path = "../../game-assets" }
+shroudforge-game-assets = { path = "../game-files" }
 thiserror = "2.0"
 walkdir = "2.5"
 serde.workspace = true

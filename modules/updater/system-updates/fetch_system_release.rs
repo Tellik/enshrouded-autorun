@@ -75,27 +75,7 @@ pub fn fetch_latest_github(
     else {
         return Ok(None);
     };
-    let checksum_response = client
-        .get(&checksum_url)
-        .send()
-        .map_err(|error| format!("Could not download GitHub checksum: {error}"))?;
-    if !checksum_response.status().is_success() {
-        return Err(format!(
-            "GitHub checksum endpoint returned HTTP {}",
-            checksum_response.status()
-        ));
-    }
-    let checksum_text = checksum_response
-        .text()
-        .map_err(|error| format!("Could not read GitHub checksum: {error}"))?;
-    let checksum = checksum_text
-        .split_whitespace()
-        .next()
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    if checksum.len() != 64 || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err("GitHub release does not contain a valid SHA-256 checksum".into());
-    }
+    let checksum = fetch_checksum(&client, &checksum_url)?;
     let (mandatory, notes) = crate::parse_release_notes(&release.body);
     Ok(Some(Release {
         version,
@@ -112,4 +92,32 @@ pub fn fetch_latest_github(
             notes
         },
     }))
+}
+
+fn fetch_checksum(client: &reqwest::blocking::Client, url: &str) -> Result<String, String> {
+    let response = client
+        .get(url)
+        .send()
+        .map_err(|error| format!("Could not download GitHub checksum: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "GitHub checksum endpoint returned HTTP {}",
+            response.status()
+        ));
+    }
+    let checksum = response
+        .text()
+        .map_err(|error| format!("Could not read GitHub checksum: {error}"))?
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !valid_checksum(&checksum) {
+        return Err("GitHub release does not contain a valid SHA-256 checksum".into());
+    }
+    Ok(checksum)
+}
+
+fn valid_checksum(checksum: &str) -> bool {
+    checksum.len() == 64 && checksum.bytes().all(|byte| byte.is_ascii_hexdigit())
 }

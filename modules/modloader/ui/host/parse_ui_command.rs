@@ -22,6 +22,8 @@ pub(crate) struct UiCommand {
     #[serde(default)]
     pub(crate) action: Option<String>,
     #[serde(default)]
+    pub(crate) job_id: Option<String>,
+    #[serde(default)]
     pub(crate) enabled: Option<bool>,
     #[serde(default)]
     pub(crate) ids: Option<Vec<String>>,
@@ -83,7 +85,7 @@ pub(crate) enum Command {
     RunModAction(String, String, String),
     RemoveMod(String, String),
     SetNewsRead(Vec<String>, bool, String),
-    Diagnostics(String, String),
+    Diagnostics(String, Option<String>, String),
     UiReady,
     UiError(String),
 }
@@ -97,6 +99,7 @@ pub(crate) fn parse_ui_command(
     Some(match value.command.as_str() {
         "diagnostics" => Command::Diagnostics(
             value.action.unwrap_or_default(),
+            value.job_id,
             value.request_id.unwrap_or_default(),
         ),
         "hide" => Command::Hide(value.request_id.unwrap_or_default()),

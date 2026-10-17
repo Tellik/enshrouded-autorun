@@ -52,8 +52,7 @@ export function Page({
   if (id === 'discover') return <Discover data={data} />
   if (id === 'installed')
     return <Installed mods={data.mods} select={selectMod} />
-  if (id === 'updates')
-    return <Updates data={data} settings={settings} setSettings={setSettings} />
+  if (id === 'updates') return <Updates data={data} />
   if (id === 'compatibility')
     return (
       <Compatibility

@@ -1,6 +1,12 @@
 export type ModulePreferences = Record<string, Record<string, any>>
 
 export type StoragePath = { id: string; path: string; defaultPath: string }
+export type DiagnosticJob = {
+  id: string
+  name: string
+  description: string
+  capabilities: string[]
+}
 
 export type Settings = {
   configRevision?: string
@@ -16,9 +22,11 @@ export type Settings = {
   activeRuntimeProfile?: string
   runtimeProfiles?: string[]
   runtimeProfileDirectory?: string
+  diagnosticJobs?: DiagnosticJob[]
+  diagnosticJobErrors?: string[]
+  diagnosticJobDirectory?: string
+  diagnosticSelectedJobId?: string
   paths?: StoragePath[]
-  updateEnabled: boolean
   baseUrl: string
   projectId: string
-  checkMinutes: number
 }

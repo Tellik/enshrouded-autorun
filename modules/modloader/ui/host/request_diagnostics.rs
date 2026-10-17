@@ -4,12 +4,14 @@ use std::time::Instant;
 
 pub(crate) fn request_diagnostics(
     action: String,
+    job_id: Option<String>,
     request_id: String,
     arguments: &Arguments,
     webview: &wry::WebView,
     next_refresh: &mut Instant,
 ) {
-    let result = shroudforge_runtime_diagnostics::request(&arguments.root, &action);
+    let result =
+        shroudforge_runtime_diagnostics::request_job(&arguments.root, &action, job_id.as_deref());
     let message = match action.as_str() {
         "start" => "settings.diagnosticStarted",
         "stop" => "settings.diagnosticStopped",

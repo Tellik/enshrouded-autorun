@@ -8,6 +8,7 @@ pub fn run_module() -> Result<(), String> {
             .map(|pair| pair[1].as_str())
     };
     let root = PathBuf::from(arg("--root").ok_or("missing --root installation directory")?);
+    let job_id = arg("--job");
 
     if args.iter().any(|value| value == "--status") {
         println!("{}", crate::status(&root));
@@ -16,11 +17,11 @@ pub fn run_module() -> Result<(), String> {
 
     for action in ["start", "stop", "snapshot"] {
         if args.iter().any(|value| value == &format!("--{action}")) {
-            crate::request(&root, action)?;
-            println!("Diagnostic {action} requested; the loader processes it when running");
+            crate::request_job(&root, action, job_id)?;
+            println!("Diagnostic job request accepted; the running game loader processes it");
             return Ok(());
         }
     }
 
-    Err("choose --start, --snapshot, --stop, or --status".into())
+    Err("choose --start, --snapshot, --stop, or --status, optionally with --job <id>".into())
 }

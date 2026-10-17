@@ -66,18 +66,12 @@
             {
               "type": "object",
               "required": [
-                "enabled",
                 "kind",
                 "baseUrl",
                 "projectId",
-                "loader",
-                "checkMinutes",
-                "includePrereleases"
+                "loader"
               ],
               "properties": {
-                "enabled": {
-                  "type": "boolean"
-                },
                 "kind": {
                   "type": "string",
                   "minLength": 1,
@@ -97,96 +91,6 @@
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 80
-                },
-                "checkMinutes": {
-                  "type": "integer",
-                  "minimum": 5,
-                  "maximum": 1440
-                },
-                "includePrereleases": {
-                  "type": "boolean"
-                },
-                "lastCheckAt": {
-                  "type": [
-                    "integer",
-                    "null"
-                  ],
-                  "minimum": 0
-                },
-                "latestRelease": {
-                  "oneOf": [
-                    {
-                      "type": "null"
-                    },
-                    {
-                      "type": "object",
-                      "required": [
-                        "version",
-                        "baseVersion",
-                        "build",
-                        "downloadUrl",
-                        "checksum",
-                        "releaseUrl",
-                        "message",
-                        "prerelease",
-                        "updateAvailable",
-                        "checkedAt"
-                      ],
-                      "properties": {
-                        "version": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 128
-                        },
-                        "baseVersion": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 128
-                        },
-                        "build": {
-                          "type": "integer",
-                          "minimum": 0
-                        },
-                        "downloadUrl": {
-                          "type": "string",
-                          "pattern": "^https://",
-                          "maxLength": 2048
-                        },
-                        "checksum": {
-                          "type": "string",
-                          "pattern": "^[A-Fa-f0-9]{64}$"
-                        },
-                        "releaseUrl": {
-                          "type": [
-                            "string",
-                            "null"
-                          ],
-                          "maxLength": 2048
-                        },
-                        "message": {
-                          "type": "string",
-                          "maxLength": 20000
-                        },
-                        "prerelease": {
-                          "type": "boolean"
-                        },
-                        "mandatory": {
-                          "type": "boolean"
-                        },
-                        "repairRequired": {
-                          "type": "boolean"
-                        },
-                        "updateAvailable": {
-                          "type": "boolean"
-                        },
-                        "checkedAt": {
-                          "type": "integer",
-                          "minimum": 0
-                        }
-                      },
-                      "additionalProperties": false
-                    }
-                  ]
                 }
               },
               "additionalProperties": false
@@ -856,6 +760,11 @@
         "runtimeDiagnostics": {
           "type": "object",
           "properties": {
+            "jobId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            },
             "enabled": {
               "type": "boolean"
             },
@@ -880,17 +789,6 @@
             "onlyChanges": {
               "type": "boolean"
             },
-            "areas": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "enum": [
-                  "runtime",
-                  "queue",
-                  "mods"
-                ]
-              }
-            },
             "requestId": {
               "type": "integer",
               "minimum": 0
@@ -912,11 +810,6 @@
                   "minimum": 5,
                   "maximum": 1440
                 },
-                "channel": {
-                  "enum": [
-                    "stable"
-                  ]
-                },
                 "includePrereleases": {
                   "type": "boolean"
                 },
@@ -927,8 +820,15 @@
                   ],
                   "minimum": 0
                 },
+                "lastCheckAttemptAt": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
                 "latestRelease": {
-                  "$ref": "#/properties/catalog/properties/provider/oneOf/1/properties/latestRelease"
+                  "$ref": "#/$defs/latestSystemRelease"
                 },
                 "startupPromptedVersion": {
                   "type": [
@@ -973,6 +873,81 @@
     }
   },
   "$defs": {
+    "latestSystemRelease": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "version",
+            "baseVersion",
+            "build",
+            "downloadUrl",
+            "checksum",
+            "releaseUrl",
+            "message",
+            "prerelease",
+            "updateAvailable",
+            "checkedAt"
+          ],
+          "properties": {
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "baseVersion": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "build": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "downloadUrl": {
+              "type": "string",
+              "pattern": "^https://",
+              "maxLength": 2048
+            },
+            "checksum": {
+              "type": "string",
+              "pattern": "^[A-Fa-f0-9]{64}$"
+            },
+            "releaseUrl": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 2048
+            },
+            "message": {
+              "type": "string",
+              "maxLength": 20000
+            },
+            "prerelease": {
+              "type": "boolean"
+            },
+            "mandatory": {
+              "type": "boolean"
+            },
+            "repairRequired": {
+              "type": "boolean"
+            },
+            "updateAvailable": {
+              "type": "boolean"
+            },
+            "checkedAt": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
     "controlAction": {
       "type": "object",
       "required": [

@@ -46,20 +46,6 @@ pub fn start_update_check(
             }
             return;
         }
-        if !provider.enabled {
-            value.state = "idle".into();
-            value.message = Some("GitHub system updates are disabled.".into());
-            if let Some(request_id) = request_id {
-                let _ = results.send(AsyncUiResult {
-                    request_id,
-                    source: "Updates".into(),
-                    action: "Check for updates".into(),
-                    success_message: "updates.check.upToDate".into(),
-                    result: Err("System update checks are disabled in settings.".into()),
-                });
-            }
-            return;
-        }
         value.state = "checking".into();
         value.message = Some("Checking releases…".into());
     } else {
@@ -75,6 +61,11 @@ pub fn start_update_check(
         return;
     }
     let manual = request_id.is_some();
+    let mode = if manual {
+        crate::update_check::SystemUpdateCheckMode::Manual
+    } else {
+        crate::update_check::SystemUpdateCheckMode::Automatic
+    };
     thread::spawn(move || {
         let repair_status = crate::refresh_cached_repair_status(&root);
         let repair_required = matches!(&repair_status, Ok(true));
@@ -93,53 +84,56 @@ pub fn start_update_check(
             );
             return;
         }
-        let check_start = repair_status.and_then(|repair_required| {
-            let repair_without_release = repair_required
-                    && !shroudforge_loader_config::config::read_loader(&root)?["modules"]
-                        ["updates"]["system"]["latestRelease"]
-                        .is_object();
-            crate::update_check::begin_system_update_check(&root, manual || repair_without_release)
-        });
+        let check_start =
+            repair_status.and_then(|_| crate::update_check::begin_system_update_check(&root, mode));
         let _check_lock = match check_start {
             Ok(crate::update_check::SystemUpdateCheckStart::Started(lock)) => lock,
             Ok(crate::update_check::SystemUpdateCheckStart::CoolingDown { remaining_seconds }) => {
                 restore_persisted_update_result(&root, &state);
-                if let Ok(mut value) = state.lock() {
-                    if value.message.is_none() {
+                let (result_ready, update_available) = if let Ok(mut value) = state.lock() {
+                    if value.state != "ready" {
+                        value.state = "idle".into();
                         value.message = Some(format!(
-                            "A recent update check was reused. Another automatic check is allowed in {remaining_seconds} seconds."
+                            "An update check was attempted recently. Another automatic check is allowed in {remaining_seconds} seconds."
                         ));
                     }
-                }
+                    (value.state == "ready", value.update_available)
+                } else {
+                    (false, false)
+                };
                 let _ = shroudforge_logging::append(
                     &root,
                     'D',
                     "updates",
                     &format!(
-                        "Recent persisted update check result reused. {remaining_seconds} seconds remain in the automatic cooldown"
+                        "Recent update check attempt reused. {remaining_seconds} seconds remain in the automatic cooldown"
                     ),
                 );
                 if let Some(request_id) = request_id {
-                    let update_available = state
-                        .lock()
-                        .map(|value| value.update_available)
-                        .unwrap_or(false);
-                    let detail = if update_available {
-                        "A ShroudForge update is available."
+                    let (success_message, result) = if !result_ready {
+                        (
+                            "updates.check.upToDate",
+                            Err(format!(
+                                "No completed update result is available. Another check is allowed in {remaining_seconds} seconds."
+                            )),
+                        )
+                    } else if update_available {
+                        (
+                            "updates.check.available",
+                            Ok("A ShroudForge update is available.".into()),
+                        )
                     } else {
-                        "ShroudForge is up to date."
+                        (
+                            "updates.check.upToDate",
+                            Ok("ShroudForge is up to date.".into()),
+                        )
                     };
                     let _ = results.send(AsyncUiResult {
                         request_id,
                         source: "Updates".into(),
                         action: "Check for updates".into(),
-                        success_message: if update_available {
-                            "updates.check.available"
-                        } else {
-                            "updates.check.upToDate"
-                        }
-                        .into(),
-                        result: Ok(detail.into()),
+                        success_message: success_message.into(),
+                        result,
                     });
                 }
                 return;
@@ -167,6 +161,25 @@ pub fn start_update_check(
                         action: "Check for updates".into(),
                         success_message: "updates.check.upToDate".into(),
                         result: Err("An update check is already running.".into()),
+                    });
+                }
+                return;
+            }
+            Ok(crate::update_check::SystemUpdateCheckStart::Disabled) => {
+                restore_persisted_update_result(&root, &state);
+                if let Ok(mut value) = state.lock() {
+                    if value.state != "ready" {
+                        value.state = "idle".into();
+                        value.message = Some("Automatic system update checks are disabled.".into());
+                    }
+                }
+                if let Some(request_id) = request_id {
+                    let _ = results.send(AsyncUiResult {
+                        request_id,
+                        source: "Updates".into(),
+                        action: "Check for updates".into(),
+                        success_message: "updates.check.upToDate".into(),
+                        result: Err("Automatic system update checks are disabled.".into()),
                     });
                 }
                 return;

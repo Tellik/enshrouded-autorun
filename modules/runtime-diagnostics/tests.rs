@@ -44,7 +44,10 @@ fn deadline_is_independent_of_sample_interval_and_restart_works() {
         Duration::from_millis(30),
         true,
     );
-    assert_eq!(session.measurements["mods/example/on_update"].slow, 1);
+    assert_eq!(
+        super::diagnostics_jobs::mod_callbacks::report(&session.measurements)["mods/example/on_update"]["slowCalls"],
+        1
+    );
     session.next_sample = Instant::now() + Duration::from_secs(60);
     session.started = Instant::now() - Duration::from_secs(2);
     session.tick();

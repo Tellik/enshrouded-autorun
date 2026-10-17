@@ -54,7 +54,7 @@
     "../../debug-console/ui/settings.ts",
     "../../world-editor/ui/settings.ts",
     "../../loader-config/ui/*.tsx",
-    "../../../game-assets/ui/*.tsx"
+    "../../game-files/ui/*.tsx"
   ],
   "exclude": [
     "vite.config.ts"

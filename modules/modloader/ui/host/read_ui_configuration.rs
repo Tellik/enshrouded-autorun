@@ -2,7 +2,7 @@ use super::ui_snapshot_types::ModuleConfig;
 use super::ui_snapshot_types::UserConfig;
 use super::window::DEFAULT_TOGGLE_KEY;
 use shroudforge_package::config_revision;
-use shroudforge_updater::provider_config::ProviderConfig;
+use shroudforge_updater::provider_config::CatalogProviderConfig;
 use std::path::Path;
 
 pub(crate) fn default_toggle_key() -> u32 {
@@ -59,10 +59,8 @@ pub(crate) fn load_user_config(root: &Path) -> UserConfig {
     }
 }
 
-pub(crate) fn effective_provider(module: &ModuleConfig, user: &UserConfig) -> ProviderConfig {
-    user.update_provider
-        .clone()
-        .unwrap_or_else(|| module.update_provider.clone())
+pub(crate) fn effective_provider(user: &UserConfig) -> CatalogProviderConfig {
+    user.update_provider.clone().unwrap_or_default()
 }
 
 pub(crate) fn live_settings_revision(root: &Path) -> String {

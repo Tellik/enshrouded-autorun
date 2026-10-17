@@ -5,21 +5,5 @@
   "entrypoint": "shroudforge.exe",
   "mode": "--module-ui",
   "toggleKey": 120,
-  "refreshMilliseconds": 1000,
-  "updateProvider": {
-    "enabled": false,
-    "kind": "shroudedit",
-    "baseUrl": "https://api.shroudedit.com",
-    "projectId": "shroudforge",
-    "loader": "shroudforge",
-    "checkMinutes": 30
-  },
-  "systemUpdateProvider": {
-    "enabled": true,
-    "kind": "github-releases",
-    "baseUrl": "https://api.github.com",
-    "projectId": "bonsaibauer/shroudforge",
-    "loader": "shroudforge",
-    "checkMinutes": 60
-  }
+  "refreshMilliseconds": 1000
 }

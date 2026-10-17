@@ -1,19 +1,19 @@
-# Benachrichtigungen
+# Notifications module
 
-Dieses Modul besitzt Nachrichten, lokale Ereignisse, ihren Lesestand sowie die Nachrichtenansicht und Toasts. Es liest keine Modloader-Fensterdateien ein. Der Modloader übergibt die benötigten Modangaben ausdrücklich als `ModNotification`.
+This module owns built-in news, local mod events, read state, the news view, and toast messages. It does not read Modloader window files. The Modloader passes the required mod details explicitly as `ModNotification`.
 
-| Handlung | Implementierung |
+| Action | Implementation |
 | --- | --- |
-| Mitgelieferte Nachrichten lesen | `read_news.rs` |
-| Ereignisse und Nachrichten zusammenstellen | `read_notifications.rs` |
-| Lesestand mit Wiederholungsfristen lesen | `read_news_state.rs` |
-| Nachrichten als gelesen oder ungelesen speichern | `mark_news_read.rs`, `mark_news_unread.rs` |
-| Ereignis prüfen und speichern | `validate_notification_event.rs`, `write_notification_event.rs` |
-| Installationen und Versionswechsel als Ereignisse festhalten | `sync_mod_events.rs`, `write_mod_event.rs` |
-| Nachrichten für die gewählte Sprache aufbauen | `ui/build-news-items.ts` |
-| Nachrichtenliste, einzelne Nachricht und Popup anzeigen | `ui/show-news.tsx`, `ui/show-notice-card.tsx`, `ui/show-notice-popup.tsx` |
-| Ergebnisse als Toast anzeigen | `ui/show-toasts.tsx` |
+| Read built-in news | `read_news.rs` |
+| Combine events and news | `read_notifications.rs` |
+| Read the state and repeat intervals | `read_news_state.rs` |
+| Mark news as read or unread | `mark_news_read.rs`, `mark_news_unread.rs` |
+| Validate and save an event | `validate_notification_event.rs`, `write_notification_event.rs` |
+| Record installations and version changes | `sync_mod_events.rs`, `write_mod_event.rs` |
+| Build localized news items | `ui/build-news-items.ts` |
+| Display the list, an item, and its popup | `ui/show-news.tsx`, `ui/show-notice-card.tsx`, `ui/show-notice-popup.tsx` |
+| Display action results as toasts | `ui/show-toasts.tsx` |
 
-`documents.rs` enthält die eigenen Dokumentverträge. Nachrichten, Ereignisse und Lesestand behalten ihre bisherigen JSON-Felder und Speicherorte. Toastzeiten bleiben bei 4,5 Sekunden für Erfolg und 8 Sekunden für Fehler. Mehrere gespeicherte Einstellungen werden weiterhin innerhalb von 900 Millisekunden zu einer Meldung zusammengefasst.
+`documents.rs` defines the module's persisted document formats. News, events, and read state keep their existing JSON fields and storage locations. Toasts remain visible for 4.5 seconds after success and 8 seconds after an error. Multiple saved-setting results are still combined into one toast within 900 milliseconds.
 
-Gemeinsame Anzeigeelemente und Übersetzungen kommen aus `modules/ui-resources`. IPC-Nachrichten sendet `modules/transport/ui/send-host-command.ts`. Die App des Modloaders setzt die Ansichten zusammen und führt die Navigation aus.
+Shared display resources and translations come from `modules/ui-resources`. The UI sends IPC requests through `modules/transport/ui/send-host-command.ts`. The Modloader application composes the views and owns navigation.

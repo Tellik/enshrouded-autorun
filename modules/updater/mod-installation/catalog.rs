@@ -1,7 +1,10 @@
 use std::{path::Path, time::Duration};
-use crate::{provider_config::ProviderConfig, catalog_item::CatalogItem};
+use crate::{catalog_item::CatalogItem, provider_config::CatalogProviderConfig};
 
-pub fn fetch_catalog(provider: &ProviderConfig, query: &str) -> Result<Vec<CatalogItem>, String> {
+pub fn fetch_catalog(
+    provider: &CatalogProviderConfig,
+    query: &str,
+) -> Result<Vec<CatalogItem>, String> {
     if provider.kind != "shroudedit" {
         return Err(format!("unsupported catalog provider: {}", provider.kind));
     }
