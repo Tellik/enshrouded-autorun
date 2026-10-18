@@ -32,6 +32,9 @@ pub fn infer_api_contract(manifest: &mut ModManifest, source: &str) {
         "restart"
     };
     for setting in &mut manifest.settings {
+        if setting.apply_at_explicit {
+            continue;
+        }
         setting.apply_at = apply_at.into();
         setting.restart_required = apply_at != "live";
     }

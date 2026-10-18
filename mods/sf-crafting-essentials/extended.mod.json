@@ -6,48 +6,76 @@
   "settings": {
     "noResourceCost": {
       "value": true,
-      "label": "No Resource Costs",
-      "description": "Enables the game operation verified for this build, which runs the affected original routine without resource costs.",
-      "control": "checkbox"
+      "label": "No Recipe Resource Costs",
+      "description": "Removes direct ingredients, category ingredients and water charges from recipes before startup. Recipe requirements display as zero. Requires a game restart. Building, upgrade and other shared inventory costs are unchanged.",
+      "control": "checkbox",
+      "applyAt": "restart",
+      "restartRequired": true,
+      "assetPreparation": true
     },
     "infiniteItemUse": {
       "value": true,
-      "label": "Infinite Item Use",
-      "description": "Enables the game operation verified for this build, which prevents consumption for affected item-use calls.",
-      "control": "checkbox"
+      "label": "Keep Used Items",
+      "description": "Prevents item consumption when actions pay their usage cost or apply buffs. Mana, stamina and fuel costs remain unchanged. Crafting ingredients and inventory transfers are unaffected.",
+      "control": "checkbox",
+      "applyAt": "live",
+      "restartRequired": false
     },
-    "infiniteItemSplit": {
-      "value": true,
-      "label": "Keep Source Stack When Splitting",
-      "description": "Enables the game operation verified for this build, which leaves the source stack unchanged when splitting.",
-      "control": "checkbox"
-    },
-    "productionTimeEnabled": {
-      "value": true,
-      "label": "Apply Configured Production Time",
-      "description": "Sets every recipe with a positive crafting duration to the configured number of seconds before the game starts. When disabled, original durations are kept.",
-      "control": "checkbox"
+    "productionTimeMode": {
+      "value": "original",
+      "label": "Recipe Time Mode",
+      "description": "Changing the mode requires a restart. Original recipe times use the live scale. Shared time changes every timed recipe during startup asset preparation.",
+      "control": "select",
+      "options": {
+        "original": "Live: Original recipe times",
+        "fixed": "Restart required: One shared time for all recipes"
+      },
+      "applyAt": "restart",
+      "restartRequired": true,
+      "assetPreparation": true
     },
     "productionSeconds": {
       "value": 3,
       "label": "Production Time in Seconds",
-      "description": "Shared base duration for all timed recipes. The world's production speed setting also applies.",
+      "description": "Sets one base duration for every timed recipe in shared-time mode. Applied during startup asset preparation. Requires restart.",
       "control": "slider",
       "min": 1,
       "max": 900,
-      "step": 1
+      "step": 1,
+      "enabledWhen": {
+        "setting": "productionTimeMode",
+        "equals": "fixed"
+      },
+      "applyAt": "restart",
+      "restartRequired": true,
+      "assetPreparation": true
+    },
+    "workshopTimeFactorPercent": {
+      "value": 100,
+      "label": "Production Duration Scale",
+      "description": "Applied live. At 0%, the shortest timed recipe is scaled to 1 second and other recipes keep their relative times. 100% preserves normal world speed. 200% doubles normal duration.",
+      "control": "slider",
+      "min": 0,
+      "max": 200,
+      "step": 5,
+      "enabledWhen": {
+        "setting": "productionTimeMode",
+        "equals": "original"
+      },
+      "applyAt": "live",
+      "restartRequired": false
     }
   },
   "groups": [
     {
       "label": "Resources and Inventory",
-      "description": "These features run during gameplay and require a runtime operation verified for the current game build.",
-      "settings": ["noResourceCost", "infiniteItemUse", "infiniteItemSplit"]
+      "description": "Recipe ingredient and water costs are changed before startup. Keep Used Items controls supported action usage costs and buff application.",
+      "settings": ["noResourceCost", "infiniteItemUse"]
     },
     {
       "label": "Production",
-      "description": "The KFC parser updates the complete recipe list before startup. Instant recipes and quantities remain unchanged.",
-      "settings": ["productionTimeEnabled", "productionSeconds"]
+      "description": "Choose live scaling of original recipe times or one shared duration prepared at startup. Only the control for the selected mode is enabled.",
+      "settings": ["productionTimeMode", "productionSeconds", "workshopTimeFactorPercent"]
     }
   ]
 }

@@ -20,14 +20,15 @@ pub(crate) fn loaded_field(
             .ok_or("unresolved resource root")?
             .size as usize;
         let range = field.byte_range();
+        let width = range.len();
         if bytes.len() < root_size
-            || range.len() != 4
-            || range.start % 4 != 0
+            || !matches!(width, 1 | 2 | 4 | 8)
+            || range.start % width != 0
             || field.leaves.len() != 1
-            || field.leaves[0].1 != (0..4)
+            || field.leaves[0].1 != (0..width)
         {
             return Err(
-                "resource field requires a complete root and one aligned 32-bit leaf".into(),
+                "resource field requires a complete root and one naturally aligned 1/2/4/8-byte leaf".into(),
             );
         }
         validate_runtime_scalar(

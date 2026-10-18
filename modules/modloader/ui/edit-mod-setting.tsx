@@ -7,10 +7,12 @@ export function ModSetting({
   definition,
   value,
   onChange,
+  disabled = false,
 }: {
   definition: SettingDefinition
   value: unknown
   onChange(value: unknown): void
+  disabled?: boolean
 }) {
   const control =
     definition.control ||
@@ -26,6 +28,7 @@ export function ModSetting({
       <SettingSwitch
         label={definition.label}
         checked={Boolean(value)}
+        disabled={disabled}
         onChange={(checked) => onChange(checked)}
       />
     )
@@ -38,6 +41,7 @@ export function ModSetting({
           min={definition.minimum}
           max={definition.maximum}
           step={definition.step}
+          disabled={disabled}
           onChange={(event) => onChange(Number(event.target.value))}
         />
         <output>{String(value ?? definition.default)}</output>
@@ -47,6 +51,7 @@ export function ModSetting({
     input = (
       <select
         value={String(value ?? '')}
+        disabled={disabled}
         onChange={(event) =>
           onChange(optionValue(definition, event.target.value))
         }
@@ -66,6 +71,7 @@ export function ModSetting({
             type="button"
             className={String(value) === String(option.value) ? 'active' : ''}
             key={String(option.value)}
+            disabled={disabled}
             onClick={() => onChange(option.value)}
           >
             {option.label}
@@ -75,7 +81,7 @@ export function ModSetting({
     )
   else if (control === 'multiselect')
     return (
-      <div className="mod-multiselect">
+      <div className={`mod-multiselect ${disabled ? 'disabled' : ''}`}>
         <div className="mod-multiselect-title">
           <strong>{definition.label}</strong>
           {definition.description && <small>{definition.description}</small>}
@@ -89,10 +95,12 @@ export function ModSetting({
               <SettingsRow
                 key={String(option.value)}
                 label={option.label}
+                rowClass={disabled ? 'disabled' : ''}
                 control={
                   <SettingSwitch
                     label={option.label}
                     checked={selected}
+                    disabled={disabled}
                     onChange={() =>
                       onChange(
                         selected
@@ -120,6 +128,7 @@ export function ModSetting({
         value={String(value ?? '')}
         minLength={definition.minimumLength}
         maxLength={definition.maximumLength}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
       />
     )
@@ -129,6 +138,7 @@ export function ModSetting({
         className="mod-input mod-color"
         type="color"
         value={String(value ?? definition.default)}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
       />
     )
@@ -138,6 +148,7 @@ export function ModSetting({
         className="mod-input keybind-input"
         value={String(value ?? '')}
         readOnly
+        disabled={disabled}
         aria-label={definition.label}
         onKeyDown={(event) => {
           event.preventDefault()
@@ -157,6 +168,7 @@ export function ModSetting({
         step={definition.step}
         minLength={definition.minimumLength}
         maxLength={definition.maximumLength}
+        disabled={disabled}
         onChange={(event) =>
           onChange(numeric ? Number(event.target.value) : event.target.value)
         }
@@ -166,10 +178,17 @@ export function ModSetting({
     <SettingsRow
       label={definition.label}
       detail={definition.description}
-      control={<div className="mod-setting-control">{input}</div>}
-      rowClass={
-        control === 'radio' || control === 'segmented' ? 'expanded' : ''
+      control={
+        <div className="mod-setting-control" aria-disabled={disabled}>
+          {input}
+        </div>
       }
+      rowClass={[
+        control === 'radio' || control === 'segmented' ? 'expanded' : '',
+        disabled ? 'disabled' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
     />
   )
 }

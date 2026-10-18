@@ -155,8 +155,8 @@ bool snapshot_arrays(const Layout& layout, const View& view,
 bool list_type(const Layout& layout, const View& view, std::uint32_t type_hash,
     std::vector<KfcRuntimeResourceId>& result);
 
-bool compare_exchange_32(std::uintptr_t address, std::uint32_t expected,
-    std::uint32_t desired, std::uint32_t& observed) noexcept;
+bool compare_exchange_bits(std::uintptr_t address, std::size_t width, std::uint64_t expected,
+    std::uint64_t desired, std::uint64_t& observed) noexcept;
 
 bool copy_expected_snapshot(const void* source, unsigned char* destination, std::size_t size) noexcept;
 

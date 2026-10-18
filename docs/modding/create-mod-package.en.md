@@ -163,6 +163,8 @@ This valid example creates a text field and places it under the **Greeting** hea
 - `control` chooses the visible input. The supported controls are `toggle`, `checkbox`, `text`, `textarea`, `number`, `slider`, `select`, `radio`, `segmented`, `multiselect`, `keybind`, and `color`.
 - `min`, `max`, and `step` set number limits. `minLength` and `maxLength` set text limits.
 - `options` gives choices to `select`, `radio`, `segmented`, and `multiselect`. List values need `options`. A scalar value with `options` defaults to a select; a list defaults to a multi-select.
+- `enabledWhen` disables and dims a setting until another setting has the selected value. For example, `{ "setting": "timeMode", "equals": "fixed" }` keeps a duration slider visible but unavailable while the player chooses original recipe times.
+- `applyAt` labels when the setting takes effect: `live` or `restart`. `restartRequired` must agree with that value. `assetPreparation: true` adds an asset preparation label, so a live setting can show that it also affects the next startup asset pass.
 - A group must list a setting key in `settings` for that setting to appear under the group in the Modloader. Each setting can appear in one group.
 
 Read the value in Lua with the ShroudForge API:

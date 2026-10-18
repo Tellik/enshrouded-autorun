@@ -156,8 +156,11 @@ std::string Status() {
         {"resourceWriteFault", write_fault != nullptr},
         {"resourceWriteReason", write_fault ? write_fault :
             (writes_available ? "ready" : (writes_configured ? "resource-write-gate-unavailable" : "not-configured"))},
-        {"resourceWritePolicy", "atomic-aligned-32-bit-private-bulk-scalar"},
-        {"resourceWriteWidth", 4}, {"resourceWriteTransactions", false},
+        {"resourceWritePolicy", "atomic-naturally-aligned-private-bulk-scalar"},
+        // Keep the original preferred-width field for existing status readers.
+        // The supported-width list is authoritative for the expanded writer.
+        {"resourceWriteWidth", 4}, {"resourceWriteWidths", {1, 2, 4, 8}},
+        {"resourceWriteTransactions", false},
         {"resourceHooksInstalled", false}}).dump();
 }
 }

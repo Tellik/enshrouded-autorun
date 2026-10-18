@@ -32,6 +32,9 @@ fn resource_fixture() -> Rc<TypeRegistry> {
         ("BoolRoot", "STRUCT", 8, None, "HAS_BLOB_ARRAY", 1),
         ("String", "BLOB_STRING", 8, None, "HAS_BLOB_STRING", 0),
         ("StringRoot", "STRUCT", 8, None, "HAS_BLOB_STRING", 1),
+        ("U16", "UINT16", 2, None, "", 0),
+        ("S64", "SINT64", 8, None, "", 0),
+        ("ScalarRoot", "STRUCT", 16, None, "", 3),
     ]
     .into_iter()
     .enumerate()
@@ -45,6 +48,10 @@ fn resource_fixture() -> Rc<TypeRegistry> {
                 "impactHash":kfc::hash::fnv(name),"internalHash":i}),
         );
     }
+    types[17]["structFields"] = serde_json::json!({
+        "consume":{"name":"consume","type":10,"dataOffset":0},
+        "amount":{"name":"amount","type":15,"dataOffset":2},
+        "duration":{"name":"duration","type":16,"dataOffset":8}});
     types[2]["structFields"] = serde_json::json!({
             "start":{"name":"start","type":0,"dataOffset":0},
             "lethal":{"name":"lethal","type":0,"dataOffset":4}});
@@ -214,7 +221,7 @@ fn resource_paths_reject_bad_indices_descriptors_truncation_and_nonfinite_values
 }
 
 #[test]
-fn resource_scalar_arrays_are_bounded_and_ds_strings_and_bool_words_are_rejected() {
+fn resource_scalar_arrays_are_bounded_and_typed_widths_preserve_siblings() {
     let registry = resource_fixture();
     let mut bytes = vec![0; 16];
     bytes[0..4].copy_from_slice(&8u32.to_le_bytes());
@@ -239,6 +246,40 @@ fn resource_scalar_arrays_are_bounded_and_ds_strings_and_bool_words_are_rejected
     unaligned[0..4].copy_from_slice(&9u32.to_le_bytes());
     unaligned.push(0);
     assert!(resource_field(&registry, TypeIndex::new(9), "items[1]", &unaligned).is_err());
+
+    let lua = mlua::Lua::new();
+    let mut scalars = vec![0xa5; 16];
+    scalars[0] = 1;
+    for (path, range, value, encoded) in [
+        ("consume", 0..1, LuaValue::Boolean(false), vec![0]),
+        (
+            "amount",
+            2..4,
+            LuaValue::Integer(54321),
+            54321u16.to_le_bytes().to_vec(),
+        ),
+        (
+            "duration",
+            8..16,
+            LuaValue::Integer(10000000000),
+            10000000000i64.to_le_bytes().to_vec(),
+        ),
+    ] {
+        let before = scalars.clone();
+        let field = resource_field(&registry, TypeIndex::new(17), path, &scalars).unwrap();
+        assert_eq!(field.byte_range(), range);
+        let mut mask = vec![0; scalars.len()];
+        field
+            .write_into(&lua, &value, &mut scalars, &mut mask)
+            .unwrap();
+        assert_eq!(&scalars[range.clone()], encoded.as_slice());
+        for index in 0..scalars.len() {
+            assert_eq!(mask[index], u8::from(range.contains(&index)));
+            if mask[index] == 0 {
+                assert_eq!(scalars[index], before[index]);
+            }
+        }
+    }
 }
 
 #[test]

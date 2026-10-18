@@ -98,3 +98,56 @@ fn setting_definition_change_still_requires_restart() {
 
     assert!(!settings_only_manifest_change(&desired, &applied));
 }
+
+#[test]
+fn hybrid_mod_applies_live_settings_without_applying_restart_settings() {
+    let mut manifest: mod_loader::ModManifest = serde_json::from_value(json!({
+        "id": "hybrid-mod", "name": "Hybrid", "version": "1.0.0",
+        "capabilities": ["patch", "runtime"],
+        "settingValues": {"liveValue": 5, "startupValue": 10},
+        "settings": [
+            {"key": "liveValue", "type": "integer", "label": "Live", "default": 3,
+             "applyAt": "live", "restartRequired": false},
+            {"key": "startupValue", "type": "integer", "label": "Startup", "default": 10,
+             "applyAt": "restart", "restartRequired": true}
+        ]
+    }))
+    .unwrap();
+    let applied = json!({"liveValue": 3, "startupValue": 10});
+    let apply_live = super::refresh_runtime_configuration::settings_to_apply_live;
+    assert_eq!(
+        apply_live(&manifest, &applied),
+        Some(json!({"liveValue": 5, "startupValue": 10}))
+    );
+    manifest.setting_values["startupValue"] = 20.into();
+    assert_eq!(
+        apply_live(&manifest, &applied),
+        Some(json!({"liveValue": 5, "startupValue": 10}))
+    );
+    manifest.setting_values["startupValue"] = 10.into();
+    manifest.settings[0].restart_required = true;
+    assert_eq!(
+        apply_live(&manifest, &applied),
+        Some(json!({"liveValue": 3, "startupValue": 10}))
+    );
+}
+
+#[test]
+fn live_settings_preserve_runtime_only_behavior_and_require_runtime_capability() {
+    let mut manifest: mod_loader::ModManifest = serde_json::from_value(json!({
+        "id": "runtime-mod", "name": "Runtime", "version": "1.0.0",
+        "capabilities": ["runtime"], "settingValues": {"value": 2},
+        "settings": [{"key": "value", "type": "integer", "label": "Value", "default": 1}]
+    }))
+    .unwrap();
+    let applied = json!({"value": 1});
+    let apply_live = super::refresh_runtime_configuration::settings_to_apply_live;
+    assert_eq!(apply_live(&manifest, &applied), Some(json!({"value": 2})));
+    manifest.capabilities = vec![mod_loader::Capability::Patch];
+    manifest.settings[0].apply_at = "live".into();
+    assert_eq!(apply_live(&manifest, &applied), None);
+    manifest
+        .capabilities
+        .push(mod_loader::Capability::RuntimeRegisterDll);
+    assert_eq!(apply_live(&manifest, &applied), Some(json!({"value": 2})));
+}

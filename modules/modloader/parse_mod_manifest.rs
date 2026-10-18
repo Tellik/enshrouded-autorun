@@ -2,7 +2,7 @@ use crate::config::{validate_document, validate_settings};
 use crate::read_mod_settings::parse_setting_definition;
 use crate::{ModManifest, SettingGroup, validate_manifest};
 use serde_json::{Value, json};
-use std::path::Path;
+use std::{collections::BTreeSet, path::Path};
 pub fn parse_manifest(root: &Path, value: Value) -> Result<ModManifest, String> {
     parse_manifest_with_extension(root, value, None)
 }
@@ -71,6 +71,11 @@ pub fn parse_manifest_with_extension(
         definitions.push(definition);
     }
     validate_settings(&definitions, &Value::Object(effective.clone()))?;
+    let explicit_schedule_keys: BTreeSet<_> = definitions
+        .iter()
+        .filter(|definition| definition.apply_at_explicit)
+        .map(|definition| definition.key.clone())
+        .collect();
     let groups = extension
         .get("groups")
         .map(|value| {
@@ -100,7 +105,11 @@ pub fn parse_manifest_with_extension(
         "links".into(),
         extension.get("links").cloned().unwrap_or_else(|| json!({})),
     );
-    let manifest: ModManifest = serde_json::from_value(value).map_err(|error| error.to_string())?;
+    let mut manifest: ModManifest =
+        serde_json::from_value(value).map_err(|error| error.to_string())?;
+    for setting in &mut manifest.settings {
+        setting.apply_at_explicit = explicit_schedule_keys.contains(&setting.key);
+    }
     validate_manifest(&manifest)?;
     Ok(manifest)
 }

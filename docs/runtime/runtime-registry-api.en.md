@@ -152,8 +152,12 @@ snapshot. An explicit expected scalar expresses the caller's current intent.
 The native gate compares the complete fresh resource snapshot before changing
 that scalar, so a changed BlobVariant selection, descriptor or sibling cannot
 silently reuse the earlier resolved byte offset.
-Only one aligned reflected 32-bit value is writable. The existing field walker
+Only one naturally aligned reflected 1/2/4/8-byte scalar is writable, including
+boolean flags and 64-bit `Time.value` fields. Older providers can reject widths
+other than four bytes. The existing field walker
 rejects references, container descriptors and non-finite floating-point values.
+Native resource status lists supported byte widths in `resourceWriteWidths`.
+The original `resourceWriteWidth=4` field remains as the preferred legacy width.
 Success includes independent complete native readback under the original Scene
 and ResourceService lifetime gates. Those exact confirmed bytes form the returned
 Resource snapshot. Existing snapshots keep their original bytes.
@@ -647,21 +651,23 @@ An absent or ambiguous owner returns a reason stating that a guarded profile
 patch is required. Resolving its owner or attribute names does not convert an
 existing patch mod into a generic ECS or native-call mod.
 
-| Bundled mod | Proven origin and resulting intervention |
+| Mod or historical package | Proven origin and resulting intervention |
 | --- | --- |
 | `sf-auto-stamina-refill` | `network_player_attributes`: `Stamina` (`0x04b6aa8b`) is assigned `Stamina_Max` (`0xf443c410`) before the network snapshot. This is replenishment, not proof that depletion calculations are skipped. Modifier `refill_stamina`. |
 | `sf-no-fall-damage` | `fall_damage_infliction`: preserve `Health` (`0x8eb84995`) by suppressing its store and retaining the subsequent recalculation. The previous payload added the calculated value to Health. Modifier `preserve_health_on_fall`. |
 | `sf-unlimited-flight` | Current package uses the shared runtime API to set `StaminaDepletionMod_Glider` and update the four reflected `ItemInfo.equipment.gliderConfig` inputs. It no longer binds `override_rotation_constant`. The original fixed upward pitch boundary remains unresolved as a data-only control. |
-| `sf-no-resource-cost` | Shared helper: force its sixth integer argument to zero. Proven callers include `actor_apply_buff`, `player_crafting`, `inventory_actions` and building systems. It affects every execution of the shared site. Modifier `zero_resource_argument`. |
-| `sf-infinite-item-use` | Shared helper: forward false in place of its sixth boolean argument. Call paths include `inventory_actions`, `actor_pay_usage_cost`, `equipment_actions` and `actor_spawn_entity`. Modifier `clear_item_use_argument`. |
-| `sf-infinite-item-split` | Shared helper: suppress the source-stack subtraction at `[rsi+4]`. Multiple inventory, equipment, crafting and spawn systems reach it. Modifier `preserve_split_source`. |
+| Historical `sf-no-resource-cost` | Shared helper: force its sixth integer argument to zero. Proven callers include `actor_apply_buff`, `player_crafting`, `inventory_actions` and building systems. It affects every execution of the shared site. Modifier `zero_resource_argument`. |
+| Historical `sf-infinite-item-use` | Forward false in place of a sixth boolean argument. Current operand tracing associates its counterpart with inventory insertion and actionbar selection, rather than proving an item-consumption switch. Historical modifier `clear_item_use_argument`. |
+| Historical `sf-infinite-item-split` | Shared helper: suppress only the partial source-stack subtraction at `[rsi+4]`. The separate full-removal path still clears the stack. Modifier `preserve_split_source`. |
+| `sf-crafting-essentials` | Uses loaded `RecipeRegistryResource.recipes[].craftingDuration.value`, named `ecs::GameSettings.factoryProductionSpeedFactor`, and `ActorSequenceResource` variants `PayUsageCost.consume` / `ApplyBuffEvent.consume`. These typed data changes use existing guarded scalar writers and reversible scopes. Global resource-cost suppression and partial-source preservation remain unimplemented. Native relationships and verification limits are recorded in the [current investigation](../evidence/runtime/2026-10-18-crafting-native-transactions.en.md). |
 | `sf-unlock-blueprints` | Reads `GameKnowledgeQueryResourceDb`, query `Unlock_Flame_Altar_PK`, action `NPC_Flame_Hint01`, and uses the stored knowledge ID in `RecipeRegistryResource.recipes[].knowledgeRequirement`. Both current targets resolve `1715248921`; this is a Flame base-hint knowledge condition, not an unconditional unlock flag. No numeric ID remains in the mod. |
 | `world-editor` | Existing checked `runtime.world.*` wrappers and ECS access remain canonical. Verified native operations are linked into their function descriptors. The editor manifest targets the client. Dedicated-server native addresses and actor-frame bindings are now present, including finish_building. They still require a live matching context; server gameplay effects and client/server mod RPC have not been tested or implemented respectively. |
 
 The unnamed shared helpers retain provisional names. Their static caller paths
-are evidence of reachability, not a complete dynamic call graph. Lua lifecycle
-tests cover all six modifier mods on both profile contracts, including unload
-restoration. These tests do not assert a fresh live gameplay test of every mod.
+are evidence of reachability, not a complete dynamic call graph. The historical
+Lua lifecycle checks cover six modifier contracts, including unload restoration.
+They do not establish that those packages remain bundled or that the current
+Crafting Essentials data paths have passed a live gameplay test.
 
 ## Attribute IDs, storage and calculation programs
 

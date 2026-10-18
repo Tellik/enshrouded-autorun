@@ -175,9 +175,10 @@ live scalar update operation. It requires `runtime.assets.write`, the original
 `runtime.ecs.write` authority, the same nonzero creation world session, Runtime
 capability and an active ingame mod. The path uses the same reflection as the
 parser. It supports nested structs, owned `BlobArray` indices and
-`BlobVariant.value`, ending in exactly one aligned 32-bit integer, float or
-enum. Lua indices are one-based. Dynamic descriptors, references and other
-scalar widths cannot be written. Without `expected`, the complete input
+`BlobVariant.value`, ending in exactly one naturally aligned 1/2/4/8-byte scalar,
+including boolean flags, integers, finite floats and enums. Lua indices are
+one-based. Dynamic descriptors and references cannot be written. Older providers
+can reject widths other than four bytes. Without `expected`, the complete input
 Resource's immutable source snapshot must still match. An explicit expected
 scalar instead checks the caller's observed value. A mismatch rejects the update.
 

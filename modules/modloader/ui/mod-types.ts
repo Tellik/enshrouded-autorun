@@ -1,4 +1,5 @@
 export type SettingOption = { value: string | number | boolean; label: string }
+export type SettingCondition = { setting: string; equals: string | number | boolean }
 
 export type SettingDefinition = {
   key: string
@@ -26,6 +27,10 @@ export type SettingDefinition = {
   minimumLength?: number
   maximumLength?: number
   options?: SettingOption[]
+  enabledWhen?: SettingCondition
+  applyAt?: 'live' | 'restart'
+  restartRequired?: boolean
+  assetPreparation?: boolean
 }
 
 export type ModAction = {

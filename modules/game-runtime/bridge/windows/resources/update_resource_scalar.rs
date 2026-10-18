@@ -17,7 +17,7 @@ pub fn resource_compare_exchange_scalar_for_session(
         );
     }
     let end = offset
-        .checked_add(4)
+        .checked_add(desired.len())
         .filter(|end| *end <= expected.len())
         .ok_or("resource scalar lies outside the complete expected snapshot")?;
     validate_resource_scalar(resource_size, offset, &expected[offset..end], desired)?;
@@ -38,7 +38,7 @@ pub fn resource_compare_exchange_scalar_for_session(
             offset,
             expected.as_ptr().cast(),
             desired.as_ptr().cast(),
-            4,
+            desired.len(),
             expected_session,
         )
     })
@@ -50,12 +50,18 @@ fn validate_resource_scalar(
     expected: &[u8],
     desired: &[u8],
 ) -> Result<(), String> {
-    if expected.len() != 4
-        || desired.len() != 4
-        || offset % 4 != 0
-        || offset.checked_add(4).is_none_or(|end| end > resource_size)
+    let width = desired.len();
+    if !matches!(width, 1 | 2 | 4 | 8)
+        || expected.len() != width
+        || offset % width != 0
+        || offset
+            .checked_add(width)
+            .is_none_or(|end| end > resource_size)
     {
-        return Err("resource writes require one aligned 32-bit scalar inside the snapshot".into());
+        return Err(
+            "resource writes require one naturally aligned 1/2/4/8-byte scalar inside the snapshot"
+                .into(),
+        );
     }
     Ok(())
 }

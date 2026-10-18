@@ -130,6 +130,57 @@ mod tests {
     }
 
     #[test]
+    fn explicit_setting_schedule_survives_hybrid_api_inference() {
+        let mut manifest = parse_manifest_with_extension(
+            Path::new("."),
+            json!({
+                "id": "hybrid-example",
+                "name": "Hybrid Example",
+                "version": "1.0.0",
+                "capabilities": ["patch", "runtime"]
+            }),
+            Some(json!({
+                "schemaVersion": 1,
+                "enabled": true,
+                "settings": {
+                    "freeRecipes": {
+                        "value": true,
+                        "applyAt": "restart",
+                        "restartRequired": true
+                    },
+                    "liveScale": {
+                        "value": 100,
+                        "applyAt": "live",
+                        "restartRequired": false
+                    },
+                    "inferredRuntimeValue": {"value": true}
+                }
+            })),
+        )
+        .expect("per-setting runtime schedules are parsed");
+
+        infer_api_contract(
+            &mut manifest,
+            "game.assets.get_resources_by_type('type'); return {on_update=update}",
+        );
+
+        let schedules: Vec<_> = manifest
+            .settings
+            .iter()
+            .map(|setting| {
+                (
+                    setting.key.as_str(),
+                    setting.apply_at.as_str(),
+                    setting.restart_required,
+                )
+            })
+            .collect();
+        assert!(schedules.contains(&("freeRecipes", "restart", true)));
+        assert!(schedules.contains(&("liveScale", "live", false)));
+        assert!(schedules.contains(&("inferredRuntimeValue", "live", false)));
+    }
+
+    #[test]
     fn extension_targets_apply_to_all_packages_without_changing_mod_json() {
         let manifest = parse_manifest_with_extension(
             Path::new("."),

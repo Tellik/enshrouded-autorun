@@ -70,6 +70,61 @@ pub fn validate_manifest(manifest: &ModManifest) -> Result<(), String> {
             ));
         }
     }
+    for setting in &manifest.settings {
+        let Some(condition) = &setting.enabled_when else {
+            continue;
+        };
+        if condition.setting == setting.key {
+            return Err(format!(
+                "setting '{}' cannot depend on itself",
+                setting.key
+            ));
+        }
+        let controller = manifest
+            .settings
+            .iter()
+            .find(|candidate| candidate.key == condition.setting)
+            .ok_or_else(|| {
+                format!(
+                    "setting '{}' depends on unknown setting '{}'",
+                    setting.key, condition.setting
+                )
+            })?;
+        if !condition_matches_type(&condition.equals, controller.value_type) {
+            return Err(format!(
+                "setting '{}' enabledWhen value does not match setting '{}'",
+                setting.key, condition.setting
+            ));
+        }
+        if !controller.options.is_empty()
+            && !controller
+                .options
+                .iter()
+                .any(|option| option.value == condition.equals)
+        {
+            return Err(format!(
+                "setting '{}' enabledWhen value is not an option of setting '{}'",
+                setting.key, condition.setting
+            ));
+        }
+    }
+    for setting in &manifest.settings {
+        let mut seen = std::collections::HashSet::new();
+        let mut current = Some(setting.key.as_str());
+        while let Some(key) = current {
+            if !seen.insert(key) {
+                return Err(format!(
+                    "setting enabledWhen dependencies contain a cycle at '{key}'"
+                ));
+            }
+            current = manifest
+                .settings
+                .iter()
+                .find(|candidate| candidate.key == key)
+                .and_then(|candidate| candidate.enabled_when.as_ref())
+                .map(|condition| condition.setting.as_str());
+        }
+    }
     let mut placed_settings = std::collections::HashSet::new();
     for group in &manifest.groups {
         if group.label.trim().is_empty() {
@@ -103,4 +158,14 @@ pub fn validate_manifest(manifest: &ModManifest) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn condition_matches_type(value: &serde_json::Value, value_type: SettingValueType) -> bool {
+    match value_type {
+        SettingValueType::Boolean => value.is_boolean(),
+        SettingValueType::String => value.is_string(),
+        SettingValueType::Integer => value.as_i64().is_some(),
+        SettingValueType::Number => value.as_f64().is_some(),
+        SettingValueType::Array => false,
+    }
 }

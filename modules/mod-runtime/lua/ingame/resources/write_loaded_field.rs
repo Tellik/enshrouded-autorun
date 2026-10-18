@@ -62,12 +62,16 @@ pub(super) fn lua_write_loaded_field(
         let mut mask = vec![0; before.len()];
         field.write_into(lua, &value, &mut after, &mut mask)?;
         let offset = range.start;
-        if mask.iter().filter(|byte| **byte != 0).count() != 4
+        let width = range.len();
+        if !matches!(width, 1 | 2 | 4 | 8)
+            || mask.iter().filter(|byte| **byte != 0).count() != width
             || mask
-                .get(offset..offset + 4)
+                .get(range.clone())
                 .is_none_or(|span| span.iter().any(|byte| *byte == 0))
         {
-            return Err("live resource writes support one contiguous 32-bit value per call".into());
+            return Err(
+                "live resource writes support one contiguous 1/2/4/8-byte scalar per call".into(),
+            );
         }
         resource.info().require_runtime_write_session(
             crate::env::loader::runtime_provider::world_session_id(),
@@ -82,7 +86,7 @@ pub(super) fn lua_write_loaded_field(
             before.len(),
             offset,
             &before,
-            &after[offset..offset + 4],
+            &after[range],
             session,
         ) {
             if reason.to_lowercase().contains("uncertain") {

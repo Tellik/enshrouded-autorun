@@ -116,7 +116,7 @@ KFC_RUNTIME_API uint32_t KFC_RUNTIME_CALL KfcRuntimeResourceResolveItem(
     size_t item_id_offset, size_t guid_offset, uint64_t expected_session,
     KfcRuntimeResourceId* resource);
 /* Optional ABI-12 scalar data update. Exact-image profile and registered
-   content-worker lifetime are required. Only aligned 32-bit values in the
+   content-worker lifetime are required. Naturally aligned 1/2/4/8-byte values in the
    private resource bulk are supported. Never changes executable pages.
    Result: 0 rejected, 1 applied with protection restored, 2 CAS conflict,
    3 outcome uncertain. Result 3 must not trigger a blind retry. */
@@ -129,7 +129,7 @@ KFC_RUNTIME_API uint32_t KFC_RUNTIME_CALL KfcRuntimeResourceCompareExchangeScala
    checked and pinned against the existing ECS binding while the original
    LocalAuthority Scene and ResourceService lifetime guards protect the CAS.
    expected points to resource_size bytes from the complete prior resource
-   snapshot. desired still points to width=4 bytes. The full snapshot, including
+   snapshot. desired points to width bytes (1, 2, 4 or 8). The full snapshot, including
    reflected descriptors, is compared under both guards before the scalar CAS.
    Results match KfcRuntimeResourceCompareExchangeScalar. */
 KFC_RUNTIME_API uint32_t KFC_RUNTIME_CALL KfcRuntimeResourceCompareExchangeScalarForSession(

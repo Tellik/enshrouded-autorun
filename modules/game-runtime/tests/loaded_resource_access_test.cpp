@@ -732,6 +732,30 @@ int main() {
     check(EngineContext::Configure(owner_profile,reason));
     DWORD saved_protection{};
     check(::VirtualProtect(scalar_page,4096,PAGE_READONLY,&saved_protection));
+    // Reflected bools and Time values use their own atomic widths. Verify the
+    // original data-page protection, conflicts and every unselected byte too.
+    for (const std::size_t width : {1u, 2u, 8u}) {
+        const std::size_t offset = width == 8 ? 0 : width;
+        std::array<unsigned char, 8> original{};
+        std::memcpy(original.data(), scalar_page, original.size());
+        std::uint64_t before{}, after = width == 8 ? 10000000000ull : 0x5a;
+        std::memcpy(&before, original.data() + offset, width);
+        if (before == after) ++after;
+        check(ResourceRuntime::CompareExchangeScalar(metadata.key.id,0,8,offset,&before,&after,width) == 1);
+        std::uint64_t observed{};
+        std::memcpy(&observed,scalar_page+offset,width);
+        check(observed == after);
+        for (std::size_t index = 0; index < original.size(); ++index)
+            if (index < offset || index >= offset + width) check(scalar_page[index] == original[index]);
+        check(ResourceRuntime::CompareExchangeScalar(metadata.key.id,0,8,offset,&before,&after,width) == 2);
+        MEMORY_BASIC_INFORMATION protected_page{};
+        check(::VirtualQuery(scalar_page,&protected_page,sizeof(protected_page)) == sizeof(protected_page) &&
+            protected_page.Protect == PAGE_READONLY);
+        check(ResourceRuntime::CompareExchangeScalar(metadata.key.id,0,8,offset,&after,&before,width) == 1);
+        check(std::memcmp(scalar_page,original.data(),original.size()) == 0);
+        if (width > 1)
+            check(ResourceRuntime::CompareExchangeScalar(metadata.key.id,0,8,1,&before,&after,width) == 0);
+    }
     std::uint32_t expected{}, desired = 0x44332211;
     std::memcpy(&expected,payload.data(),4);
     const auto cas = [&](std::size_t size = 8, std::size_t offset = 0, std::size_t width = 4) {
@@ -748,7 +772,7 @@ int main() {
     std::memcpy(&actual_scalar,scalar_page,4);
     check(actual_scalar == desired);
     check(cas() == 2 && is_readonly());
-    check(cas(7) == 0 && cas(8,5) == 0 && cas(8,1) == 0 && cas(8,0,8) == 0);
+    check(cas(7) == 0 && cas(8,5) == 0 && cas(8,1) == 0 && cas(8,0,3) == 0);
     expected = desired;
     desired += 1;
     service.worker.stop = 1;
@@ -814,6 +838,7 @@ int main() {
     check(actual_scalar == desired);
     check(!ResourceRuntime::CanWrite() && ResourceRuntime::Ready());
     const auto fault_status = json::parse(ResourceRuntime::Status());
+    check(fault_status["resourceWriteWidths"] == json::array({1,2,4,8}));
     check(fault_status["resourceWriteFault"] == true && fault_status["resourceWrites"] == false &&
         fault_status["resourceWriteReason"] == "resource-page-protection-restore-uncertain");
     expected = desired;

@@ -64,7 +64,7 @@ function runtime.overrides.attribute(entity, selector) end
 ---@return string? reason
 function runtime.overrides.component(entity, component, path, expected_paths) end
 ---@param resource Resource Current loaded resource snapshot.
----@param path string Reflected aligned 32-bit scalar path.
+---@param path string Reflected naturally aligned 1/2/4/8-byte scalar path.
 ---@return RuntimeOverrideTarget? target
 ---@return string? reason
 function runtime.overrides.resource(resource, path) end

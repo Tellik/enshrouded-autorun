@@ -1,4 +1,7 @@
-use super::{FieldStep, InlineField, field_path, inline_leaves, reject_external_overlap};
+use super::{
+    FieldStep, InlineField, field_path, inline_leaves, reject_external_overlap,
+    validate_runtime_scalar,
+};
 use crate::{
     env::registry,
     type_aliases::{MappedValue, TypeHandle},
@@ -6,7 +9,7 @@ use crate::{
 use kfc::reflection::{PrimitiveType, TypeIndex, TypeRegistry};
 use std::{collections::HashSet, rc::Rc};
 
-/// Resolve one aligned 32-bit leaf inside an owned resource snapshot. The KFC
+/// Resolve one naturally aligned scalar leaf inside an owned resource snapshot. The KFC
 /// mapper selects fields, indices and concrete variants. Source offsets follow
 /// its exact BlobArray/BlobVariant format, because that mapper does not expose
 /// source positions. See kfc-resource/src/mapped/mod.rs:498-514,563-603 and
@@ -193,11 +196,19 @@ pub(crate) fn resource_field(
         &mut HashSet::new(),
         &mut leaves,
     )?;
-    if ty.size != 4 || offset % 4 != 0 || leaves.len() != 1 || leaves[0].1 != (0..4) {
-        return Err("resource writes require one aligned, contiguous 32-bit value leaf".into());
+    let width = ty.size as usize;
+    if !matches!(width, 1 | 2 | 4 | 8)
+        || offset % width != 0
+        || leaves.len() != 1
+        || leaves[0].1 != (0..width)
+    {
+        return Err(
+            "resource writes require one naturally aligned, contiguous 1/2/4/8-byte value leaf"
+                .into(),
+        );
     }
-    span(bytes, offset, 4)?;
-    let selected = offset..offset + 4;
+    span(bytes, offset, width)?;
+    let selected = offset..offset + width;
     if descriptors
         .iter()
         .any(|range| range.start < selected.end && selected.start < range.end)
@@ -207,10 +218,6 @@ pub(crate) fn resource_field(
     for (container, base) in containers {
         reject_external_overlap(registry, container, base, &selected, &mut HashSet::new())?;
     }
-    if leaves[0].0 == PrimitiveType::Float32
-        && !f32::from_le_bytes(bytes[selected].try_into().unwrap()).is_finite()
-    {
-        return Err("resource field contains a nonfinite floating-point value".into());
-    }
+    validate_runtime_scalar(leaves[0].0, &bytes[selected])?;
     Ok(InlineField { ty, offset, leaves })
 }

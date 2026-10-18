@@ -100,7 +100,7 @@ function AssetManager.prepare_loaded_index(type, field_path) end
 ---@return string? reason
 function AssetManager.resolve_loaded_resource(registry_name, key) end
 
----Read one aligned 32-bit scalar and its reflected type from an immutable loaded resource snapshot.
+---Read one naturally aligned 1/2/4/8-byte scalar and its reflected type from an immutable loaded resource snapshot.
 ---Uses the exact field codec as write_loaded_field, including owned BlobArray indices and BlobVariant.value.
 ---This performs no new process read. In particular, it can inspect the writer's confirmed returned snapshot.
 ---@param resource Resource Loaded-runtime snapshot.
@@ -110,11 +110,12 @@ function AssetManager.resolve_loaded_resource(registry_name, key) end
 ---@return Type? type Exact reflected scalar type for encode/decode.
 function AssetManager.read_loaded_field(resource, field_path) end
 
---- Atomically update one reflected 32-bit scalar in a loaded resource.
+--- Atomically update one reflected 1/2/4/8-byte scalar in a loaded resource.
 --- Requires runtime.assets.write, runtime.ecs.write authority and an active ingame mod with Runtime capability.
 --- The loaded Resource must originate from the same nonzero current world session. Menu and prior-world snapshots cannot write.
 --- Paths use reflected field names, one-based owned BlobArray indices and BlobVariant.value.
---- Only one aligned float, integer or 32-bit enum is supported. References and container descriptors are rejected.
+--- The scalar must be naturally aligned. Boolean flags, integers, finite floats and enums are supported.
+--- Older native providers can reject widths other than four bytes. References and container descriptors are rejected.
 --- The current scalar is compared again before writing. Without expected, this Resource's complete immutable source snapshot is required to match.
 --- An explicit expected value checks caller intent instead of that source scalar.
 --- The native original engine gates also compare the complete fresh resource snapshot, preserving the selected variant and descriptor layout.

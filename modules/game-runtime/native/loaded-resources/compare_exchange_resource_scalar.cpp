@@ -1,14 +1,31 @@
 #include "loaded-resources/loaded_resource_state.h"
+#include <intrin.h>
 
 using namespace ResourceImplementation;
 
 namespace ResourceImplementation {
-bool compare_exchange_32(std::uintptr_t address, std::uint32_t expected,
-    std::uint32_t desired, std::uint32_t& observed) noexcept{
+bool compare_exchange_bits(std::uintptr_t address, std::size_t width, std::uint64_t expected,
+    std::uint64_t desired, std::uint64_t& observed) noexcept{
     __try {
-        observed = static_cast<std::uint32_t>(InterlockedCompareExchange(
-            reinterpret_cast<volatile LONG*>(address), static_cast<LONG>(desired), static_cast<LONG>(expected)));
-        return true;
+        switch (width) {
+        case 1:
+            observed = static_cast<unsigned char>(_InterlockedCompareExchange8(
+                reinterpret_cast<volatile CHAR*>(address), static_cast<CHAR>(desired), static_cast<CHAR>(expected)));
+            return true;
+        case 2:
+            observed = static_cast<std::uint16_t>(InterlockedCompareExchange16(
+                reinterpret_cast<volatile SHORT*>(address), static_cast<SHORT>(desired), static_cast<SHORT>(expected)));
+            return true;
+        case 4:
+            observed = static_cast<std::uint32_t>(InterlockedCompareExchange(
+                reinterpret_cast<volatile LONG*>(address), static_cast<LONG>(desired), static_cast<LONG>(expected)));
+            return true;
+        case 8:
+            observed = static_cast<std::uint64_t>(InterlockedCompareExchange64(
+                reinterpret_cast<volatile LONG64*>(address), static_cast<LONG64>(desired), static_cast<LONG64>(expected)));
+            return true;
+        default: return false;
+        }
     } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 
@@ -32,21 +49,22 @@ bool snapshot_matches(std::uintptr_t address, const unsigned char* expected, std
 class ScalarDataProtection {
 public:
     ~ScalarDataProtection() { Restore(); }
-    bool Prepare(std::uintptr_t address, std::uintptr_t allocation_base) {
+    bool Prepare(std::uintptr_t address, std::size_t width, std::uintptr_t allocation_base) {
         MEMORY_BASIC_INFORMATION page{};
         if (VirtualQuery(reinterpret_cast<const void*>(address), &page, sizeof(page)) != sizeof(page) ||
             page.State != MEM_COMMIT || page.Type != MEM_PRIVATE ||
             reinterpret_cast<std::uintptr_t>(page.AllocationBase) != allocation_base ||
             (page.Protect != PAGE_READONLY && page.Protect != PAGE_READWRITE)) return false;
         const auto base = reinterpret_cast<std::uintptr_t>(page.BaseAddress);
-        if (address < base || address - base > page.RegionSize || sizeof(LONG) > page.RegionSize - (address - base))
+        if (address < base || address - base > page.RegionSize || width > page.RegionSize - (address - base))
             return false;
         address_ = address;
+        width_ = width;
         allocation_base_ = allocation_base;
         old_ = page.Protect;
         if (page.Protect == PAGE_READWRITE) return true;
         DWORD previous{};
-        if (!VirtualProtect(reinterpret_cast<void*>(address_), sizeof(LONG), PAGE_READWRITE, &previous)) return false;
+        if (!VirtualProtect(reinterpret_cast<void*>(address_), width_, PAGE_READWRITE, &previous)) return false;
         old_ = previous;
         changed_ = true;
         // A changed protection is not permission to write a different kind of
@@ -61,7 +79,7 @@ public:
         if (!address_) return !restore_failed_;
         if (changed_) {
             DWORD ignored{};
-            if (!VirtualProtect(reinterpret_cast<void*>(address_), sizeof(LONG), old_, &ignored)) {
+            if (!VirtualProtect(reinterpret_cast<void*>(address_), width_, old_, &ignored)) {
                 restore_failed_ = true;
                 // The destructor can make one last cleanup attempt. This sticky
                 // failure still prevents reporting a confirmed outcome.
@@ -78,6 +96,7 @@ public:
     }
 private:
     std::uintptr_t address_{}, allocation_base_{};
+    std::size_t width_{};
     DWORD old_{};
     bool changed_{}, restore_failed_{};
 };
@@ -87,11 +106,11 @@ namespace ResourceRuntime {
 static std::uint32_t compare_exchange_scalar(const KfcRuntimeResourceId& resource, std::uint32_t static_hash,
     std::size_t resource_size, std::size_t offset, const void* expected, const void* desired, std::size_t width,
     std::uint64_t expected_session) {
-    if (width != sizeof(LONG) || !expected || !desired || !resource_size ||
+    if ((width != 1 && width != 2 && width != 4 && width != 8) || !expected || !desired || !resource_size ||
         offset > resource_size || width > resource_size - offset) return 0;
-    std::uint32_t expected_bits{}, desired_bits{};
-    if ((!expected_session && !copy_memory(reinterpret_cast<std::uintptr_t>(expected), &expected_bits, sizeof(expected_bits))) ||
-        !copy_memory(reinterpret_cast<std::uintptr_t>(desired), &desired_bits, sizeof(desired_bits))) return 0;
+    std::uint64_t expected_bits{}, desired_bits{};
+    if ((!expected_session && !copy_memory(reinterpret_cast<std::uintptr_t>(expected), &expected_bits, width)) ||
+        !copy_memory(reinterpret_cast<std::uintptr_t>(desired), &desired_bits, width)) return 0;
     // Serialize our temporary data-page protections. Take this mutex before the
     // original lifetime guard, never while holding an engine gate.
     std::scoped_lock lock(state_mutex);
@@ -102,7 +121,7 @@ static std::uint32_t compare_exchange_scalar(const KfcRuntimeResourceId& resourc
         if (resource_size > layout.maximum_resource_bytes) return 0;
         expected_resource.resize(resource_size);
         if (!copy_expected_snapshot(expected, expected_resource.data(), expected_resource.size())) return 0;
-        std::memcpy(&expected_bits, expected_resource.data() + offset, sizeof(expected_bits));
+        std::memcpy(&expected_bits, expected_resource.data() + offset, width);
     }
     // The ECS binding mutex is acquired before original engine gates and held
     // until after them. No artificial session is generated by this operation.
@@ -136,7 +155,7 @@ static std::uint32_t compare_exchange_scalar(const KfcRuntimeResourceId& resourc
         !locate(layout, before, resource, static_hash, span) || span.size != resource_size ||
         !lifetime.Contains(span.data, span.size)) return 0;
     std::uintptr_t scalar{};
-    if (!add(span.data, offset, scalar) || scalar % alignof(LONG)) return 0;
+    if (!add(span.data, offset, scalar) || scalar % width) return 0;
     const auto stable = [&]() {
         EngineContext::Owners current_owners;
         View after{};
@@ -149,7 +168,7 @@ static std::uint32_t compare_exchange_scalar(const KfcRuntimeResourceId& resourc
             lifetime.Contains(current.data, current.size);
     };
     ScalarDataProtection protection;
-    if (!protection.Prepare(scalar, lifetime.PayloadBase()))
+    if (!protection.Prepare(scalar, width, lifetime.PayloadBase()))
         return protection.Restore() ? 0 : uncertain("resource-page-protection-restore-uncertain");
     if (!stable())
         return protection.Restore() ? 0 : uncertain("resource-page-protection-restore-uncertain");
@@ -158,12 +177,12 @@ static std::uint32_t compare_exchange_scalar(const KfcRuntimeResourceId& resourc
     // size, ResourceId and scalar bits alone are insufficient after a reload.
     if (expected_session && !snapshot_matches(span.data, expected_resource.data(), expected_resource.size()))
         return protection.Restore() ? 2 : uncertain("resource-page-protection-restore-uncertain");
-    std::uint32_t observed{};
-    const bool executed = compare_exchange_32(scalar, expected_bits, desired_bits, observed);
+    std::uint64_t observed{};
+    const bool executed = compare_exchange_bits(scalar, width, expected_bits, desired_bits, observed);
     bool unchanged_payload = true;
     if (expected_session && executed) {
         if (observed == expected_bits) {
-            std::memcpy(expected_resource.data() + offset, &desired_bits, sizeof(desired_bits));
+            std::memcpy(expected_resource.data() + offset, &desired_bits, width);
             unchanged_payload = snapshot_matches(span.data, expected_resource.data(), expected_resource.size());
         } else {
             // A scalar conflict has no mutation by us. All other bytes,

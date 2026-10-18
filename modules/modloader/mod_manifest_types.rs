@@ -123,10 +123,23 @@ pub struct SettingDefinition {
     pub maximum_length: Option<usize>,
     #[serde(default)]
     pub options: Vec<SettingOption>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled_when: Option<SettingCondition>,
+    #[serde(default)]
+    pub asset_preparation: bool,
     #[serde(default)]
     pub restart_required: bool,
     #[serde(default = "default_apply_at")]
     pub apply_at: String,
+    #[serde(skip)]
+    pub apply_at_explicit: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SettingCondition {
+    pub setting: String,
+    pub equals: serde_json::Value,
 }
 
 fn default_apply_at() -> String {

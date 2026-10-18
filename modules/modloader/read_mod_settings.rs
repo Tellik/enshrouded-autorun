@@ -1,4 +1,4 @@
-use crate::{SettingDefinition, SettingOption, SettingValueType};
+use crate::{SettingCondition, SettingDefinition, SettingOption, SettingValueType};
 use serde_json::{Value, json};
 pub(crate) fn parse_setting_definition(
     key: &str,
@@ -93,6 +93,40 @@ pub(crate) fn parse_setting_definition(
             crate::SettingControl::Select
         });
     }
+    let apply_at_explicit =
+        metadata.get("applyAt").is_some() || metadata.get("restartRequired").is_some();
+    let apply_at = match metadata.get("applyAt") {
+        None if metadata.get("restartRequired") == Some(&Value::Bool(false)) => "live",
+        None => "restart",
+        Some(Value::String(value)) => value.as_str(),
+        Some(_) => return Err(format!("setting '{key}' applyAt must be a string")),
+    };
+    if !matches!(apply_at, "live" | "restart") {
+        return Err(format!(
+            "setting '{key}' applyAt must be 'live' or 'restart'"
+        ));
+    }
+    let restart_required = match metadata.get("restartRequired") {
+        None => apply_at == "restart",
+        Some(Value::Bool(value)) => *value,
+        Some(_) => return Err(format!("setting '{key}' restartRequired must be a boolean")),
+    };
+    if restart_required != (apply_at == "restart") {
+        return Err(format!(
+            "setting '{key}' applyAt and restartRequired must agree"
+        ));
+    }
+    let asset_preparation = match metadata.get("assetPreparation") {
+        None => false,
+        Some(Value::Bool(value)) => *value,
+        Some(_) => return Err(format!("setting '{key}' assetPreparation must be a boolean")),
+    };
+    let enabled_when = metadata
+        .get("enabledWhen")
+        .cloned()
+        .map(serde_json::from_value::<SettingCondition>)
+        .transpose()
+        .map_err(|error| format!("setting '{key}' enabledWhen: {error}"))?;
     Ok(SettingDefinition {
         key: key.into(),
         value_type,
@@ -120,7 +154,10 @@ pub(crate) fn parse_setting_definition(
             .and_then(Value::as_u64)
             .map(|value| value as usize),
         options,
-        restart_required: true,
-        apply_at: "restart".into(),
+        enabled_when,
+        asset_preparation,
+        restart_required,
+        apply_at: apply_at.into(),
+        apply_at_explicit,
     })
 }

@@ -40,6 +40,40 @@ pub(super) fn settings_only_manifest_change(
     metadata == *applied
 }
 
+pub(super) fn settings_to_apply_live(
+    manifest: &mod_loader::ModManifest,
+    applied_values: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    if !manifest
+        .capabilities
+        .iter()
+        .any(|capability| capability.requires_runtime())
+    {
+        return None;
+    }
+
+    let mut values = manifest.setting_values.clone();
+    if manifest
+        .capabilities
+        .contains(&mod_loader::Capability::Patch)
+    {
+        let next_values = values.as_object_mut()?;
+        for setting in &manifest.settings {
+            let desired = manifest.setting_values.get(&setting.key);
+            let applied = applied_values.get(&setting.key);
+            let is_live = setting.apply_at == "live" && !setting.restart_required;
+            if desired != applied && !is_live {
+                if let Some(applied) = applied {
+                    next_values.insert(setting.key.clone(), applied.clone());
+                } else {
+                    next_values.remove(&setting.key);
+                }
+            }
+        }
+    }
+    Some(values)
+}
+
 impl IngameRuntime {
     pub(super) fn refresh_configuration(&mut self) {
         let configured_enabled: std::collections::HashMap<String, bool> = self
@@ -219,20 +253,37 @@ impl IngameRuntime {
             }
             let desired_settings = manifest.setting_values.clone();
             let settings_changed = desired_settings != applied["settingValues"];
-            if metadata_unchanged && live_mod && settings_changed {
-                match crate::env::shroudforge::set_settings(&self.runner.lua, id, &desired_settings)
+            if metadata_unchanged && settings_changed {
+                if let Some(live_settings) =
+                    settings_to_apply_live(&manifest, &applied["settingValues"])
                 {
-                    Ok(()) => {
-                        applied["settingValues"] = desired_settings;
-                        applied["settings"] = desired["settings"].clone();
-                        tracing::info!(target:"shroudforge::runtime", mod_id=%id,"Runtime settings applied live");
-                    }
-                    Err(error) => {
-                        self.errors.insert(
-                            id.clone(),
-                            format!("live settings update failed: {error}").into(),
-                        );
-                        tracing::error!(target:"shroudforge::runtime", mod_id=%id,"Live settings update failed: {error}");
+                    if live_settings != applied["settingValues"] {
+                        match crate::env::shroudforge::set_settings(
+                            &self.runner.lua,
+                            id,
+                            &live_settings,
+                        ) {
+                            Ok(()) => {
+                                let restart_settings_pending = live_settings != desired_settings;
+                                applied["settingValues"] = live_settings;
+                                applied["settings"] = desired["settings"].clone();
+                                if restart_settings_pending {
+                                    tracing::info!(target:"shroudforge::runtime", mod_id=%id,
+                                        "Live runtime settings applied; restart-required settings remain pending");
+                                } else {
+                                    tracing::info!(target:"shroudforge::runtime", mod_id=%id,
+                                        "Runtime settings applied live");
+                                }
+                            }
+                            Err(error) => {
+                                self.errors.insert(
+                                    id.clone(),
+                                    format!("live settings update failed: {error}").into(),
+                                );
+                                tracing::error!(target:"shroudforge::runtime", mod_id=%id,
+                                    "Live settings update failed: {error}");
+                            }
+                        }
                     }
                 }
             }

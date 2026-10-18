@@ -27,17 +27,22 @@ export function SettingSwitch({
   label,
   checked,
   onChange,
+  disabled = false,
 }: {
   label: string
   checked: boolean
   onChange(value: boolean): void
+  disabled?: boolean
 }) {
   return (
-    <label className={`switch-control ${checked ? 'checked' : ''}`}>
+    <label
+      className={`switch-control ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}`}
+    >
       <input
         type="checkbox"
         aria-label={label}
         checked={checked}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.checked)}
       />
       <i />

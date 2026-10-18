@@ -78,7 +78,12 @@ return function(runtime, assets)
                     expected = {}
                     for _, extra in ipairs(expected_paths) do expected[extra] = snapshot.values[extra] end
                 end
-                local ok, failure = view:write_field(path, value, snapshot.value, expected)
+                local ok, failure
+                if expected then
+                    ok, failure = view:write_field(path, value, snapshot.value, expected)
+                else
+                    ok, failure = view:write_field(path, value, snapshot.value)
+                end
                 if not ok then return false, nil, failure end
                 -- write_field confirms the canonical value under the engine gate.
                 return true, value

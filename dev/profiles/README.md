@@ -52,6 +52,7 @@ The folders separate the native developer CLI, capture tools, inspection, compar
 | `inspect/extract_executable_reflection.py` | Extracts the reflected type catalog directly from an executable. |
 | `inspect/discover_executable_functions.py` | Disassembles PE function ranges and records static code references. |
 | `inspect/read_system_descriptors.py` | Reads named ECS system execution descriptors. |
+| `inspect/inspect_inventory_transactions.py` | Resolves inventory quantity removal, partial source removal, and usage-cost relationships from original named descriptors, reflected layouts, and decoded instructions. It reports evidence without calling or changing the game. |
 | `inspect/inspect_component_metadata.cpp` | Examines component metadata fields against component indices. |
 | `inspect/export_kfc_resources.rs` | Exports selected KFC resources through the parser. |
 | `inspect/inspect_system_dependencies.rs` | Resolves system dependencies using the runtime resolver. |
@@ -98,7 +99,7 @@ The folders separate the native developer CLI, capture tools, inspection, compar
 | `checks/verify_component_copy_adapters.py` | Differentially checks component copy adapters on private buffers. |
 | `checks/verify_component_registry.cpp` | Verifies a live component registry against production registry rules. |
 | `checks/verify_cursor_voxel_context.py` | Checks the cursor-to-voxel context data flow in the original executable. |
-| `checks/verify_inventory_decrement.py` | Emulates the original inventory decrement helpers on isolated data. |
+| `checks/verify_inventory_decrement.py` | Emulates the original inventory decrement helpers on isolated data, using established image catalogs or the structural inventory inspection report. Engine dependencies remain stubs. |
 
 ## Tool tests
 
