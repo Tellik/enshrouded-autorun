@@ -47,6 +47,16 @@ pub(crate) fn read_mods(root: &Path) -> Vec<ModInfo> {
         };
         let config =
             serde_json::json!({"enabled":value["enabled"],"settings":value["settingValues"]});
+        let capabilities = value
+            .get("capabilities")
+            .and_then(serde_json::Value::as_array);
+        let asset = capabilities
+            .is_some_and(|items| items.iter().any(|item| item == "patch"));
+        let runtime = capabilities.is_some_and(|items| {
+            items.iter().any(|item| {
+                item == "export" || item == "runtime" || item == "runtime-register-dll"
+            })
+        });
         let revision = config_revision(&config);
         let ecosystem = mod_ecosystem_for_package(&package);
         let icon = value
@@ -116,14 +126,8 @@ pub(crate) fn read_mods(root: &Path) -> Vec<ModInfo> {
                 .and_then(|value| value.as_str())
                 .unwrap_or("client, server")
                 .into(),
-            runtime: value
-                .get("capabilities")
-                .and_then(serde_json::Value::as_array)
-                .is_some_and(|items| items.iter().any(|item| item == "runtime"))
-                && !value
-                    .get("capabilities")
-                    .and_then(serde_json::Value::as_array)
-                    .is_some_and(|items| items.iter().any(|item| item == "patch")),
+            asset,
+            runtime,
             description: value
                 .get("description")
                 .and_then(|value| value.as_str())

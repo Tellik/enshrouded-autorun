@@ -235,12 +235,18 @@ export function ModPage({
             <Icon name={mod.target === 'server' ? 'server' : 'client'} />
             {target}
           </span>
-          <span
-            className={`mod-info-badge ${mod.runtime ? 'runtime' : 'asset'}`}
-          >
-            <Icon name={mod.runtime ? 'bolt' : 'blueprint'} />
-            {mod.runtime ? t('mod.type.runtime') : t('mod.type.asset')}
-          </span>
+          {mod.asset && (
+            <span className="mod-info-badge asset">
+              <Icon name="blueprint" />
+              {t('mod.type.asset')}
+            </span>
+          )}
+          {mod.runtime && (
+            <span className="mod-info-badge runtime">
+              <Icon name="bolt" />
+              {t('mod.type.runtime')}
+            </span>
+          )}
           {mod.license && (
             <span className="mod-info-badge license">{mod.license}</span>
           )}

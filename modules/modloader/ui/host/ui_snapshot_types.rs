@@ -36,6 +36,7 @@ pub(crate) struct ModInfo {
     pub(crate) dependencies: Vec<ModDependencyInfo>,
     pub(crate) ecosystem: &'static str,
     pub(crate) target: String,
+    pub(crate) asset: bool,
     pub(crate) runtime: bool,
     pub(crate) description: Option<String>,
     pub(crate) authors: Vec<String>,
