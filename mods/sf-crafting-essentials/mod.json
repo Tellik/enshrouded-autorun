@@ -1,0 +1,11 @@
+{
+  "$schema": "../../modules/modloader/manifest/manifest.schema.json",
+  "id": "sf-crafting-essentials",
+  "name": "SF Crafting Essentials",
+  "version": "1.0.0",
+  "description": "Combines production time, resource costs, and item use through the ShroudForge Lua API.",
+  "authors": ["bonsaibauer"],
+  "icon": "icon.svg",
+  "dependencies": [],
+  "capabilities": ["patch", "runtime"]
+}

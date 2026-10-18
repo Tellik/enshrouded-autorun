@@ -1,0 +1,53 @@
+{
+  "$schema": "https://bonsaibauer.github.io/shroudforge/schemas/extended.mod.schema.json",
+  "schemaVersion": 1,
+  "enabled": true,
+  "targets": ["client", "server"],
+  "settings": {
+    "noResourceCost": {
+      "value": true,
+      "label": "No Resource Costs",
+      "description": "Enables the game operation verified for this build, which runs the affected original routine without resource costs.",
+      "control": "checkbox"
+    },
+    "infiniteItemUse": {
+      "value": true,
+      "label": "Infinite Item Use",
+      "description": "Enables the game operation verified for this build, which prevents consumption for affected item-use calls.",
+      "control": "checkbox"
+    },
+    "infiniteItemSplit": {
+      "value": true,
+      "label": "Keep Source Stack When Splitting",
+      "description": "Enables the game operation verified for this build, which leaves the source stack unchanged when splitting.",
+      "control": "checkbox"
+    },
+    "productionTimeEnabled": {
+      "value": true,
+      "label": "Apply Configured Production Time",
+      "description": "Sets every recipe with a positive crafting duration to the configured number of seconds before the game starts. When disabled, original durations are kept.",
+      "control": "checkbox"
+    },
+    "productionSeconds": {
+      "value": 3,
+      "label": "Production Time in Seconds",
+      "description": "Shared base duration for all timed recipes. The world's production speed setting also applies.",
+      "control": "slider",
+      "min": 1,
+      "max": 900,
+      "step": 1
+    }
+  },
+  "groups": [
+    {
+      "label": "Resources and Inventory",
+      "description": "These features run during gameplay and require a runtime operation verified for the current game build.",
+      "settings": ["noResourceCost", "infiniteItemUse", "infiniteItemSplit"]
+    },
+    {
+      "label": "Production",
+      "description": "The KFC parser updates the complete recipe list before startup. Instant recipes and quantities remain unchanged.",
+      "settings": ["productionTimeEnabled", "productionSeconds"]
+    }
+  ]
+}
