@@ -6,8 +6,6 @@ use tao::window::WindowBuilder;
 
 pub(crate) const DEFAULT_WIDTH: f64 = 960.0;
 pub(crate) const DEFAULT_HEIGHT: f64 = 580.0;
-pub(crate) const MINIMUM_WIDTH: f64 = 640.0;
-pub(crate) const MINIMUM_HEIGHT: f64 = 400.0;
 
 pub(crate) fn create_console_window(
     event_loop: &EventLoop<()>,
@@ -24,7 +22,6 @@ pub(crate) fn create_console_window(
         .with_resizable(true)
         .with_visible(arguments.desktop)
         .with_inner_size(LogicalSize::new(DEFAULT_WIDTH, DEFAULT_HEIGHT))
-        .with_min_inner_size(LogicalSize::new(MINIMUM_WIDTH, MINIMUM_HEIGHT))
         .build(&event_loop)?;
     Ok(window)
 }

@@ -13,8 +13,6 @@ use windows_sys::Win32::Graphics::Gdi::MonitorFromWindow;
 pub struct WindowDefaults {
     pub width: f64,
     pub height: f64,
-    pub minimum_width: f64,
-    pub minimum_height: f64,
 }
 
 #[derive(Clone, Copy)]
@@ -25,23 +23,38 @@ struct WindowSize {
 
 fn fit_window_size(
     requested: WindowSize,
-    minimum: WindowSize,
+    standard: WindowSize,
     available: WindowSize,
 ) -> (WindowSize, WindowSize) {
-    let requested = WindowSize {
-        width: requested.width.max(1.0),
-        height: requested.height.max(1.0),
+    let available = WindowSize {
+        width: available.width.max(1.0),
+        height: available.height.max(1.0),
     };
-    let scale = (available.width.max(1.0) / requested.width)
-        .min(available.height.max(1.0) / requested.height)
+    let standard = WindowSize {
+        width: standard.width.max(1.0),
+        height: standard.height.max(1.0),
+    };
+    let standard_scale = (available.width / standard.width)
+        .min(available.height / standard.height)
         .min(1.0);
-    let size = WindowSize {
-        width: requested.width * scale,
-        height: requested.height * scale,
-    };
     let minimum = WindowSize {
-        width: minimum.width.clamp(1.0, requested.width) * scale,
-        height: minimum.height.clamp(1.0, requested.height) * scale,
+        width: standard.width * standard_scale,
+        height: standard.height * standard_scale,
+    };
+    let requested = WindowSize {
+        width: requested.width.max(standard.width).max(1.0),
+        height: requested.height.max(standard.height).max(1.0),
+    };
+    let requested_scale = (available.width / requested.width)
+        .min(available.height / requested.height)
+        .min(1.0);
+    let fitted = WindowSize {
+        width: requested.width * requested_scale,
+        height: requested.height * requested_scale,
+    };
+    let size = WindowSize {
+        width: fitted.width.max(minimum.width).min(available.width),
+        height: fitted.height.max(minimum.height).min(available.height),
     };
     (size, minimum)
 }
@@ -66,6 +79,7 @@ pub fn apply_window_geometry(
         .current_monitor()
         .or_else(|| window.primary_monitor())
     else {
+        window.set_min_inner_size(Some(LogicalSize::new(defaults.width, defaults.height)));
         return saved.clone();
     };
     let scale = monitor.scale_factor().max(1.0);
@@ -85,11 +99,11 @@ pub fn apply_window_geometry(
         width: positive_size(saved["width"].as_f64()).unwrap_or(defaults.width),
         height: positive_size(saved["height"].as_f64()).unwrap_or(defaults.height),
     };
-    let minimum = WindowSize {
-        width: defaults.minimum_width,
-        height: defaults.minimum_height,
+    let standard = WindowSize {
+        width: defaults.width,
+        height: defaults.height,
     };
-    let (size, minimum) = fit_window_size(requested, minimum, available);
+    let (size, minimum) = fit_window_size(requested, standard, available);
     window.set_min_inner_size(Some(LogicalSize::new(minimum.width, minimum.height)));
     window.set_inner_size(LogicalSize::new(size.width, size.height));
 

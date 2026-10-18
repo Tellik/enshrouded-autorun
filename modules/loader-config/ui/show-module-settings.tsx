@@ -19,6 +19,54 @@ import { worldEditorSettingsFields } from '../../world-editor/ui/settings'
 import { NetworkSettings } from '../../transport/ui/settings'
 import { SystemUpdatePreferences } from '../../updater/ui/edit-update-preferences'
 
+function WindowGeometryControls({
+  module,
+  disabled = false,
+}: {
+  module: 'debugConsole' | 'modloaderUi' | 'updates' | 'worldEditor'
+  disabled?: boolean
+}) {
+  const { t } = useI18n()
+  const reset = (geometryPart: 'position' | 'size') => {
+    if (!disabled) {
+      postRequest('reset-window-geometry', { module, geometryPart })
+    }
+  }
+  return (
+    <>
+      <SettingsRow
+        label={t('settings.modules.windowGeometry.position')}
+        control={
+          <button
+            className="button ghost"
+            disabled={disabled}
+            onClick={() => reset('position')}
+          >
+            {t('settings.modules.windowGeometry.reset')}
+          </button>
+        }
+      />
+      <SettingsRow
+        label={t('settings.modules.windowGeometry.size')}
+        control={
+          <button
+            className="button ghost"
+            disabled={disabled}
+            onClick={() => reset('size')}
+          >
+            {t('settings.modules.windowGeometry.reset')}
+          </button>
+        }
+      />
+      {disabled && (
+        <p className="hint settings-module-hint">
+          {t('settings.modules.windowGeometry.worldEditorFixed')}
+        </p>
+      )}
+    </>
+  )
+}
+
 export function ModulePreferencesEditor({
   data,
   settings,
@@ -86,6 +134,7 @@ export function ModulePreferencesEditor({
         enabled={moduleEnabled('updates')}
         changeEnabled={(value) => change('updates', 'enabled', value)}
         changeSystem={changeSystem}
+        geometryControls={<WindowGeometryControls module="updates" />}
       />
       <NetworkSettings
         prefs={prefs}
@@ -192,6 +241,14 @@ export function ModulePreferencesEditor({
                     }
                   />
                 ))}
+              {(module === 'debugConsole' ||
+                module === 'modloaderUi' ||
+                module === 'worldEditor') && (
+                <WindowGeometryControls
+                  module={module}
+                  disabled={module === 'worldEditor'}
+                />
+              )}
             </div>
             {module === 'runtimeDiagnostics' && (
               <DiagnosticsControls

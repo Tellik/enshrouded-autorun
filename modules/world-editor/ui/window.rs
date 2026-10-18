@@ -3,6 +3,7 @@ use super::open_stop_event::open_event;
 use super::parse_editor_message::Command;
 use super::parse_editor_message::parse_editor_message;
 use super::position_editor_window::position_window;
+use super::position_editor_window::set_fixed_size;
 use super::read_editor_arguments::arguments;
 use super::render_editor_document::render_editor_document;
 use super::run_blueprint_action::run_blueprint_action;
@@ -97,9 +98,8 @@ pub(crate) fn run_module() -> Result<(), Box<dyn std::error::Error>> {
         .with_html(html)
         .with_ipc_handler(handler)
         .build(&window)?;
-    // Keep the same native window and WebView setup as the Modloader UI.
-    // The document paints its own opaque surface; per-window background and
-    // DWM frame overrides caused this host to diverge from that working path.
+    // The document paints the opaque panel. The Tao background matches its
+    // dark base color so uncovered client pixels cannot flash white.
     log_world_editor(
         &arguments.root,
         'D',
@@ -212,6 +212,7 @@ pub(crate) fn run_module() -> Result<(), Box<dyn std::error::Error>> {
                             } else {
                                 panel_height as f64
                             };
+                            set_fixed_size(&window, panel_width, height);
                             window.set_inner_size(LogicalSize::new(
                                 panel_width as f64,
                                 height,
@@ -278,6 +279,7 @@ pub(crate) fn run_module() -> Result<(), Box<dyn std::error::Error>> {
                             } else {
                                 panel_height as f64
                             };
+                            set_fixed_size(&window, panel_width, height);
                             window.set_inner_size(LogicalSize::new(
                                 panel_width as f64,
                                 height,
@@ -328,6 +330,7 @@ pub(crate) fn run_module() -> Result<(), Box<dyn std::error::Error>> {
                                     } else {
                                         panel_height as f64
                                     };
+                                    set_fixed_size(&window, panel_width, height);
                                     window.set_inner_size(LogicalSize::new(
                                         panel_width as f64,
                                         height,

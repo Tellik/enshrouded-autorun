@@ -17,9 +17,18 @@ pub(crate) fn create_editor_window(
         .with_title("ShroudForge | World Editor")
         .with_decorations(false)
         .with_always_on_top(true)
-        .with_resizable(false)
+        .with_resizable(true)
+        .with_background_color((7, 16, 19, 255))
         .with_visible(false)
         .with_inner_size(LogicalSize::new(
+            initial_state.panel_width as f64,
+            initial_height,
+        ))
+        .with_min_inner_size(LogicalSize::new(
+            initial_state.panel_width as f64,
+            initial_height,
+        ))
+        .with_max_inner_size(LogicalSize::new(
             initial_state.panel_width as f64,
             initial_height,
         ))

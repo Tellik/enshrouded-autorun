@@ -173,22 +173,14 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
         .unwrap_or(988.0);
     let (icon_rgba, icon_width, icon_height) = shroudforge_ui_resources::rgba()?;
     let icon = tao::window::Icon::from_rgba(icon_rgba, icon_width, icon_height)?;
-    let (title, inner_width, inner_height, min_width, min_height) = if arguments.updater_window {
+    let (title, inner_width, inner_height) = if arguments.updater_window {
         shroudforge_updater::ui::host::window::window_geometry()
     } else {
-        (
-            "ShroudForge | Modloader",
-            1180.0,
-            modloader_height,
-            860.0,
-            560.0,
-        )
+        ("ShroudForge | Modloader", 1180.0, modloader_height)
     };
     let window_defaults = WindowDefaults {
         width: inner_width,
         height: inner_height,
-        minimum_width: min_width,
-        minimum_height: min_height,
     };
     let window = WindowBuilder::new()
         .with_window_icon(Some(icon.clone()))
@@ -199,7 +191,6 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
         .with_resizable(true)
         .with_visible(arguments.desktop)
         .with_inner_size(LogicalSize::new(inner_width, inner_height))
-        .with_min_inner_size(LogicalSize::new(min_width, min_height))
         .build(&event_loop)?;
 
     let window_config_module = if arguments.updater_window {
@@ -409,17 +400,26 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                         Command::ToggleMaximizeWindow => {
                             window.set_maximized(!window.is_maximized());
                         }
-                        Command::ResetWindowGeometry(request_id) => {
-                            let result =
-                                shroudforge_window_management::reset_window_geometry(&arguments.root);
+                        Command::ResetWindowGeometry(module, component, request_id) => {
+                            let result = shroudforge_window_management::reset_window_geometry(
+                                &arguments.root,
+                                &module,
+                                &component,
+                            );
+                            let success_message = match component.as_str() {
+                                "position" => "settings.modules.windowGeometry.positionResetSuccess",
+                                "size" => "settings.modules.windowGeometry.sizeResetSuccess",
+                                _ => "settings.modules.windowGeometry.positionResetSuccess",
+                            };
+                            let action = format!("Reset {component} for {module}");
                             report_command_result(
                                 &arguments.root,
                                 &webview,
                                 &request_id,
                                 "Settings",
-                                "Reset window positions and sizes",
+                                &action,
                                 result,
-                                "settings.windowGeometry.resetSuccess",
+                                success_message,
                                 None,
                                 false,
                             );

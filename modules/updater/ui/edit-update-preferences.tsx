@@ -1,4 +1,5 @@
 import { useI18n } from '../../ui-resources/i18n'
+import type { ReactNode } from 'react'
 import {
   ModuleEnabledRow,
   SettingsRow,
@@ -12,11 +13,13 @@ export function SystemUpdatePreferences({
   enabled,
   changeEnabled,
   changeSystem,
+  geometryControls,
 }: {
   system: Record<string, any>
   enabled: boolean
   changeEnabled(value: boolean): void
   changeSystem(key: string, value: unknown): void
+  geometryControls: ReactNode
 }) {
   const { t } = useI18n()
   return (
@@ -61,6 +64,7 @@ export function SystemUpdatePreferences({
             />
           }
         />
+        {geometryControls}
       </div>
     </Card>
   )

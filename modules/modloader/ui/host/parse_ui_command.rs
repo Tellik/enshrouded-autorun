@@ -42,6 +42,8 @@ pub(crate) struct UiCommand {
     #[serde(default)]
     pub(crate) module: Option<String>,
     #[serde(default)]
+    pub(crate) geometry_part: Option<String>,
+    #[serde(default)]
     pub(crate) key: Option<String>,
     #[serde(default)]
     pub(crate) value: serde_json::Value,
@@ -58,7 +60,7 @@ pub(crate) enum Command {
     Drag(String),
     MinimizeWindow,
     ToggleMaximizeWindow,
-    ResetWindowGeometry(String),
+    ResetWindowGeometry(String, String, String),
     Refresh(Option<String>),
     CopyLogs(String),
     RefreshMod(String, String),
@@ -109,9 +111,14 @@ pub(crate) fn parse_ui_command(
         "drag" => Command::Drag(value.request_id.unwrap_or_default()),
         "minimize-window" => Command::MinimizeWindow,
         "toggle-maximize-window" => Command::ToggleMaximizeWindow,
-        "reset-window-geometry" => {
-            Command::ResetWindowGeometry(value.request_id.unwrap_or_default())
-        }
+        "reset-window-geometry" => match (value.module, value.geometry_part) {
+            (Some(module), Some(component)) => Command::ResetWindowGeometry(
+                module,
+                component,
+                value.request_id.unwrap_or_default(),
+            ),
+            _ => return None,
+        },
         "refresh" => Command::Refresh(value.request_id),
         "copy-logs" => Command::CopyLogs(value.request_id.unwrap_or_default()),
         "refresh-mod" => match value.mod_id {

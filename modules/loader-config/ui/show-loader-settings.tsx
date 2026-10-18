@@ -118,7 +118,7 @@ export function SettingsPage({
         actions={
           <>
             <button className="button secondary" onClick={reload}>
-              Reload
+              {t('common.reload')}
             </button>
             <button className="button" onClick={save}>
               {t('common.save')}
@@ -231,15 +231,6 @@ export function SettingsPage({
               checked={settings.reducedMotion}
               onChange={(value) => changeGeneral('reducedMotion', value)}
             />
-          </Card>
-          <Card title={t('settings.windowGeometry.title')}>
-            <p className="hint">{t('settings.windowGeometry.description')}</p>
-            <button
-              className="button ghost"
-              onClick={() => postRequest('reset-window-geometry')}
-            >
-              {t('settings.windowGeometry.reset')}
-            </button>
           </Card>
           <Card title={t('settings.runtimeProfile.title')}>
             <SettingsRow
