@@ -86,118 +86,105 @@ export function ModulePreferencesEditor({
   }
   return (
     <>
+      <SystemUpdatePreferences
+        system={system}
+        changeSystem={changeSystem}
+      />
       <NetworkSettings prefs={prefs} change={change} />
-      <Card title={t('settings.modules')}>
-        <div className="settings-module-list">
-          {(
-            [
-              'debugConsole',
-              'worldEditor',
-              'modloaderUi',
-              'runtimeDiagnostics',
-            ] as const
-          ).map((module) => (
-            <section
-              className="settings-module"
-              id={`settings-module-${module}`}
-              key={module}
-            >
-              <header>
-                <div>
-                  <h3>{t(`settings.modules.${module}.title`)}</h3>
-                  <p className="hint">
-                    {t(`settings.modules.${module}.description`)}
-                  </p>
-                </div>
-              </header>
-              {(module === 'debugConsole' ||
-                module === 'modloaderUi' ||
-                module === 'worldEditor') && (
-                <div className="settings-window-control">
-                  <Toggle
-                    label={t('settings.modules.windowVisible')}
-                    checked={Boolean(data.windows?.[module]?.visible)}
-                    onChange={(visible) => controlVisibility(module, visible)}
-                  />
-                  <span
-                    className={`state-pill ${data.windows?.[module]?.visible ? 'ok' : 'neutral'}`}
-                  >
-                    {data.windows?.[module]?.visible
-                      ? t('settings.modules.windowOpen')
-                      : t('settings.modules.windowClosed')}
-                  </span>
-                </div>
-              )}
-              <div className="settings-options">
-                {fields
-                  .filter((field) => field[0] === module)
-                  .map(([, key, label, options]) => (
-                    <SettingsRow
-                      key={key}
-                      label={t(label)}
-                      control={
-                        options ? (
-                          <select
-                            value={prefs[module]?.[key] ?? options[0]}
-                            onChange={(e) =>
-                              change(module, key, e.target.value)
-                            }
-                          >
-                            {options.map((option) => (
-                              <option key={option}>{option}</option>
-                            ))}
-                          </select>
-                        ) : typeof prefs[module]?.[key] === 'boolean' ? (
-                          <SettingSwitch
-                            label={t(label)}
-                            checked={settingEnabled(module, key)}
-                            onChange={(value) => change(module, key, value)}
-                          />
-                        ) : (
-                          <SettingsNumber
-                            value={prefs[module]?.[key] ?? 0}
-                            minimum={ranges[key]?.[0]}
-                            maximum={
-                              module === 'worldEditor' &&
-                              key === 'refreshMilliseconds'
-                                ? 5000
-                                : ranges[key]?.[1]
-                            }
-                            onCommit={(value) => change(module, key, value)}
-                          />
-                        )
-                      }
-                    />
-                  ))}
-              </div>
-              {module !== 'runtimeDiagnostics' && module !== 'worldEditor' && (
-                <button
-                  className="button ghost settings-module-action"
-                  onClick={() => change(module, 'window.position', null)}
-                >
-                  {t('settings.modules.resetPosition')}
-                </button>
-              )}
-              {module === 'runtimeDiagnostics' && (
-                <DiagnosticsControls
-                  data={data}
-                  prefs={prefs}
-                  module={module}
-                  change={change}
-                  jobs={data.settings.diagnosticJobs || []}
-                  jobErrors={data.settings.diagnosticJobErrors || []}
-                  jobDirectory={data.settings.diagnosticJobDirectory || ''}
-                  selectedJobId={data.settings.diagnosticSelectedJobId || 'runtime.overview'}
+      <div className="settings-module-list">
+        {(
+          [
+            'debugConsole',
+            'worldEditor',
+            'modloaderUi',
+            'runtimeDiagnostics',
+          ] as const
+        ).map((module) => (
+          <Card key={module} title={t(`settings.modules.${module}.title`)}>
+            <p className="hint settings-module-description">
+              {t(`settings.modules.${module}.description`)}
+            </p>
+            {(module === 'debugConsole' ||
+              module === 'modloaderUi' ||
+              module === 'worldEditor') && (
+              <div className="settings-window-control">
+                <Toggle
+                  label={t('settings.modules.windowVisible')}
+                  checked={Boolean(data.windows?.[module]?.visible)}
+                  onChange={(visible) => controlVisibility(module, visible)}
                 />
-              )}
-            </section>
-          ))}
-          <SystemUpdatePreferences
-            system={system}
-            changeSystem={changeSystem}
-          />
-        </div>
-      </Card>
+                <span
+                  className={`state-pill ${data.windows?.[module]?.visible ? 'ok' : 'neutral'}`}
+                >
+                  {data.windows?.[module]?.visible
+                    ? t('settings.modules.windowOpen')
+                    : t('settings.modules.windowClosed')}
+                </span>
+              </div>
+            )}
+            <div className="settings-options">
+              {fields
+                .filter((field) => field[0] === module)
+                .map(([, key, label, options]) => (
+                  <SettingsRow
+                    key={key}
+                    label={t(label)}
+                    control={
+                      options ? (
+                        <select
+                          value={prefs[module]?.[key] ?? options[0]}
+                          onChange={(e) => change(module, key, e.target.value)}
+                        >
+                          {options.map((option) => (
+                            <option key={option}>{option}</option>
+                          ))}
+                        </select>
+                      ) : typeof prefs[module]?.[key] === 'boolean' ? (
+                        <SettingSwitch
+                          label={t(label)}
+                          checked={settingEnabled(module, key)}
+                          onChange={(value) => change(module, key, value)}
+                        />
+                      ) : (
+                        <SettingsNumber
+                          value={prefs[module]?.[key] ?? 0}
+                          minimum={ranges[key]?.[0]}
+                          maximum={
+                            module === 'worldEditor' &&
+                            key === 'refreshMilliseconds'
+                              ? 5000
+                              : ranges[key]?.[1]
+                          }
+                          onCommit={(value) => change(module, key, value)}
+                        />
+                      )
+                    }
+                  />
+                ))}
+            </div>
+            {module !== 'runtimeDiagnostics' && module !== 'worldEditor' && (
+              <button
+                className="button ghost settings-module-action"
+                onClick={() => change(module, 'window.position', null)}
+              >
+                {t('settings.modules.resetPosition')}
+              </button>
+            )}
+            {module === 'runtimeDiagnostics' && (
+              <DiagnosticsControls
+                data={data}
+                prefs={prefs}
+                module={module}
+                change={change}
+                jobs={data.settings.diagnosticJobs || []}
+                jobErrors={data.settings.diagnosticJobErrors || []}
+                jobDirectory={data.settings.diagnosticJobDirectory || ''}
+                selectedJobId={data.settings.diagnosticSelectedJobId || 'runtime.overview'}
+              />
+            )}
+          </Card>
+        ))}
+      </div>
     </>
   )
 }

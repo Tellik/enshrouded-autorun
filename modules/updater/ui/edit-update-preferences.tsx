@@ -4,6 +4,7 @@ import {
   SettingSwitch,
   SettingsNumber,
 } from '../../ui-resources/edit-setting'
+import { Card } from '../../ui-resources/show-card'
 
 export function SystemUpdatePreferences({
   system,
@@ -14,13 +15,10 @@ export function SystemUpdatePreferences({
 }) {
   const { t } = useI18n()
   return (
-    <section className="settings-module">
-      <header>
-        <div>
-          <h3>{t('settings.modules.updates.title')}</h3>
-          <p className="hint">{t('settings.modules.updates.description')}</p>
-        </div>
-      </header>
+    <Card title={t('settings.modules.updates.title')}>
+      <p className="hint settings-module-description">
+        {t('settings.modules.updates.description')}
+      </p>
       <div className="settings-options">
         <SettingsRow
           label={t('settings.modules.updates.auto')}
@@ -54,6 +52,6 @@ export function SystemUpdatePreferences({
           }
         />
       </div>
-    </section>
+    </Card>
   )
 }

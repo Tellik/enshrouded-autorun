@@ -14,13 +14,16 @@ export function NetworkSettings({
   const { t } = useI18n()
   return (
     <Card title={t('settings.modules.network.title')}>
-      <p className="hint">{t('settings.modules.network.description')}</p>
+      <p className="hint settings-module-description">
+        {t('settings.modules.network.description')}
+      </p>
       <div className="settings-options">
         <SettingsRow
           label={t('settings.modules.network.serverSteamId')}
           control={
             <input
               className="settings-number"
+              type="text"
               inputMode="numeric"
               maxLength={20}
               value={prefs.network?.serverSteamId || ''}
@@ -38,7 +41,7 @@ export function NetworkSettings({
           label={t('settings.modules.network.allowedClients')}
           control={
             <textarea
-              className="mod-input"
+              className="settings-module-textarea"
               rows={3}
               maxLength={4096}
               value={prefs.network?.allowedClientSteamIds || ''}
