@@ -18,6 +18,7 @@ members = [
     "modules/transport",
     "modules/world-editor",
     "modules/notifications",
+    "modules/player-name",
 ]
 exclude = ["kfc-parser", "kfc-parser/crates/*"]
 
@@ -40,3 +41,4 @@ shroudforge-game-assets = { path = "modules/game-files" }
 shroudforge-news = { path = "modules/notifications" }
 shroudforge-ui-resources = { path = "modules/ui-resources" }
 shroudforge-updater = { path = "modules/updater" }
+shroudforge-player-name = { path = "modules/player-name" }

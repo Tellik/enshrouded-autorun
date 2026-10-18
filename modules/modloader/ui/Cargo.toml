@@ -15,6 +15,7 @@ shroudforge-logging.workspace = true
 shroudforge-news.workspace = true
 shroudforge-game-assets.workspace = true
 shroudforge-ui-resources.workspace = true
+shroudforge-player-name.workspace = true
 shroudforge-runtime-diagnostics = { path = "../../runtime-diagnostics" }
 shroudforge-updater = { path = "../../updater" }
 semver.workspace = true
@@ -23,7 +24,6 @@ serde_json.workspace = true
 sha2 = "0.10"
 base64 = "0.22"
 shroudforge-package.workspace = true
-zstd = "0.13.3"
 
 [target.'cfg(windows)'.dependencies]
 tao = "0.37.0"

@@ -3783,6 +3783,7 @@ dependencies = [
  "shroudforge-logging",
  "shroudforge-news",
  "shroudforge-package",
+ "shroudforge-player-name",
  "shroudforge-runtime-diagnostics",
  "shroudforge-ui-resources",
  "shroudforge-updater",
@@ -3791,7 +3792,6 @@ dependencies = [
  "windows",
  "windows-sys 0.61.2",
  "wry",
- "zstd",
 ]
 
 [[package]]
@@ -3824,6 +3824,14 @@ dependencies = [
  "tracing",
  "walkdir",
  "zip",
+]
+
+[[package]]
+name = "shroudforge-player-name"
+version = "1.0.0"
+dependencies = [
+ "serde_json",
+ "zstd",
 ]
 
 [[package]]

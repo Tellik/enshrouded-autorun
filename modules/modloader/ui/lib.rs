@@ -1,6 +1,4 @@
 #[cfg(windows)]
-mod character_name;
-#[cfg(windows)]
 mod host;
 
 #[cfg(windows)]

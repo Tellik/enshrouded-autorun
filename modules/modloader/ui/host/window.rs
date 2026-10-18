@@ -10,6 +10,7 @@ use super::change_storage_folder::change_storage_folder;
 use super::clear_update_queue::clear_update_queue;
 use super::copy_activity_log::copy_activity_log;
 use super::log_configuration_changes::log_configuration_check_transitions;
+use super::log_player_name_detection::log_player_name_detection;
 use super::open_requested_folder::open_requested_folder;
 use super::open_requested_link::open_requested_link;
 use super::parse_ui_command::Command;
@@ -249,6 +250,7 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
 
     let mut shown = arguments.desktop;
     let mut previous_configuration_errors = std::collections::HashSet::<String>::new();
+    let mut previous_player_name_detection = None;
     let mut previous_configuration_checks =
         std::collections::BTreeMap::<String, (String, String)>::new();
     let mut previous_asset_status = std::collections::BTreeMap::<String, (String, String)>::new();
@@ -774,7 +776,21 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                         id: &item.id, name: &item.name, version: &item.version, ecosystem: item.ecosystem, changelog: &item.changelog,
                     }).collect();
                     shroudforge_news::sync_mod_events(&arguments.root, &notification_mods);
-                    let snapshot = read_ui_snapshot(&arguments, &active_provider, &release_state, &catalog_state, central, mods);
+                    let player_name_detection = shroudforge_player_name::detect_active_character();
+                    let snapshot = read_ui_snapshot(
+                        &arguments,
+                        &active_provider,
+                        &release_state,
+                        &catalog_state,
+                        central,
+                        mods,
+                        &player_name_detection,
+                    );
+                    log_player_name_detection(
+                        &arguments.root,
+                        &player_name_detection,
+                        &mut previous_player_name_detection,
+                    );
                     log_configuration_check_transitions(
                         &arguments.root,
                         &snapshot.configuration,

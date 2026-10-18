@@ -22,6 +22,7 @@ modules/                       # Product modules and application entrypoints
   entrypoints/                # Loader application and Windows DLL entrypoints
   modloader/                  # Find, read, check and configure mods
     ui/                       # Modloader window and its views
+  player-name/                # Discover Enshrouded saves and read character names
   updater/                    # Check, download and install updates
     ui/                       # Its update views
   loader-config/              # Read and save loader settings and state
@@ -125,6 +126,7 @@ A file contains the implementation of the action named by that file. Related hel
 | What you want to change | Open this file |
 | --- | --- |
 | Find installed mods | `modules/modloader/find_installed_mods.rs` |
+| Find Enshrouded character saves and read the current character name | `modules/player-name/lib.rs` |
 | Read a mod's information | `modules/modloader/read_mod_manifest.rs` |
 | Save mod settings | `modules/modloader/save_mod_settings.rs` |
 | Change a mod's enabled state | `modules/modloader/set_mod_enabled.rs` |
