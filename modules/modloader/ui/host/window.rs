@@ -16,7 +16,6 @@ use super::open_requested_link::open_requested_link;
 use super::parse_ui_command::Command;
 use super::parse_ui_command::UiCommand;
 use super::parse_ui_command::parse_ui_command;
-use super::position_window::position_window;
 use super::queue_system_update::queue_system_update;
 use super::read_host_arguments::Arguments;
 use super::read_host_arguments::arguments;
@@ -63,6 +62,10 @@ use shroudforge_updater::start_catalog_search;
 use shroudforge_updater::start_mod_install;
 use shroudforge_updater::start_mod_update;
 use shroudforge_updater::start_update_check;
+use shroudforge_window_management::WindowDefaults;
+use shroudforge_window_management::apply_window_geometry;
+use shroudforge_window_management::current_window_geometry;
+use shroudforge_window_management::save_window_geometry;
 use std::fs;
 use std::process::Child;
 use std::sync::Arc;
@@ -181,21 +184,34 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
             560.0,
         )
     };
+    let window_defaults = WindowDefaults {
+        width: inner_width,
+        height: inner_height,
+        minimum_width: min_width,
+        minimum_height: min_height,
+    };
     let window = WindowBuilder::new()
         .with_window_icon(Some(icon.clone()))
         .with_taskbar_icon(Some(icon))
         .with_title(title)
         .with_decorations(false)
         .with_always_on_top(true)
+        .with_resizable(true)
         .with_visible(arguments.desktop)
         .with_inner_size(LogicalSize::new(inner_width, inner_height))
         .with_min_inner_size(LogicalSize::new(min_width, min_height))
         .build(&event_loop)?;
 
-    let mut saved_position =
-        read_central_config(&arguments.root)["modules"]["modloaderUi"]["window"]["position"]
-            .clone();
-    position_window(&window, &saved_position, false);
+    let window_config_module = if arguments.updater_window {
+        "updates"
+    } else {
+        "modloaderUi"
+    };
+    let mut saved_position = read_central_config(&arguments.root)["modules"][window_config_module]
+        ["window"]["position"]
+        .clone();
+    let mut effective_window_geometry =
+        apply_window_geometry(&window, &saved_position, false, window_defaults);
     let (sender, receiver) = mpsc::channel();
     let hotkey_proxy = event_loop.create_proxy();
     let hotkey_key = Arc::new(AtomicU32::new(module_config.toggle_key));
@@ -286,11 +302,29 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
     let mut desktop_debug_console: Option<Child> = None;
     let mut recovered_control_actions = false;
     let mut loaded_settings_revision = live_settings_revision(&arguments.root);
+    let mut pending_window_geometry_save: Option<Instant> = None;
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(50));
         match event {
             Event::NewEvents(StartCause::ResumeTimeReached { .. })
             | Event::NewEvents(StartCause::Init) => {
+                if pending_window_geometry_save
+                    .is_some_and(|deadline| Instant::now() >= deadline)
+                {
+                    pending_window_geometry_save = None;
+                    if current_window_geometry(&window)
+                        .is_some_and(|geometry| geometry != effective_window_geometry)
+                    {
+                        if let Ok(Some(geometry)) = save_window_geometry(
+                            &arguments.root,
+                            window_config_module,
+                            &window,
+                        ) {
+                            saved_position = geometry.clone();
+                            effective_window_geometry = geometry;
+                        }
+                    }
+                }
                 if desktop_debug_console
                     .as_mut()
                     .is_some_and(|child| child.try_wait().ok().flatten().is_some())
@@ -371,6 +405,26 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                 }
                 while let Ok(command) = receiver.try_recv() {
                     match command {
+                        Command::MinimizeWindow => window.set_minimized(true),
+                        Command::ToggleMaximizeWindow => {
+                            window.set_maximized(!window.is_maximized());
+                        }
+                        Command::ResetWindowGeometry(request_id) => {
+                            let result =
+                                shroudforge_window_management::reset_window_geometry(&arguments.root);
+                            report_command_result(
+                                &arguments.root,
+                                &webview,
+                                &request_id,
+                                "Settings",
+                                "Reset window positions and sizes",
+                                result,
+                                "settings.windowGeometry.resetSuccess",
+                                None,
+                                false,
+                            );
+                            next_refresh = Instant::now();
+                        }
                         Command::Hide(request_id) => {
                             let result = shroudforge_loader_config::config::publish_window_visibility(
                                 &arguments.root,
@@ -685,6 +739,9 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                                 .as_bool()
                                 .unwrap_or(shown)
                         };
+                        if shown {
+                            window.set_minimized(false);
+                        }
                         window.set_visible(shown);
                         if shown {
                             window.set_focus();
@@ -740,10 +797,16 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                 }
                 if Instant::now() >= next_refresh {
                     let next_position = read_central_config(&arguments.root)["modules"]
-                        ["modloaderUi"]["window"]["position"]
+                        [window_config_module]["window"]["position"]
                         .clone();
                     if next_position != saved_position {
-                        position_window(&window, &next_position, false);
+                        pending_window_geometry_save = None;
+                        effective_window_geometry = apply_window_geometry(
+                            &window,
+                            &next_position,
+                            false,
+                            window_defaults,
+                        );
                         saved_position = next_position;
                     }
                     if let Ok(next) = load_module_config(&arguments.root) {
@@ -813,6 +876,9 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                             != false)
                 {
                     shown = !shown;
+                    if shown {
+                        window.set_minimized(false);
+                    }
                     window.set_visible(shown);
                     let _ = shroudforge_loader_config::config::publish_window_visibility(
                         &arguments.root,
@@ -826,15 +892,18 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                 }
             }
             Event::WindowEvent {
-                event: WindowEvent::Moved(position),
+                event: WindowEvent::Moved(_),
+                ..
+            }
+            | Event::WindowEvent {
+                event: WindowEvent::Resized(_),
                 ..
             } => {
-                saved_position = serde_json::json!({"x":position.x,"y":position.y});
-                let _ = shroudforge_loader_config::config::update_loader(&arguments.root, |value| {
-                    value["modules"]["modloaderUi"]["window"]["position"] =
-                        saved_position.clone();
-                    Ok(())
-                });
+                if !window.is_maximized() && !window.is_minimized() {
+                    pending_window_geometry_save = current_window_geometry(&window)
+                        .filter(|geometry| geometry != &effective_window_geometry)
+                        .map(|_| Instant::now() + Duration::from_millis(250));
+                }
             }
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
@@ -854,6 +923,17 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                         &arguments.root,
                         "modloaderUi",
                         shown,
+                    );
+                }
+            }
+            Event::LoopDestroyed => {
+                if current_window_geometry(&window)
+                    .is_some_and(|geometry| geometry != effective_window_geometry)
+                {
+                    let _ = save_window_geometry(
+                        &arguments.root,
+                        window_config_module,
+                        &window,
                     );
                 }
             }

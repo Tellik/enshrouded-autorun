@@ -7,6 +7,7 @@ pub(crate) fn refresh_console_settings(
     arguments: &Arguments,
     window: &tao::window::Window,
     preferences: &mut serde_json::Value,
+    effective_window_geometry: &mut serde_json::Value,
     config: &mut Config,
     user_enabled: &mut bool,
     last_config_error: &mut Option<String>,
@@ -30,7 +31,8 @@ pub(crate) fn refresh_console_settings(
                 .to_owned();
             let next_preferences = value["modules"]["debugConsole"].clone();
             if next_preferences["window"]["position"] != preferences["window"]["position"] {
-                position_window(&window, &next_preferences["window"]["position"], true);
+                *effective_window_geometry =
+                    position_window(window, &next_preferences["window"]["position"], true);
             }
             *preferences = next_preferences;
             *user_enabled = preferences["enabled"] != false;

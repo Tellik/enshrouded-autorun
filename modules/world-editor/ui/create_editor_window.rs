@@ -17,18 +17,9 @@ pub(crate) fn create_editor_window(
         .with_title("ShroudForge | World Editor")
         .with_decorations(false)
         .with_always_on_top(true)
+        .with_resizable(false)
         .with_visible(false)
         .with_inner_size(LogicalSize::new(
-            initial_state.panel_width as f64,
-            initial_height,
-        ))
-        // Keep the same native style as Modloader UI. Equal min/max bounds
-        // preserve a fixed-size overlay without removing WS_SIZEBOX.
-        .with_min_inner_size(LogicalSize::new(
-            initial_state.panel_width as f64,
-            initial_height,
-        ))
-        .with_max_inner_size(LogicalSize::new(
             initial_state.panel_width as f64,
             initial_height,
         ))

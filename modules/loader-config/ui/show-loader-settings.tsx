@@ -232,6 +232,15 @@ export function SettingsPage({
               onChange={(value) => changeGeneral('reducedMotion', value)}
             />
           </Card>
+          <Card title={t('settings.windowGeometry.title')}>
+            <p className="hint">{t('settings.windowGeometry.description')}</p>
+            <button
+              className="button ghost"
+              onClick={() => postRequest('reset-window-geometry')}
+            >
+              {t('settings.windowGeometry.reset')}
+            </button>
+          </Card>
           <Card title={t('settings.runtimeProfile.title')}>
             <SettingsRow
               label={t('settings.runtimeProfile.selection')}

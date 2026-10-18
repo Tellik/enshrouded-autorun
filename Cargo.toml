@@ -19,6 +19,7 @@ members = [
     "modules/world-editor",
     "modules/notifications",
     "modules/player-name",
+    "modules/window-management",
 ]
 exclude = ["kfc-parser", "kfc-parser/crates/*"]
 
@@ -42,3 +43,4 @@ shroudforge-news = { path = "modules/notifications" }
 shroudforge-ui-resources = { path = "modules/ui-resources" }
 shroudforge-updater = { path = "modules/updater" }
 shroudforge-player-name = { path = "modules/player-name" }
+shroudforge-window-management = { path = "modules/window-management" }

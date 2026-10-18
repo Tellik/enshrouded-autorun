@@ -14,6 +14,7 @@ shroudforge-ui-resources.workspace = true
 shroudforge-logging.workspace = true
 shroudforge-loader-config.workspace = true
 shroudforge-package.workspace = true
+shroudforge-window-management.workspace = true
 serde_json.workspace = true
 serde.workspace = true
 

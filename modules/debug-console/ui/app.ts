@@ -150,6 +150,8 @@ byId("copy").addEventListener("click", async () => {
   setTimeout(() => byId("copy").textContent = "Copy Logs", 1500);
 });
 byId("close").addEventListener("click", () => window.ipc.postMessage("hide"));
+byId("minimize").addEventListener("click", () => window.ipc.postMessage("minimize-window"));
+byId("maximize").addEventListener("click", () => window.ipc.postMessage("toggle-maximize-window"));
 document.addEventListener("mousedown", (event) => {
   if (!event.target.closest("button,input") && event.target.closest("[data-drag-region]")) {
     window.ipc.postMessage("drag");

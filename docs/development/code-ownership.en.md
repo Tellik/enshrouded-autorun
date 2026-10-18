@@ -26,6 +26,7 @@ modules/                       # Product modules and application entrypoints
   updater/                    # Check, download and install updates
     ui/                       # Its update views
   loader-config/              # Read and save loader settings and state
+  window-management/          # Shared native window sizing and geometry persistence
   logging/                    # Write logs and display activity
   notifications/              # News, saved events, read state and toasts
   runtime-diagnostics/        # Selectable, time-limited runtime diagnostic jobs
@@ -135,6 +136,7 @@ A file contains the implementation of the action named by that file. Related hel
 | Check conflicting mods | `modules/modloader/check_mod_conflicts.rs` |
 | Select the mod load order | `modules/modloader/plan_mod_load_order.rs` |
 | Read or save loader settings | `modules/loader-config/read_loader_settings.rs`, `save_loader_settings.rs` |
+| Fit, resize, position, save, and reset native Modloader, Updater, and Debug Console window geometry | `modules/window-management/window_geometry.rs`, `reset_window_geometry.rs` |
 | Write a log entry | `modules/logging/append_log.rs` |
 | Mark news as read | `modules/notifications/mark_news_read.rs` |
 | Display a short result message | `modules/notifications/ui/show-toasts.tsx` |

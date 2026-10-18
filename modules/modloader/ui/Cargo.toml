@@ -24,6 +24,7 @@ serde_json.workspace = true
 sha2 = "0.10"
 base64 = "0.22"
 shroudforge-package.workspace = true
+shroudforge-window-management.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 tao = "0.37.0"

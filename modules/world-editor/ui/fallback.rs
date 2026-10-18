@@ -141,9 +141,10 @@ r#"(() => {{
                                     if (typeof window.__worldEditorUpdate !== 'function' && !window.__sfWorldEditorFallbackEvents) {{
                                         window.__sfWorldEditorFallbackEvents = true;
                                         document.addEventListener('click', event => {{
-                                            const target = event.target instanceof Element ? event.target.closest('#close, #manageButton, #expandLibrary') : null;
+                                            const target = event.target instanceof Element ? event.target.closest('#close, #minimize, #manageButton, #expandLibrary') : null;
                                             if (!target || !window.ipc || typeof window.ipc.postMessage !== 'function') return;
                                             if (target.id === 'close') window.ipc.postMessage(JSON.stringify({{kind:'hide'}}));
+                                            if (target.id === 'minimize') window.ipc.postMessage(JSON.stringify({{kind:'minimize'}}));
                                             if (target.id === 'manageButton') window.__worldEditorManageSelected?.();
                                             if (target.id === 'expandLibrary') {{
                                                 const expanded = !document.getElementById('cards')?.classList.contains('expanded');

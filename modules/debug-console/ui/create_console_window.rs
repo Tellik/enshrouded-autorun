@@ -4,6 +4,11 @@ use tao::event_loop::EventLoop;
 use tao::platform::windows::WindowBuilderExtWindows;
 use tao::window::WindowBuilder;
 
+pub(crate) const DEFAULT_WIDTH: f64 = 960.0;
+pub(crate) const DEFAULT_HEIGHT: f64 = 580.0;
+pub(crate) const MINIMUM_WIDTH: f64 = 640.0;
+pub(crate) const MINIMUM_HEIGHT: f64 = 400.0;
+
 pub(crate) fn create_console_window(
     event_loop: &EventLoop<()>,
     arguments: &Arguments,
@@ -16,12 +21,10 @@ pub(crate) fn create_console_window(
         .with_title("ShroudForge | Debug Console")
         .with_decorations(false)
         .with_always_on_top(true)
+        .with_resizable(true)
         .with_visible(arguments.desktop)
-        .with_inner_size(LogicalSize::new(960.0, 580.0))
-        // Match Modloader UI's native window style. Identical min/max
-        // bounds keep the console fixed-size without dropping WS_SIZEBOX.
-        .with_min_inner_size(LogicalSize::new(960.0, 580.0))
-        .with_max_inner_size(LogicalSize::new(960.0, 580.0))
+        .with_inner_size(LogicalSize::new(DEFAULT_WIDTH, DEFAULT_HEIGHT))
+        .with_min_inner_size(LogicalSize::new(MINIMUM_WIDTH, MINIMUM_HEIGHT))
         .build(&event_loop)?;
     Ok(window)
 }

@@ -13,6 +13,8 @@ use super::refresh_console_settings::refresh_console_settings;
 use super::render_console_document::render_console_document;
 use crate::save_console_preferences::save_console_preferences;
 use crate::scan_log_for_alert::scan_log_for_alert;
+use shroudforge_window_management::current_window_geometry;
+use shroudforge_window_management::save_window_geometry;
 use std::sync::mpsc;
 use std::time::Duration;
 use std::time::Instant;
@@ -51,7 +53,8 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(std::ptr::null_mut());
     let event_loop = EventLoop::new();
     let window = create_console_window(&event_loop, &arguments)?;
-    position_window(&window, &preferences["window"]["position"], true);
+    let mut effective_window_geometry =
+        position_window(&window, &preferences["window"]["position"], true);
 
     let (sender, receiver) = mpsc::channel();
     let handler = move |message: wry::http::Request<String>| {
@@ -99,11 +102,29 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut next_visibility_poll = Instant::now();
     let mut next_refresh = Instant::now();
     let mut last_config_error: Option<String> = None;
+    let mut pending_window_geometry_save: Option<Instant> = None;
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(50));
         match event {
             Event::NewEvents(StartCause::ResumeTimeReached { .. })
             | Event::NewEvents(StartCause::Init) => {
+                if pending_window_geometry_save
+                    .is_some_and(|deadline| Instant::now() >= deadline)
+                {
+                    pending_window_geometry_save = None;
+                    if current_window_geometry(&window)
+                        .is_some_and(|geometry| geometry != effective_window_geometry)
+                    {
+                        if let Ok(Some(geometry)) = save_window_geometry(
+                            &arguments.root,
+                            "debugConsole",
+                            &window,
+                        ) {
+                            preferences["window"]["position"] = geometry.clone();
+                            effective_window_geometry = geometry;
+                        }
+                    }
+                }
                 if game_exit_deadline.is_some_and(|deadline| Instant::now() >= deadline) {
                     let _ = shroudforge_loader_config::config::publish_window_visibility(&arguments.root, "debugConsole", false);
                     if !stop_event.is_null() { unsafe { CloseHandle(stop_event) }; }
@@ -234,6 +255,10 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 while let Ok(command) = receiver.try_recv() {
                     match command {
+                        Command::MinimizeWindow => window.set_minimized(true),
+                        Command::ToggleMaximizeWindow => {
+                            window.set_maximized(!window.is_maximized());
+                        }
                         Command::Hide => {
                             auto_open_suppressed_until = suppress_reopen_until(&preferences);
                             shown = false;
@@ -259,6 +284,9 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
                             auto_open_suppressed_until = suppress_reopen_until(&preferences);
                         }
                         shown = requested_visible;
+                        if shown {
+                            window.set_minimized(false);
+                        }
                         window.set_visible(shown);
                         if shown { window.set_focus(); }
                         let _ = shroudforge_loader_config::config::publish_window_visibility(&arguments.root, "debugConsole", shown);
@@ -273,6 +301,9 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
                     shown = !shown;
                     if !shown {
                         auto_open_suppressed_until = suppress_reopen_until(&preferences);
+                    }
+                    if shown {
+                        window.set_minimized(false);
                     }
                     window.set_visible(shown);
                     let _ = shroudforge_loader_config::config::publish_window_visibility(&arguments.root, "debugConsole", shown);
@@ -297,7 +328,7 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
                     window.set_visible(true);
                 }
                 if Instant::now() >= next_refresh {
-                    let Some(minimum_level) = refresh_console_settings(&arguments, &window, &mut preferences, &mut config, &mut user_enabled, &mut last_config_error, control_flow) else { return; };
+                    let Some(minimum_level) = refresh_console_settings(&arguments, &window, &mut preferences, &mut effective_window_geometry, &mut config, &mut user_enabled, &mut last_config_error, control_flow) else { return; };
                     next_refresh =
                         Instant::now() + Duration::from_millis(config.refresh_milliseconds);
                     let payload = read_console_snapshot(&arguments, &config, &preferences, minimum_level, auto_open_alert);
@@ -310,13 +341,18 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             Event::WindowEvent {
-                event: WindowEvent::Moved(position),
+                event: WindowEvent::Moved(_),
+                ..
+            }
+            | Event::WindowEvent {
+                event: WindowEvent::Resized(_),
                 ..
             } => {
-                let _ = shroudforge_loader_config::config::update_loader(&arguments.root, |value| {
-                    value["modules"]["debugConsole"]["window"]["position"] = serde_json::json!({"x":position.x,"y":position.y});
-                    Ok(())
-                });
+                if !window.is_maximized() && !window.is_minimized() {
+                    pending_window_geometry_save = current_window_geometry(&window)
+                        .filter(|geometry| geometry != &effective_window_geometry)
+                        .map(|_| Instant::now() + Duration::from_millis(250));
+                }
             }
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
@@ -326,6 +362,13 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
                 shown = false;
                 window.set_visible(false);
                 let _ = shroudforge_loader_config::config::publish_window_visibility(&arguments.root, "debugConsole", shown);
+            }
+            Event::LoopDestroyed => {
+                if current_window_geometry(&window)
+                    .is_some_and(|geometry| geometry != effective_window_geometry)
+                {
+                    let _ = save_window_geometry(&arguments.root, "debugConsole", &window);
+                }
             }
             _ => {}
         }

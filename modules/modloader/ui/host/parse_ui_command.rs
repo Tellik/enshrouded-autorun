@@ -56,6 +56,9 @@ pub(crate) struct UiCommand {
 pub(crate) enum Command {
     Hide(String),
     Drag(String),
+    MinimizeWindow,
+    ToggleMaximizeWindow,
+    ResetWindowGeometry(String),
     Refresh(Option<String>),
     CopyLogs(String),
     RefreshMod(String, String),
@@ -104,6 +107,11 @@ pub(crate) fn parse_ui_command(
         ),
         "hide" => Command::Hide(value.request_id.unwrap_or_default()),
         "drag" => Command::Drag(value.request_id.unwrap_or_default()),
+        "minimize-window" => Command::MinimizeWindow,
+        "toggle-maximize-window" => Command::ToggleMaximizeWindow,
+        "reset-window-geometry" => {
+            Command::ResetWindowGeometry(value.request_id.unwrap_or_default())
+        }
         "refresh" => Command::Refresh(value.request_id),
         "copy-logs" => Command::CopyLogs(value.request_id.unwrap_or_default()),
         "refresh-mod" => match value.mod_id {

@@ -24,7 +24,6 @@ mod open_requested_folder;
 mod open_requested_link;
 mod open_storage_folder;
 mod parse_ui_command;
-mod position_window;
 mod queue_mod_action;
 mod queue_system_update;
 mod read_activity_log;

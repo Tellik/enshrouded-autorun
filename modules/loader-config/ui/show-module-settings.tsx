@@ -48,16 +48,12 @@ export function ModulePreferencesEditor({
     saveModule('updates.system', key, value)
   }
   const change = (module: string, key: string, value: unknown) => {
-    const nextModule =
-      key === 'window.position'
-        ? {
-            ...prefs[module],
-            window: { ...prefs[module]?.window, position: value },
-          }
-        : { ...prefs[module], [key]: value }
     setSettings({
       ...settings,
-      modulePreferences: { ...prefs, [module]: nextModule },
+      modulePreferences: {
+        ...prefs,
+        [module]: { ...prefs[module], [key]: value },
+      },
     })
     saveModule(module, key, value)
   }
@@ -197,14 +193,6 @@ export function ModulePreferencesEditor({
                   />
                 ))}
             </div>
-            {module === 'debugConsole' || module === 'modloaderUi' ? (
-              <button
-                className="button ghost settings-module-action"
-                onClick={() => change(module, 'window.position', null)}
-              >
-                {t('settings.modules.resetPosition')}
-              </button>
-            ) : null}
             {module === 'runtimeDiagnostics' && (
               <DiagnosticsControls
                 data={data}

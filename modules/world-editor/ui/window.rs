@@ -3,7 +3,6 @@ use super::open_stop_event::open_event;
 use super::parse_editor_message::Command;
 use super::parse_editor_message::parse_editor_message;
 use super::position_editor_window::position_window;
-use super::position_editor_window::set_fixed_size;
 use super::read_editor_arguments::arguments;
 use super::render_editor_document::render_editor_document;
 use super::run_blueprint_action::run_blueprint_action;
@@ -180,6 +179,7 @@ pub(crate) fn run_module() -> Result<(), Box<dyn std::error::Error>> {
                                 false,
                             );
                         }
+                        Command::Minimize => window.set_minimized(true),
                         Command::OpenModSettings => {
                             if let Err(error) = shroudforge_loader_config::config::request_world_editor_module_settings(&arguments.root) {
                                 log_world_editor(&arguments.root, 'E', "ui", &format!("Could not open module settings: {error}"));
@@ -212,7 +212,6 @@ pub(crate) fn run_module() -> Result<(), Box<dyn std::error::Error>> {
                             } else {
                                 panel_height as f64
                             };
-                            set_fixed_size(&window, panel_width, height);
                             window.set_inner_size(LogicalSize::new(
                                 panel_width as f64,
                                 height,
@@ -279,7 +278,6 @@ pub(crate) fn run_module() -> Result<(), Box<dyn std::error::Error>> {
                             } else {
                                 panel_height as f64
                             };
-                            set_fixed_size(&window, panel_width, height);
                             window.set_inner_size(LogicalSize::new(
                                 panel_width as f64,
                                 height,
@@ -298,6 +296,9 @@ pub(crate) fn run_module() -> Result<(), Box<dyn std::error::Error>> {
                 let should_show = module_enabled && window_visible && (is_game || is_overlay);
                 if should_show != native_visible {
                     native_visible = should_show;
+                    if native_visible {
+                        window.set_minimized(false);
+                    }
                     window.set_visible(native_visible);
                     log_world_editor(
                         &arguments.root,
@@ -327,7 +328,6 @@ pub(crate) fn run_module() -> Result<(), Box<dyn std::error::Error>> {
                                     } else {
                                         panel_height as f64
                                     };
-                                    set_fixed_size(&window, panel_width, height);
                                     window.set_inner_size(LogicalSize::new(
                                         panel_width as f64,
                                         height,

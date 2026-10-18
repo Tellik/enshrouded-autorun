@@ -1,5 +1,4 @@
 use super::position_editor_window::position_window;
-use super::position_editor_window::set_fixed_size;
 use super::read_editor_arguments::Arguments;
 use tao::dpi::LogicalSize;
 
@@ -24,7 +23,6 @@ pub(crate) fn set_manager_open(
         } else {
             panel_height as f64
         };
-        set_fixed_size(&window, panel_width, height);
         window.set_inner_size(LogicalSize::new(panel_width as f64, height));
         position_window(
             &window,

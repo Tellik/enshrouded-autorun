@@ -258,6 +258,9 @@
     },
     "updates": {
       "enabled": false,
+      "window": {
+        "position": null
+      },
       "system": {
         "enabled": true,
         "checkMinutes": 60,

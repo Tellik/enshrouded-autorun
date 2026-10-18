@@ -68,13 +68,32 @@ export function TopBar({
       </nav>
       <LanguageMenu />
       <ModeBadge mode={data.mode} connected={data.connected} />
-      <button
-        className="window-close"
-        onClick={() => postRequest('hide')}
-        aria-label={t('common.close')}
-      >
-        ×
-      </button>
+      <div className="window-controls">
+        <button
+          className="window-control"
+          onClick={() => postRequest('minimize-window')}
+          aria-label={t('common.minimize')}
+          title={t('common.minimize')}
+        >
+          −
+        </button>
+        <button
+          className="window-control"
+          onClick={() => postRequest('toggle-maximize-window')}
+          aria-label={t('common.maximize')}
+          title={t('common.maximize')}
+        >
+          □
+        </button>
+        <button
+          className="window-control window-close"
+          onClick={() => postRequest('hide')}
+          aria-label={t('common.close')}
+          title={t('common.close')}
+        >
+          ×
+        </button>
+      </div>
     </header>
   )
 }

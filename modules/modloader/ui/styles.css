@@ -1,5 +1,7 @@
 @import '../../ui-resources/tokens.css';
 
+.window-controls{display:flex;align-items:center;gap:4px;flex:none;margin-left:8px}.window-control{position:relative;width:32px;height:32px;display:grid;place-items:center;padding:0;border:0;border-radius:8px;color:var(--sf-muted);background:transparent;font:16px/1 var(--sf-font);cursor:pointer;transition:color .16s ease,background .16s ease}.window-control:hover{color:#fff;background:rgba(255,255,255,.08)}.window-control.window-close{font-size:21px}.window-control.window-close:hover{background:rgba(239,112,120,.16)}.window-control:disabled{color:rgba(170,186,188,.38);cursor:not-allowed}.window-control:disabled:hover{background:transparent}.window-control.maximize-disabled::after{position:absolute;width:19px;height:1px;background:currentColor;content:"";transform:rotate(-45deg)}
+
 .ui-fatal-error{box-sizing:border-box;min-height:100vh;padding:48px;color:#f4f7f7;background:#10191b;font:14px/1.6 "Segoe UI",sans-serif}.ui-fatal-error h1{font-size:21px}.ui-fatal-error p{color:#aababc}
 
 .ui-fatal-error{box-sizing:border-box;min-height:100vh;padding:48px;color:#f4f7f7;background:#10191b;font:14px/1.6 "Segoe UI",sans-serif}.ui-fatal-error h1{font-size:21px}.ui-fatal-error p{color:#aababc}

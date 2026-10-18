@@ -3705,6 +3705,7 @@ dependencies = [
  "shroudforge-logging",
  "shroudforge-package",
  "shroudforge-ui-resources",
+ "shroudforge-window-management",
  "tao",
  "windows-sys 0.61.2",
  "wry",
@@ -3787,6 +3788,7 @@ dependencies = [
  "shroudforge-runtime-diagnostics",
  "shroudforge-ui-resources",
  "shroudforge-updater",
+ "shroudforge-window-management",
  "tao",
  "tempfile",
  "windows",
@@ -3892,6 +3894,16 @@ dependencies = [
  "shroudforge-package",
  "windows-sys 0.61.2",
  "zip",
+]
+
+[[package]]
+name = "shroudforge-window-management"
+version = "1.0.0"
+dependencies = [
+ "serde_json",
+ "shroudforge-loader-config",
+ "tao",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

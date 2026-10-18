@@ -1,5 +1,4 @@
 use tao::dpi::LogicalPosition;
-use tao::dpi::LogicalSize;
 use tao::dpi::PhysicalPosition;
 use windows_sys::Win32::Foundation::RECT;
 use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
@@ -49,10 +48,4 @@ pub(crate) fn position_window(
         };
         window.set_outer_position(LogicalPosition::new(x, panel_position_y as f64));
     }
-}
-
-pub(crate) fn set_fixed_size(window: &tao::window::Window, width: u32, height: f64) {
-    let size = LogicalSize::new(width as f64, height);
-    window.set_min_inner_size(Some(size));
-    window.set_max_inner_size(Some(size));
 }
