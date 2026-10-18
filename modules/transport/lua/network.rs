@@ -57,6 +57,13 @@ fn denied(lua: &Lua, owner: &Mod, operation: &str, context: RuntimeContext) -> O
     if let Some(reason) = (context.denial_reason)(lua, owner, operation) {
         return Some(reason);
     }
+    let config = match shroudforge_loader_config::config::read_loader(&(context.root)(lua)) {
+        Ok(config) => config,
+        Err(_) => return Some("Network module settings are unavailable".into()),
+    };
+    if config["modules"]["network"]["enabled"] == false {
+        return Some("Network module is disabled in ShroudForge settings".into());
+    }
     let status = steam_network::status();
     if !status.available {
         Some("Steam Networking Messages is not initialized in this process".into())

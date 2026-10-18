@@ -47,6 +47,7 @@ export function DiagnosticsControls({
 }) {
   const { t } = useI18n()
   const preferredJobId = prefs.runtimeDiagnostics?.jobId
+  const moduleEnabled = prefs.runtimeDiagnostics?.enabled === true
   const jobId = jobs.some((job) => job.id === preferredJobId)
     ? preferredJobId
     : selectedJobId
@@ -119,6 +120,7 @@ export function DiagnosticsControls({
           <button
             className="button ghost"
             key={action}
+            disabled={!moduleEnabled}
             onClick={() => postRequest('diagnostics', { action, jobId })}
           >
             {t(`settings.modules.${action}`)}

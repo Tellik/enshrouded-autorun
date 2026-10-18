@@ -2,13 +2,19 @@ import type { ModulePreferences } from '../../loader-config/ui/loader-settings'
 import { useI18n } from '../../ui-resources/i18n'
 
 import { Card } from '../../ui-resources/show-card'
-import { SettingsRow } from '../../ui-resources/edit-setting'
+import {
+  ModuleEnabledRow,
+  SettingsRow,
+  SettingSwitch,
+} from '../../ui-resources/edit-setting'
 
 export function NetworkSettings({
   prefs,
+  enabled,
   change,
 }: {
   prefs: ModulePreferences
+  enabled: boolean
   change(module: string, key: string, value: unknown): void
 }) {
   const { t } = useI18n()
@@ -18,6 +24,11 @@ export function NetworkSettings({
         {t('settings.modules.network.description')}
       </p>
       <div className="settings-options">
+        <ModuleEnabledRow
+          label={t('settings.modules.field.active')}
+          enabled={enabled}
+          onChange={(value) => change('network', 'enabled', value)}
+        />
         <SettingsRow
           label={t('settings.modules.network.serverSteamId')}
           control={

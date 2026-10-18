@@ -1,7 +1,6 @@
-use super::read_window_events::open_event;
 use super::create_console_window::create_console_window;
-use super::open_alert_console::ALERT_REOPEN_COOLDOWN;
 use super::open_alert_console::open_for_alert;
+use super::open_alert_console::suppress_reopen_until;
 use super::parse_console_message::Command;
 use super::parse_console_message::parse_console_message;
 use super::position_console_window::position_window;
@@ -9,6 +8,7 @@ use super::read_console_arguments::arguments;
 use super::read_console_settings::Config;
 use super::read_console_snapshot::read_console_snapshot;
 use super::read_window_events::foreground_process;
+use super::read_window_events::open_event;
 use super::refresh_console_settings::refresh_console_settings;
 use super::render_console_document::render_console_document;
 use crate::save_console_preferences::save_console_preferences;
@@ -91,8 +91,11 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut auto_open_alert = false;
     let mut auto_open_suppressed_until: Option<Instant> = None;
     let mut log_offset = arguments.log_start_offset;
+    let mut bootstrap_complete = false;
+    let mut bootstrap_popup_shown = false;
     let log_path = shroudforge_loader_config::paths::current_log(&arguments.root);
     let mut user_enabled = preferences["enabled"] != false;
+    let mut next_activation_poll = Instant::now();
     let mut next_visibility_poll = Instant::now();
     let mut next_refresh = Instant::now();
     let mut last_config_error: Option<String> = None;
@@ -123,7 +126,49 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
                     *control_flow = ControlFlow::Exit;
                     return;
                 }
-                if scan_log_for_alert(&log_path, &mut log_offset) {
+                if Instant::now() >= next_activation_poll {
+                    if let Ok(settings) =
+                        shroudforge_loader_config::config::read_loader(&arguments.root)
+                    {
+                        let debug_settings = &settings["modules"]["debugConsole"];
+                        let enabled = debug_settings["enabled"] != false;
+                        for key in ["popupMode", "popupCooldownSeconds"] {
+                            if let Some(value) = debug_settings.get(key) {
+                                preferences[key] = value.clone();
+                            }
+                        }
+                        if enabled != user_enabled {
+                            user_enabled = enabled;
+                            preferences["enabled"] = serde_json::json!(enabled);
+                            if enabled {
+                                next_refresh = Instant::now();
+                            } else {
+                                shown = false;
+                                window.set_visible(false);
+                                auto_open_alert = false;
+                                let _ = shroudforge_loader_config::config::publish_window_visibility(
+                                    &arguments.root,
+                                    "debugConsole",
+                                    false,
+                                );
+                            }
+                        }
+                    }
+                    next_activation_poll = Instant::now() + Duration::from_millis(250);
+                }
+                let popup_mode = if user_enabled && arguments.startup_watch {
+                    preferences["popupMode"].as_str().unwrap_or("bootstrap")
+                } else {
+                    "off"
+                };
+                if scan_log_for_alert(
+                    &log_path,
+                    &mut log_offset,
+                    popup_mode,
+                    &mut bootstrap_complete,
+                    &mut bootstrap_popup_shown,
+                ) && user_enabled
+                {
                     fatal_seen = true;
                     failure_review = true;
                     open_for_alert(
@@ -144,13 +189,15 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
                         let detail = format!("Enshrouded exited unexpectedly with process exit code 0x{exit_code:08X}");
                         let _ = shroudforge_logging::append(&arguments.root, 'E', "bootstrap-watch", &detail);
                         fatal_seen = true;
-                        open_for_alert(
-                            &window,
-                            &arguments.root,
-                            &mut shown,
-                            &mut auto_open_alert,
-                            auto_open_suppressed_until,
-                        );
+                        if user_enabled && popup_mode == "all" {
+                            open_for_alert(
+                                &window,
+                                &arguments.root,
+                                &mut shown,
+                                &mut auto_open_alert,
+                                auto_open_suppressed_until,
+                            );
+                        }
                     }
                     if fatal_seen {
                         // Keep the captured startup error visible briefly, but never
@@ -170,20 +217,25 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
                     && unsafe { WaitForSingleObject(show_event, 0) } == WAIT_OBJECT_0
                 {
                     show_event_seen = true;
-                    fatal_seen = true;
-                    failure_review = true;
-                    open_for_alert(
-                        &window,
-                        &arguments.root,
-                        &mut shown,
-                        &mut auto_open_alert,
-                        auto_open_suppressed_until,
-                    );
+                    if user_enabled && popup_mode != "off" {
+                        if popup_mode == "bootstrap" {
+                            bootstrap_popup_shown = true;
+                        }
+                        fatal_seen = true;
+                        failure_review = true;
+                        open_for_alert(
+                            &window,
+                            &arguments.root,
+                            &mut shown,
+                            &mut auto_open_alert,
+                            auto_open_suppressed_until,
+                        );
+                    }
                 }
                 while let Ok(command) = receiver.try_recv() {
                     match command {
                         Command::Hide => {
-                            auto_open_suppressed_until = Some(Instant::now() + ALERT_REOPEN_COOLDOWN);
+                            auto_open_suppressed_until = suppress_reopen_until(&preferences);
                             shown = false;
                             window.set_visible(false);
                             let _ = shroudforge_loader_config::config::publish_window_visibility(&arguments.root, "debugConsole", shown);
@@ -199,9 +251,12 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
                     let requested_id = window_state["debugConsole"]["requestId"].as_u64().unwrap_or(0);
                     if requested_id != visibility_request_id {
                         visibility_request_id = requested_id;
-                        let requested_visible = window_state["debugConsole"]["requestedVisible"].as_bool().unwrap_or(shown);
+                        let requested_visible = window_state["debugConsole"]["requestedVisible"]
+                            .as_bool()
+                            .unwrap_or(shown)
+                            && user_enabled;
                         if shown && !requested_visible {
-                            auto_open_suppressed_until = Some(Instant::now() + ALERT_REOPEN_COOLDOWN);
+                            auto_open_suppressed_until = suppress_reopen_until(&preferences);
                         }
                         shown = requested_visible;
                         window.set_visible(shown);
@@ -217,7 +272,7 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
                 if user_enabled && (game_focused || console_focused) && down && !key_down {
                     shown = !shown;
                     if !shown {
-                        auto_open_suppressed_until = Some(Instant::now() + ALERT_REOPEN_COOLDOWN);
+                        auto_open_suppressed_until = suppress_reopen_until(&preferences);
                     }
                     window.set_visible(shown);
                     let _ = shroudforge_loader_config::config::publish_window_visibility(&arguments.root, "debugConsole", shown);
@@ -226,6 +281,16 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 key_down = down;
+                if !user_enabled && shown {
+                    shown = false;
+                    window.set_visible(false);
+                    auto_open_alert = false;
+                    let _ = shroudforge_loader_config::config::publish_window_visibility(
+                        &arguments.root,
+                        "debugConsole",
+                        false,
+                    );
+                }
                 if !failure_review && !arguments.desktop && shown && !game_focused && !console_focused {
                     window.set_visible(false);
                 } else if shown && (game_focused || console_focused) && !window.is_visible() {
@@ -257,7 +322,7 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
                 event: WindowEvent::CloseRequested,
                 ..
             } => {
-                auto_open_suppressed_until = Some(Instant::now() + ALERT_REOPEN_COOLDOWN);
+                auto_open_suppressed_until = suppress_reopen_until(&preferences);
                 shown = false;
                 window.set_visible(false);
                 let _ = shroudforge_loader_config::config::publish_window_visibility(&arguments.root, "debugConsole", shown);

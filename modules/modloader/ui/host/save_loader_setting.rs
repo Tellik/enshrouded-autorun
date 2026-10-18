@@ -111,6 +111,8 @@ pub(crate) fn save_setting(
             matches!(
                 key,
                 "enabled"
+                    | "popupMode"
+                    | "popupCooldownSeconds"
                     | "defaultSource"
                     | "levelFilter"
                     | "autoScroll"
@@ -126,16 +128,18 @@ pub(crate) fn save_setting(
             ) || key == "window.position"
         }
         "worldEditor" => matches!(key, "enabled" | "toggleKey" | "refreshMilliseconds"),
-        "network" => matches!(key, "serverSteamId" | "allowedClientSteamIds"),
+        "network" => matches!(key, "enabled" | "serverSteamId" | "allowedClientSteamIds"),
         "runtimeDiagnostics" => matches!(
             key,
-            "jobId"
+            "enabled"
+                | "jobId"
                 | "intervalMilliseconds"
                 | "maximumDurationSeconds"
                 | "slowCallbackMilliseconds"
                 | "continuous"
                 | "onlyChanges"
         ),
+        "updates" => key == "enabled",
         "updates.system" => matches!(key, "enabled" | "checkMinutes" | "includePrereleases"),
         _ => false,
     };
@@ -157,7 +161,17 @@ pub(crate) fn save_setting(
             Ok(())
         });
     }
-    if module == "network" {
+    if module == "runtimeDiagnostics"
+        && key == "enabled"
+        && setting == &serde_json::Value::Bool(false)
+    {
+        return shroudforge_loader_config::config::update_loader(root, |config| {
+            config["modules"]["runtimeDiagnostics"]["enabled"] = setting.clone();
+            config["modules"]["runtimeDiagnostics"]["sessionActive"] = false.into();
+            Ok(())
+        });
+    }
+    if module == "network" && key != "enabled" {
         let text = setting.as_str().ok_or("Network settings must be text")?;
         if key == "serverSteamId"
             && !text.is_empty()

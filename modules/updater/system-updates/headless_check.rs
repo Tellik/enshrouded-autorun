@@ -4,6 +4,9 @@ pub(crate) fn headless_check_system_updates(
     root: &std::path::Path,
     mode: crate::update_check::SystemUpdateCheckMode,
 ) -> Result<String, String> {
+    if !crate::update_check::system_updates_enabled(root) {
+        return Err("System updates module is disabled".into());
+    }
     super::refresh_cached_repair_status(root)?;
     let config = shroudforge_loader_config::config::read_loader(root)?;
     let _check_lock = match crate::update_check::begin_system_update_check(root, mode)? {
@@ -95,6 +98,9 @@ pub(crate) fn headless_check_system_updates(
 
 #[cfg(windows)]
 pub fn startup_check(root: &std::path::Path) -> Result<bool, String> {
+    if !crate::update_check::system_updates_enabled(root) {
+        return Ok(false);
+    }
     let missing = missing_required_files(root);
     if !missing.is_empty() {
         let detail = format!(
@@ -123,8 +129,11 @@ pub fn startup_check(root: &std::path::Path) -> Result<bool, String> {
 
     let release = match shroudforge_loader_config::config::read_loader(root)
         .ok()
-        .and_then(|config| config.pointer("/modules/updates/system/latestRelease").cloned())
-    {
+        .and_then(|config| {
+            config
+                .pointer("/modules/updates/system/latestRelease")
+                .cloned()
+        }) {
         Some(release) if release["updateAvailable"].as_bool() == Some(true) => release,
         _ => return Ok(false),
     };
@@ -148,13 +157,19 @@ pub fn startup_check(root: &std::path::Path) -> Result<bool, String> {
         Ok(()) => {
             if !mandatory {
                 let version = version.to_owned();
-                if let Err(error) = shroudforge_loader_config::config::update_loader(root, |config| {
-                    config["modules"]["updates"]["system"]["startupPromptedVersion"] =
-                        serde_json::Value::String(version);
-                    Ok(())
-                }) {
-                    let _ = shroudforge_logging::append(root, 'W', "updater",
-                        &format!("Could not save the startup update prompt: {error}"));
+                if let Err(error) =
+                    shroudforge_loader_config::config::update_loader(root, |config| {
+                        config["modules"]["updates"]["system"]["startupPromptedVersion"] =
+                            serde_json::Value::String(version);
+                        Ok(())
+                    })
+                {
+                    let _ = shroudforge_logging::append(
+                        root,
+                        'W',
+                        "updater",
+                        &format!("Could not save the startup update prompt: {error}"),
+                    );
                 }
             }
             Ok(mandatory)

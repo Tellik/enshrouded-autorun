@@ -214,6 +214,8 @@
   "modules": {
     "debugConsole": {
       "enabled": true,
+      "popupMode": "bootstrap",
+      "popupCooldownSeconds": 30,
       "defaultSource": "game",
       "levelFilter": "ALL",
       "autoScroll": true,
@@ -225,12 +227,12 @@
       }
     },
     "worldEditor": {
-      "enabled": true,
+      "enabled": false,
       "toggleKey": 113,
       "refreshMilliseconds": 400
     },
     "modloaderUi": {
-      "enabled": true,
+      "enabled": false,
       "startPage": "news",
       "toggleKey": 120,
       "refreshMilliseconds": 1000,
@@ -238,8 +240,14 @@
         "position": null
       }
     },
+    "network": {
+      "enabled": false,
+      "serverSteamId": "",
+      "allowedClientSteamIds": ""
+    },
     "runtimeDiagnostics": {
       "enabled": false,
+      "sessionActive": false,
       "intervalMilliseconds": 2000,
       "continuous": true,
       "maximumDurationSeconds": 120,
@@ -249,6 +257,7 @@
       "requestId": 0
     },
     "updates": {
+      "enabled": false,
       "system": {
         "enabled": true,
         "checkMinutes": 60,

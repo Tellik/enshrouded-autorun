@@ -59,9 +59,18 @@ impl IngameRuntime {
         tracing::debug!(target: "shroudforge::runtime", stage = "lua-runner", "Runtime startup stage completed");
         let is_server = runner.lua.app_data_ref::<AppState>().unwrap().is_server();
         let root = env.game_dir().as_std_path().to_path_buf();
-        let (authorized_clients, restrict_network_clients) =
-            shroudforge_steam_networking::read_network_allowlist(&loader_config);
-        shroudforge_steam_networking::service_tick(&authorized_clients, restrict_network_clients);
+        if loader_config
+            .pointer("/modules/network/enabled")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(true)
+        {
+            let (authorized_clients, restrict_network_clients) =
+                shroudforge_steam_networking::read_network_allowlist(&loader_config);
+            shroudforge_steam_networking::service_tick(
+                &authorized_clients,
+                restrict_network_clients,
+            );
+        }
         let (plan, mut errors) = super::plan_runtime_mods::plan_runtime_mods(env, &root, is_server);
         let loaded = plan
             .iter()

@@ -8,7 +8,7 @@ Entity-manager changes and layout epochs are measured ECS-context transitions. T
 
 ## Configuration and controls
 
-The only configuration is `modules.runtimeDiagnostics` in `shroudforge/config/modloader-config.json`. The selected `jobId` chooses a built-in job or a validated custom job definition. The runtime polls controls every 500 ms and runs an accepted job on its existing game-process update loop. Sessions stop at `maximumDurationSeconds` and persist `enabled: false`. Starting a session increments `requestId` so an active session can be restarted intentionally. The loader schema rejects invalid settings.
+The only configuration is `modules.runtimeDiagnostics` in `shroudforge/config/modloader-config.json`. The `enabled` setting activates the module. The separate `sessionActive` setting represents a running diagnostic session. The selected `jobId` chooses a built-in job or a validated custom job definition. The runtime polls controls every 500 ms and runs an accepted job on its existing game-process update loop. Sessions stop at `maximumDurationSeconds` and persist `sessionActive: false`. Starting a session increments `requestId` so an active session can be restarted intentionally. The loader schema rejects invalid settings.
 
 Built-in jobs and their collectors are grouped under `diagnostics-jobs/`. Custom JSON definitions are loaded from the configured Runtime data folder under `diagnostics/jobs/`, which defaults to `shroudforge/runtime/diagnostics/jobs/`. The Modloader Settings page lists valid definitions and reports invalid files. Definitions select existing capabilities only. See [`diagnostics-jobs/README.md`](diagnostics-jobs/README.md) for the file format.
 

@@ -10,6 +10,9 @@ pub(crate) fn stage_stored_system_update(
     root: &std::path::Path,
     parameters: &serde_json::Value,
 ) -> Result<String, String> {
+    if !crate::update_check::system_updates_enabled(root) {
+        return Err("System updates module is disabled".into());
+    }
     let config = shroudforge_loader_config::config::read_loader(root)?;
     let mut release = config
         .pointer("/modules/updates/system/latestRelease")

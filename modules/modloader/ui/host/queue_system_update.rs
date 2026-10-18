@@ -1,4 +1,3 @@
-use std::time::SystemTime;
 use super::read_host_arguments::Arguments;
 use super::read_ui_configuration::read_central_config;
 use super::report_command_result::report_command_result;
@@ -6,6 +5,7 @@ use shroudforge_updater::release_state::ReleaseState;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Instant;
+use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
 pub(crate) fn queue_system_update(
@@ -15,7 +15,23 @@ pub(crate) fn queue_system_update(
     release_state: &Arc<Mutex<ReleaseState>>,
     next_refresh: &mut Instant,
 ) {
-    let persisted = read_central_config(&arguments.root)
+    let central = read_central_config(&arguments.root);
+    if central["modules"]["updates"]["enabled"] == false {
+        report_command_result(
+            &arguments.root,
+            &webview,
+            &request_id,
+            "Updates",
+            "Add system update to queue",
+            Err("System updates module is disabled".into()),
+            "updates.queue.added",
+            None,
+            false,
+        );
+        *next_refresh = Instant::now();
+        return;
+    }
+    let persisted = central
         .pointer("/modules/updates/system/latestRelease")
         .filter(|release| release["updateAvailable"].as_bool() == Some(true))
         .cloned();

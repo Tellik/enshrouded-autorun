@@ -13,8 +13,14 @@ pub(crate) struct ModuleConfig {
     pub(crate) toggle_key: u32,
     #[serde(default = "default_refresh")]
     pub(crate) refresh_milliseconds: u64,
+    #[serde(skip, default = "default_updates_enabled")]
+    pub(crate) updates_enabled: bool,
     #[serde(skip, default = "default_system_provider")]
     pub(crate) system_update_provider: ProviderConfig,
+}
+
+fn default_updates_enabled() -> bool {
+    true
 }
 
 #[derive(Clone, Default, Deserialize, Serialize)]

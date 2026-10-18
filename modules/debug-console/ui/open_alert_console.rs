@@ -1,8 +1,21 @@
+use serde_json::Value;
 use std::path::Path;
 use std::time::Duration;
 use std::time::Instant;
 
-pub(crate) const ALERT_REOPEN_COOLDOWN: Duration = Duration::from_secs(30);
+pub(crate) fn cooldown(preferences: &Value) -> Duration {
+    Duration::from_secs(
+        preferences["popupCooldownSeconds"]
+            .as_u64()
+            .unwrap_or(30)
+            .min(3600),
+    )
+}
+
+pub(crate) fn suppress_reopen_until(preferences: &Value) -> Option<Instant> {
+    let cooldown = cooldown(preferences);
+    (!cooldown.is_zero()).then(|| Instant::now() + cooldown)
+}
 
 pub(crate) fn open_for_alert(
     window: &tao::window::Window,

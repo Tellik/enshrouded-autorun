@@ -14,6 +14,16 @@ pub fn start_staging(
     wait_pid: u32,
     wait_for_game: bool,
 ) {
+    if !crate::update_check::system_updates_enabled(&root) {
+        let _ = results.send(AsyncUiResult {
+            request_id,
+            source: "Updates".into(),
+            action: "Stage update".into(),
+            success_message: "updates.stagedToast".into(),
+            result: Err("System updates module is disabled".into()),
+        });
+        return;
+    }
     let release = {
         let Ok(mut value) = state.lock() else {
             let _ = results.send(AsyncUiResult {

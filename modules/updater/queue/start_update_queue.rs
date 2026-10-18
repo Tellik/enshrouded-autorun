@@ -29,6 +29,11 @@ pub fn start_update_queue(
         if selected_ids.is_empty() {
             return Err("select at least one update before starting the queue".into());
         }
+        if selected_ids.iter().any(|id| id.starts_with("system:"))
+            && !crate::update_check::system_updates_enabled(root)
+        {
+            return Err("System updates module is disabled".into());
+        }
         for id in &selected_ids {
             let item = items
                 .iter_mut()

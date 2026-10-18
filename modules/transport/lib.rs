@@ -140,6 +140,17 @@ pub fn service_tick(authorized_clients: &[String], restrict_clients: bool) {
     let _ = (authorized_clients, restrict_clients);
 }
 
+pub fn service_shutdown() {
+    #[cfg(windows)]
+    unsafe {
+        type NetworkShutdown = unsafe extern "C" fn();
+        if let Some(address) = symbol(b"KfcRuntimeNetworkServiceShutdown\0") {
+            let shutdown: NetworkShutdown = std::mem::transmute(address);
+            shutdown();
+        }
+    }
+}
+
 pub fn service_stats() -> ServiceStats {
     #[cfg(windows)]
     unsafe {

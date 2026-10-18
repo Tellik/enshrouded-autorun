@@ -1,9 +1,15 @@
-use std::io::{Read, Seek};
 use std::fs::File;
 use std::io::SeekFrom;
+use std::io::{Read, Seek};
 use std::path::Path;
 
-pub(crate) fn scan_log_for_alert(path: &Path, offset: &mut u64) -> bool {
+pub(crate) fn scan_log_for_alert(
+    path: &Path,
+    offset: &mut u64,
+    popup_mode: &str,
+    bootstrap_complete: &mut bool,
+    bootstrap_popup_shown: &mut bool,
+) -> bool {
     let Ok(mut file) = File::open(path) else {
         return false;
     };
@@ -26,7 +32,28 @@ pub(crate) fn scan_log_for_alert(path: &Path, offset: &mut u64) -> bool {
         return false;
     }
     *offset = start + bytes.len() as u64;
-    String::from_utf8_lossy(&bytes)
-        .lines()
-        .any(|line| line.starts_with("[E "))
+    let mut found = false;
+    let text = String::from_utf8_lossy(&bytes);
+    for line in text.lines() {
+        if line.contains("[bootstrap] Startup stage: runtime-ready") {
+            *bootstrap_complete = true;
+        }
+        let error = line.starts_with("[E ");
+        let warning = line.starts_with("[W ");
+        found |= match popup_mode {
+            "all" => error,
+            "errorsAndWarnings" => error || warning,
+            "bootstrap"
+                if error
+                    && !*bootstrap_complete
+                    && !*bootstrap_popup_shown
+                    && line.contains("] [bootstrap] ") =>
+            {
+                *bootstrap_popup_shown = true;
+                true
+            }
+            _ => false,
+        };
+    }
+    found
 }

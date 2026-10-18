@@ -9,6 +9,9 @@ const MAX_UPDATE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES: usize = 4096;
 
 pub(crate) fn stage_system_update(root: &Path, request: &serde_json::Value) -> Result<(), String> {
+    if !crate::update_check::system_updates_enabled(root) {
+        return Err("System updates module is disabled".into());
+    }
     let version = request["version"]
         .as_str()
         .ok_or("stage request has no version")?;

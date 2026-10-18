@@ -2,7 +2,17 @@ import type { TranslationKey } from '../../ui-resources/i18n'
 export const debugConsoleSettingsFields: Array<
   [string, string, TranslationKey, string[]?]
 > = [
-  ['debugConsole', 'enabled', 'settings.modules.field.active'],
+  [
+    'debugConsole',
+    'popupMode',
+    'settings.modules.debugConsole.popupMode',
+    ['bootstrap', 'all', 'errorsAndWarnings', 'off'],
+  ],
+  [
+    'debugConsole',
+    'popupCooldownSeconds',
+    'settings.modules.debugConsole.popupCooldown',
+  ],
   [
     'debugConsole',
     'defaultSource',

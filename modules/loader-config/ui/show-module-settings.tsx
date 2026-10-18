@@ -4,6 +4,7 @@ import { TranslationKey, useI18n } from '../../ui-resources/i18n'
 import type { Snapshot } from '../../modloader/ui/ui-snapshot'
 import { Card } from '../../ui-resources/show-card'
 import {
+  ModuleEnabledRow,
   SettingSwitch,
   SettingsNumber,
   SettingsRow,
@@ -64,7 +65,6 @@ export function ModulePreferencesEditor({
     ...diagnosticSettingsFields,
     ...debugConsoleSettingsFields,
     ...worldEditorSettingsFields,
-    ['modloaderUi', 'enabled', 'settings.modules.field.active'],
     ['modloaderUi', 'toggleKey', 'settings.modules.field.hotkey'],
     ['modloaderUi', 'refreshMilliseconds', 'settings.modules.field.refresh'],
   ]
@@ -72,14 +72,13 @@ export function ModulePreferencesEditor({
     module: 'debugConsole' | 'modloaderUi' | 'worldEditor',
     visible: boolean,
   ) => postRequest('set-window-visibility', { module, visible })
-  const settingEnabled = (module: string, key: string) =>
-    Boolean(
-      prefs[module]?.[key] ?? (module === 'worldEditor' && key === 'enabled'),
-    )
+  const moduleEnabled = (module: string) =>
+    prefs[module]?.enabled ?? (module === 'debugConsole')
   const ranges: Record<string, [number, number]> = {
     intervalMilliseconds: [500, 60000],
     maximumDurationSeconds: [1, 3600],
     slowCallbackMilliseconds: [0.1, 60000],
+    popupCooldownSeconds: [0, 3600],
     toggleKey: [1, 255],
     refreshMilliseconds: [100, 10000],
     tailBytes: [1024, 1048576],
@@ -88,9 +87,15 @@ export function ModulePreferencesEditor({
     <>
       <SystemUpdatePreferences
         system={system}
+        enabled={moduleEnabled('updates')}
+        changeEnabled={(value) => change('updates', 'enabled', value)}
         changeSystem={changeSystem}
       />
-      <NetworkSettings prefs={prefs} change={change} />
+      <NetworkSettings
+        prefs={prefs}
+        enabled={moduleEnabled('network')}
+        change={change}
+      />
       <div className="settings-module-list">
         {(
           [
@@ -111,6 +116,7 @@ export function ModulePreferencesEditor({
                 <Toggle
                   label={t('settings.modules.windowVisible')}
                   checked={Boolean(data.windows?.[module]?.visible)}
+                  disabled={!moduleEnabled(module)}
                   onChange={(visible) => controlVisibility(module, visible)}
                 />
                 <span
@@ -123,8 +129,25 @@ export function ModulePreferencesEditor({
               </div>
             )}
             <div className="settings-options">
+              <ModuleEnabledRow
+                label={t('settings.modules.field.active')}
+                enabled={moduleEnabled(module)}
+                onChange={(value) => change(module, 'enabled', value)}
+              />
+              {module === 'debugConsole' && (
+                <p className="hint settings-module-hint">
+                  {t('settings.modules.debugConsole.popupHint')}
+                </p>
+              )}
               {fields
-                .filter((field) => field[0] === module)
+                .filter(
+                  (field) =>
+                    field[0] === module &&
+                    (field[1] !== 'popupCooldownSeconds' ||
+                      ['all', 'errorsAndWarnings'].includes(
+                        prefs.debugConsole?.popupMode,
+                      )),
+                )
                 .map(([, key, label, options]) => (
                   <SettingsRow
                     key={key}
@@ -136,18 +159,30 @@ export function ModulePreferencesEditor({
                           onChange={(e) => change(module, key, e.target.value)}
                         >
                           {options.map((option) => (
-                            <option key={option}>{option}</option>
+                            <option key={option} value={option}>
+                              {key === 'popupMode'
+                                ? t(
+                                    `settings.modules.debugConsole.popupMode.${option}` as TranslationKey,
+                                  )
+                                : option}
+                            </option>
                           ))}
                         </select>
-                      ) : typeof prefs[module]?.[key] === 'boolean' ? (
+                      ) : (
+                        typeof prefs[module]?.[key] === 'boolean' ||
+                        ['autoScroll', 'onlyChanges'].includes(key)
+                      ) ? (
                         <SettingSwitch
                           label={t(label)}
-                          checked={settingEnabled(module, key)}
+                          checked={prefs[module]?.[key] !== false}
                           onChange={(value) => change(module, key, value)}
                         />
                       ) : (
                         <SettingsNumber
-                          value={prefs[module]?.[key] ?? 0}
+                          value={
+                            prefs[module]?.[key] ??
+                            (key === 'popupCooldownSeconds' ? 30 : 0)
+                          }
                           minimum={ranges[key]?.[0]}
                           maximum={
                             module === 'worldEditor' &&
@@ -162,14 +197,14 @@ export function ModulePreferencesEditor({
                   />
                 ))}
             </div>
-            {module !== 'runtimeDiagnostics' && module !== 'worldEditor' && (
+            {module === 'debugConsole' || module === 'modloaderUi' ? (
               <button
                 className="button ghost settings-module-action"
                 onClick={() => change(module, 'window.position', null)}
               >
                 {t('settings.modules.resetPosition')}
               </button>
-            )}
+            ) : null}
             {module === 'runtimeDiagnostics' && (
               <DiagnosticsControls
                 data={data}

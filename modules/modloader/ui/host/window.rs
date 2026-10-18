@@ -139,15 +139,9 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
     let mut module_config = load_module_config(&arguments.root).unwrap_or_else(|_| ModuleConfig {
         toggle_key: default_toggle_key(),
         refresh_milliseconds: default_refresh(),
+        updates_enabled: false,
         system_update_provider: default_system_provider(),
     });
-    if !arguments.desktop
-        && !arguments.server
-        && shroudforge_loader_config::config::read_loader(&arguments.root)
-            .is_ok_and(|value| value["modules"]["modloaderUi"]["enabled"] == false)
-    {
-        return Ok(());
-    }
     let user_config = load_user_config(&arguments.root);
     let provider = effective_provider(&user_config);
     let installed = installed_release(&arguments.root);
@@ -279,11 +273,12 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
     let mut next_visibility_poll = Instant::now();
     let mut next_window_state_refresh = Instant::now();
     let mut next_control_poll = Instant::now();
-    let mut next_update_check = if module_config.system_update_provider.enabled {
-        Instant::now() + shroudforge_updater::system_update_check_delay(&arguments.root)
-    } else {
-        Instant::now() + Duration::from_secs(86400)
-    };
+    let mut next_update_check =
+        if module_config.updates_enabled && module_config.system_update_provider.enabled {
+            Instant::now() + shroudforge_updater::system_update_check_delay(&arguments.root)
+        } else {
+            Instant::now() + Duration::from_secs(86400)
+        };
     let mut active_provider = provider;
     let mut system_provider = module_config.system_update_provider.clone();
     let mut desktop_debug_console: Option<Child> = None;
@@ -324,17 +319,20 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                     let current_settings_revision = live_settings_revision(&arguments.root);
                     if current_settings_revision != loaded_settings_revision {
                         if let Ok(updated_module_config) = load_module_config(&arguments.root) {
-                            module_config = updated_module_config;
-                            hotkey_key.store(module_config.toggle_key, Ordering::Relaxed);
+                            let updates_enabled = updated_module_config.updates_enabled;
+                            let updates_enabled_changed =
+                                updates_enabled != module_config.updates_enabled;
+                            let toggle_key = updated_module_config.toggle_key;
                             active_provider =
                                 effective_provider(&load_user_config(&arguments.root));
                             let updated_system_provider =
-                                module_config.system_update_provider.clone();
-                            if serde_json::to_value(&updated_system_provider).ok()
+                                updated_module_config.system_update_provider.clone();
+                            if updates_enabled_changed
+                                || serde_json::to_value(&updated_system_provider).ok()
                                 != serde_json::to_value(&system_provider).ok()
                             {
                                 system_provider = updated_system_provider;
-                                next_update_check = if system_provider.enabled {
+                                next_update_check = if updates_enabled && system_provider.enabled {
                                     Instant::now()
                                         + shroudforge_updater::system_update_check_delay(
                                             &arguments.root,
@@ -343,6 +341,8 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                                     Instant::now() + Duration::from_secs(86400)
                                 };
                             }
+                            module_config = updated_module_config;
+                            hotkey_key.store(toggle_key, Ordering::Relaxed);
                             if read_central_config(&arguments.root)["modules"]["debugConsole"]["enabled"] == false {
                                 let _ = shroudforge_loader_config::config::publish_window_visibility(
                                     &arguments.root,
@@ -350,7 +350,9 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                                     false,
                                 );
                             }
-                            if read_central_config(&arguments.root)["modules"]["modloaderUi"]["enabled"] == false {
+                            if !arguments.desktop
+                                && read_central_config(&arguments.root)["modules"]["modloaderUi"]["enabled"] == false
+                            {
                                 shown = false;
                                 window.set_visible(false);
                                 let _ = shroudforge_loader_config::config::publish_window_visibility(
@@ -718,7 +720,10 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                     window.set_visible(true);
                 }
 
-                if system_provider.enabled && Instant::now() >= next_update_check {
+                if module_config.updates_enabled
+                    && system_provider.enabled
+                    && Instant::now() >= next_update_check
+                {
                     start_update_check(
                         arguments.root.clone(),
                         system_provider.clone(),
@@ -740,7 +745,8 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                         saved_position = next_position;
                     }
                     if let Ok(next) = load_module_config(&arguments.root) {
-                        if next.system_update_provider.enabled != system_provider.enabled
+                        if next.updates_enabled != module_config.updates_enabled
+                            || next.system_update_provider.enabled != system_provider.enabled
                             || next.system_update_provider.check_minutes
                                 != system_provider.check_minutes
                             || next.system_update_provider.include_prereleases
@@ -748,6 +754,9 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                         {
                             next_update_check = Instant::now()
                                 + shroudforge_updater::system_update_check_delay(&arguments.root);
+                        }
+                        if !next.updates_enabled || !next.system_update_provider.enabled {
+                            next_update_check = Instant::now() + Duration::from_secs(86400);
                         }
                         system_provider = next.system_update_provider.clone();
                         active_provider = effective_provider(&load_user_config(&arguments.root));
@@ -782,7 +791,11 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                 }
             }
             Event::UserEvent(UiEvent::Toggle) => {
-                if !arguments.server {
+                if !arguments.server
+                    && (arguments.desktop
+                        || read_central_config(&arguments.root)["modules"]["modloaderUi"]["enabled"]
+                            != false)
+                {
                     shown = !shown;
                     window.set_visible(shown);
                     let _ = shroudforge_loader_config::config::publish_window_visibility(

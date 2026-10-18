@@ -6,6 +6,9 @@ pub(crate) fn queue_stored_system_update(
     root: &std::path::Path,
     _parameters: &serde_json::Value,
 ) -> Result<String, String> {
+    if !crate::update_check::system_updates_enabled(root) {
+        return Err("System updates module is disabled".into());
+    }
     let release = shroudforge_loader_config::config::read_loader(root)?
         .pointer("/modules/updates/system/latestRelease")
         .cloned()

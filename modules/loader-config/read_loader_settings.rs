@@ -15,6 +15,41 @@ pub fn read_loader(root: &Path) -> Result<Value, String> {
         Err(error) => return Err(error.to_string()),
     };
     if let Some(loaded) = loaded.as_mut() {
+        if let Some(modules) = loaded
+            .pointer_mut("/modules")
+            .and_then(Value::as_object_mut)
+        {
+            for name in ["worldEditor", "modloaderUi"] {
+                let settings = modules
+                    .entry(name)
+                    .or_insert_with(|| Value::Object(Default::default()));
+                if let Some(settings) = settings.as_object_mut() {
+                    settings.entry("enabled").or_insert(Value::Bool(true));
+                }
+            }
+            let network = modules
+                .entry("network")
+                .or_insert_with(|| Value::Object(Default::default()));
+            if let Some(network) = network.as_object_mut() {
+                network.entry("enabled").or_insert(Value::Bool(true));
+            }
+            let updates = modules
+                .entry("updates")
+                .or_insert_with(|| Value::Object(Default::default()));
+            if let Some(updates) = updates.as_object_mut() {
+                updates.entry("enabled").or_insert(Value::Bool(true));
+            }
+        }
+        if let Some(diagnostics) = loaded
+            .pointer_mut("/modules/runtimeDiagnostics")
+            .and_then(Value::as_object_mut)
+        {
+            if !diagnostics.contains_key("sessionActive") {
+                if let Some(active) = diagnostics.get("enabled").cloned() {
+                    diagnostics.insert("sessionActive".into(), active);
+                }
+            }
+        }
         if let Some(provider) = loaded
             .pointer_mut("/catalog/provider")
             .and_then(Value::as_object_mut)

@@ -1,5 +1,5 @@
-use super::open_stop_event::open_event;
 use super::create_editor_window::create_editor_window;
+use super::open_stop_event::open_event;
 use super::parse_editor_message::Command;
 use super::parse_editor_message::parse_editor_message;
 use super::position_editor_window::position_window;
@@ -188,7 +188,8 @@ pub(crate) fn run_module() -> Result<(), Box<dyn std::error::Error>> {
                         Command::Drag => {}
                         Command::Manager(open) => set_manager_open(open, &mut manager_open, &window, &arguments, panel_width, panel_height, panel_position_x, panel_position_y, library_expanded, library_expanded_height),
                         Command::LibraryExpanded { expanded, height } => set_library_expanded(expanded, height, &mut library_expanded, &mut library_expanded_height, manager_open, &window, &arguments, panel_width, panel_height, panel_position_x, panel_position_y),
-                        Command::Action { action, value } => run_blueprint_action(action, value, &arguments, &webview, &mut next_refresh),
+                        Command::Action { action, value } if module_enabled => run_blueprint_action(action, value, &arguments, &webview, &mut next_refresh),
+                        Command::Action { .. } => {}
 
                     }
                 }

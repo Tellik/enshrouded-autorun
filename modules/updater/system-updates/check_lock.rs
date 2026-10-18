@@ -20,6 +20,14 @@ pub enum SystemUpdateCheckStart {
     Disabled,
 }
 
+pub fn system_updates_enabled(root: &Path) -> bool {
+    shroudforge_loader_config::config::read_loader(root)
+        .ok()
+        .and_then(|value| value.pointer("/modules/updates/enabled").cloned())
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+}
+
 pub(crate) fn system_update_check_interval_seconds(settings: Option<&serde_json::Value>) -> u64 {
     settings
         .and_then(|value| value.pointer("/modules/updates/system/checkMinutes"))
@@ -46,6 +54,15 @@ pub fn begin_system_update_check(
     mode: SystemUpdateCheckMode,
 ) -> Result<SystemUpdateCheckStart, String> {
     let config = shroudforge_loader_config::config::read_loader(root).ok();
+    let module_enabled = config
+        .as_ref()
+        .and_then(|value| value.pointer("/modules/updates/enabled"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    if !module_enabled {
+        return Ok(SystemUpdateCheckStart::Disabled);
+    }
+
     let enabled = config
         .as_ref()
         .and_then(|value| value.pointer("/modules/updates/system/enabled"))

@@ -45,6 +45,25 @@ export function SettingSwitch({
   )
 }
 
+export function ModuleEnabledRow({
+  label,
+  enabled,
+  onChange,
+}: {
+  label: string
+  enabled: boolean
+  onChange(value: boolean): void
+}) {
+  return (
+    <SettingsRow
+      label={label}
+      control={
+        <SettingSwitch label={label} checked={enabled} onChange={onChange} />
+      }
+    />
+  )
+}
+
 export function SettingsNumber({
   value,
   minimum,
@@ -88,10 +107,12 @@ export function Toggle({
   label,
   checked,
   onChange,
+  disabled = false,
 }: {
   label: string
   checked: boolean
   onChange(v: boolean): void
+  disabled?: boolean
 }) {
   return (
     <label className="toggle-row">
@@ -99,6 +120,7 @@ export function Toggle({
       <input
         type="checkbox"
         checked={checked}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
       />
       <i />

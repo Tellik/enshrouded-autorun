@@ -28,7 +28,7 @@ impl Session {
                 .unwrap_or(json!(0))
                 == request
             {
-                value["modules"]["runtimeDiagnostics"]["enabled"] = false.into();
+                value["modules"]["runtimeDiagnostics"]["sessionActive"] = false.into();
             }
             Ok(())
         }) {

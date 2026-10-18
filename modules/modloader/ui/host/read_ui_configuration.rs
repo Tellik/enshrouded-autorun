@@ -17,6 +17,10 @@ pub(crate) fn load_module_config(root: &Path) -> Result<ModuleConfig, String> {
     let value = shroudforge_loader_config::config::read_loader(root)?;
     let mut config: ModuleConfig = serde_json::from_value(value["modules"]["modloaderUi"].clone())
         .map_err(|e| e.to_string())?;
+    config.updates_enabled = value
+        .pointer("/modules/updates/enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
     if let Some(enabled) = value
         .pointer("/modules/updates/system/enabled")
         .and_then(|v| v.as_bool())

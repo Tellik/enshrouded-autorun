@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
 pub(super) fn defaults() -> Value {
-    json!({"enabled":false,"continuous":true,"intervalMilliseconds":2000,"maximumDurationSeconds":120,"slowCallbackMilliseconds":20,"onlyChanges":true,"jobId":"runtime.overview","requestId":0})
+    json!({"enabled":false,"sessionActive":false,"continuous":true,"intervalMilliseconds":2000,"maximumDurationSeconds":120,"slowCallbackMilliseconds":20,"onlyChanges":true,"jobId":"runtime.overview","requestId":0})
 }
 
 impl Session {
@@ -29,12 +29,14 @@ impl Session {
                 next[key] = value.clone();
             }
         }
-        let start = next["enabled"] == true
-            && (self.settings["enabled"] != true
+        let active = next["enabled"] == true && next["sessionActive"] == true;
+        let start = active
+            && (self.settings["sessionActive"] != true
                 || next["requestId"] != self.settings["requestId"]);
-        if next["enabled"] != true && self.active {
+        if !active && self.active {
             self.stop_diagnostic_job();
         }
+        next["sessionActive"] = active.into();
         self.settings = next;
         if start {
             self.start_diagnostic_job();

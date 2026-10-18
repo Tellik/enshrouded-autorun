@@ -599,6 +599,19 @@
             "enabled": {
               "type": "boolean"
             },
+            "popupMode": {
+              "enum": [
+                "bootstrap",
+                "all",
+                "errorsAndWarnings",
+                "off"
+              ]
+            },
+            "popupCooldownSeconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3600
+            },
             "defaultSource": {
               "enum": [
                 "game",
@@ -687,6 +700,9 @@
         "network": {
           "type": "object",
           "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
             "serverSteamId": {
               "type": "string",
               "maxLength": 20,
@@ -760,12 +776,15 @@
         "runtimeDiagnostics": {
           "type": "object",
           "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
             "jobId": {
               "type": "string",
               "minLength": 1,
               "maxLength": 80
             },
-            "enabled": {
+            "sessionActive": {
               "type": "boolean"
             },
             "continuous": {
@@ -799,6 +818,9 @@
         "updates": {
           "type": "object",
           "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
             "system": {
               "type": "object",
               "properties": {

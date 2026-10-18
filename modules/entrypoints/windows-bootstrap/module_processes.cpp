@@ -187,7 +187,6 @@ void start_modloader_ui(const std::filesystem::path& root) {
         log('D', "Modloader UI window is skipped in the Dedicated Server process");
         return;
     }
-    if (!ShroudforgeConfig::ModuleEnabled(root,"modloaderUi")) return;
     const auto executable = shroudforge_directory(root) / L"shroudforge.exe";
     if (!std::filesystem::is_regular_file(executable)) {
         log('W', "Modloader UI module is not installed");
@@ -285,6 +284,7 @@ void stop_world_editor_ui() {
 }
 
 void start_pending_update(const std::filesystem::path& root) {
+    if (!ShroudforgeConfig::ModuleEnabled(root, "updates")) return;
     const auto updates = ShroudforgeConfig::Directory(root, "updates", "shroudforge/updates");
     const auto staged = updates / L"pending";
     const auto marker = updates / L"pending.ready";

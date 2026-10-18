@@ -3,11 +3,17 @@ use crate::headless_check_system_updates;
 
 pub fn system_update_check_delay(root: &std::path::Path) -> std::time::Duration {
     let settings = shroudforge_loader_config::config::read_loader(root).ok();
-    let enabled = settings
+    let module_enabled = settings
         .as_ref()
-        .and_then(|value| value.pointer("/modules/updates/system/enabled"))
+        .and_then(|value| value.pointer("/modules/updates/enabled"))
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(true);
+    let enabled = module_enabled
+        && settings
+            .as_ref()
+            .and_then(|value| value.pointer("/modules/updates/system/enabled"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(true);
     if !enabled {
         return std::time::Duration::from_secs(86_400);
     }
@@ -27,6 +33,9 @@ pub fn system_update_check_delay(root: &std::path::Path) -> std::time::Duration 
 
 #[cfg(windows)]
 pub(crate) fn check_due_system_update(root: &std::path::Path) -> std::time::Instant {
+    if !crate::update_check::system_updates_enabled(root) {
+        return std::time::Instant::now() + std::time::Duration::from_secs(1);
+    }
     let delay = system_update_check_delay(root);
     if delay.is_zero() {
         match headless_check_system_updates(

@@ -22,6 +22,8 @@ pub(crate) fn save_settings(root: &Path, settings: &UiSettings) -> Result<(), St
                     "debugConsole",
                     &[
                         "enabled",
+                        "popupMode",
+                        "popupCooldownSeconds",
                         "defaultSource",
                         "levelFilter",
                         "autoScroll",
@@ -41,6 +43,7 @@ pub(crate) fn save_settings(root: &Path, settings: &UiSettings) -> Result<(), St
                 (
                     "runtimeDiagnostics",
                     &[
+                        "enabled",
                         "jobId",
                         "intervalMilliseconds",
                         "maximumDurationSeconds",
@@ -53,6 +56,12 @@ pub(crate) fn save_settings(root: &Path, settings: &UiSettings) -> Result<(), St
                 for key in keys {
                     if let Some(setting) = preferences.get(module).and_then(|value| value.get(*key))
                     {
+                        if module == "runtimeDiagnostics"
+                            && *key == "enabled"
+                            && setting == &serde_json::Value::Bool(false)
+                        {
+                            value["modules"][module]["sessionActive"] = false.into();
+                        }
                         if module == "runtimeDiagnostics" && *key == "jobId" {
                             let job_id =
                                 setting.as_str().ok_or("diagnostic job id must be text")?;
@@ -75,6 +84,9 @@ pub(crate) fn save_settings(root: &Path, settings: &UiSettings) -> Result<(), St
                 {
                     value["modules"][module]["window"]["position"] = position.clone();
                 }
+            }
+            if let Some(enabled) = preferences.pointer("/updates/enabled") {
+                value["modules"]["updates"]["enabled"] = enabled.clone();
             }
             for key in ["enabled", "checkMinutes", "includePrereleases"] {
                 if let Some(setting) = preferences.pointer(&format!("/updates/system/{key}")) {

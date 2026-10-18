@@ -1,5 +1,6 @@
 import { useI18n } from '../../ui-resources/i18n'
 import {
+  ModuleEnabledRow,
   SettingsRow,
   SettingSwitch,
   SettingsNumber,
@@ -8,9 +9,13 @@ import { Card } from '../../ui-resources/show-card'
 
 export function SystemUpdatePreferences({
   system,
+  enabled,
+  changeEnabled,
   changeSystem,
 }: {
   system: Record<string, any>
+  enabled: boolean
+  changeEnabled(value: boolean): void
   changeSystem(key: string, value: unknown): void
 }) {
   const { t } = useI18n()
@@ -20,6 +25,11 @@ export function SystemUpdatePreferences({
         {t('settings.modules.updates.description')}
       </p>
       <div className="settings-options">
+        <ModuleEnabledRow
+          label={t('settings.modules.field.active')}
+          enabled={enabled}
+          onChange={changeEnabled}
+        />
         <SettingsRow
           label={t('settings.modules.updates.auto')}
           control={

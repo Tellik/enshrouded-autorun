@@ -1,10 +1,12 @@
 #include "bootstrap_state.h"
+#include <atomic>
 
 using namespace BootstrapImplementation;
 
 
 namespace BootstrapImplementation {
 auto session_started = std::chrono::steady_clock::now();
+std::atomic_bool runtime_ready{false};
 
 std::string single_line(std::string_view value) {
     std::string result;
@@ -46,6 +48,7 @@ struct LogGuard {
 };
 
 void begin_log_session(const std::filesystem::path& root) {
+    runtime_ready.store(false, std::memory_order_release);
     LogGuard guard;
     if (!guard.held) return;
     try {
@@ -107,7 +110,18 @@ void log(char level, const std::string& message) {
         stream << line;
         stream.flush();
     }
-    if (level == 'E' && console_show_event) SetEvent(console_show_event);
+    if ((level == 'E' || level == 'W') && console_show_event) {
+        const auto debug_console = ShroudforgeConfig::Read(root)
+            .value("modules", nlohmann::json::object())
+            .value("debugConsole", nlohmann::json::object());
+        const auto popup_mode = debug_console.value("popupMode", std::string("bootstrap"));
+        const bool popup_enabled = debug_console.value("enabled", true) &&
+            ((popup_mode == "all" && level == 'E') ||
+                (popup_mode == "errorsAndWarnings") ||
+                (popup_mode == "bootstrap" && level == 'E' &&
+                    !runtime_ready.load(std::memory_order_acquire)));
+        if (popup_enabled) SetEvent(console_show_event);
+    }
 }
 
 void log(const std::string& message) {
@@ -130,6 +144,9 @@ void log_shroudforge_banner(bool dedicated_server) {
 
 void startup_stage(const std::filesystem::path& root, const char* stage) {
     (void)root;
+    if (std::string_view(stage) == "runtime-ready") {
+        runtime_ready.store(true, std::memory_order_release);
+    }
     log('D', std::string("Startup stage: ") + stage);
 }
 
@@ -165,6 +182,11 @@ std::string runtime_status_state(std::string_view status) {
 }
 
 void show_startup_error(const std::filesystem::path& root, const std::string& detail) {
+    if (!ShroudforgeConfig::ModuleEnabled(root, "debugConsole")) return;
+    try {
+        const auto debug_console = ShroudforgeConfig::Read(root).at("modules").at("debugConsole");
+        if (debug_console.value("popupMode", std::string("bootstrap")) == "off") return;
+    } catch (...) {}
     auto text = std::wstring(detail.begin(), detail.end());
     text += L"\n\nShroudForge log:\n";
     const auto role = is_dedicated_server_process() ? L"server" : L"client";

@@ -10,18 +10,15 @@ pub fn request_install_after_game(root: &std::path::Path, pid: u32) -> Result<()
     request_worker(root)
 }
 
-
 #[cfg(windows)]
 pub fn check_update_cancelled(root: &std::path::Path) -> Result<(), String> {
     scheduled::check_update_cancelled(root)
 }
 
-
 #[cfg(not(windows))]
 pub fn check_update_cancelled(_: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
-
 
 #[cfg(windows)]
 pub fn enqueue_system_update(
@@ -44,12 +41,10 @@ pub fn enqueue_system_update(
     )
 }
 
-
 #[cfg(not(windows))]
 pub fn enqueue_system_update(_: &std::path::Path, _: serde_json::Value) -> Result<(), String> {
     Err("update queue is available on Windows only".into())
 }
-
 
 #[cfg(windows)]
 pub fn request_system_stage(
@@ -58,6 +53,9 @@ pub fn request_system_stage(
     _wait_pid: u32,
     wait_for_game: bool,
 ) -> Result<(), String> {
+    if !crate::update_check::system_updates_enabled(root) {
+        return Err("System updates module is disabled".into());
+    }
     let version = release["version"]
         .as_str()
         .ok_or("release has no version")?
@@ -66,18 +64,15 @@ pub fn request_system_stage(
     start_update_queue(root, &[format!("system:{version}")], wait_for_game, true)
 }
 
-
 #[cfg(windows)]
 pub fn cancel_system_update(root: &std::path::Path) -> Result<(), String> {
     scheduled::clear_system_update(root)
 }
 
-
 #[cfg(not(windows))]
 pub fn cancel_system_update(_: &std::path::Path) -> Result<(), String> {
     Err("system update cancellation is available on Windows only".into())
 }
-
 
 #[cfg(not(windows))]
 pub fn request_system_stage(
@@ -88,7 +83,6 @@ pub fn request_system_stage(
 ) -> Result<(), String> {
     Err("scheduled updater is available on Windows only".into())
 }
-
 
 #[cfg(not(windows))]
 pub fn request_install_after_game(_: &std::path::Path, _: u32) -> Result<(), String> {

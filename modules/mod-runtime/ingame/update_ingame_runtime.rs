@@ -11,21 +11,31 @@ impl IngameRuntime {
             .poll_native_dll_loads();
         self.process_runtime_reload_request();
         if std::time::Instant::now() >= self.next_status {
-            let (authorized_clients, restrict_network_clients) =
-                shroudforge_loader_config::config::read_loader(&self.root)
-                    .map(|config| shroudforge_steam_networking::read_network_allowlist(&config))
-                    .unwrap_or_else(|_| (Vec::new(), true));
-            shroudforge_steam_networking::report_network_health(
-                &authorized_clients,
-                restrict_network_clients,
-                || {
-                    self.runner
-                        .lua
-                        .app_data_ref::<AppState>()
-                        .unwrap()
-                        .is_server()
-                },
-            );
+            let config = shroudforge_loader_config::config::read_loader(&self.root).ok();
+            if config
+                .as_ref()
+                .and_then(|value| value.pointer("/modules/network/enabled"))
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+            {
+                let (authorized_clients, restrict_network_clients) = config
+                    .as_ref()
+                    .map(shroudforge_steam_networking::read_network_allowlist)
+                    .unwrap_or_else(|| (Vec::new(), true));
+                shroudforge_steam_networking::report_network_health(
+                    &authorized_clients,
+                    restrict_network_clients,
+                    || {
+                        self.runner
+                            .lua
+                            .app_data_ref::<AppState>()
+                            .unwrap()
+                            .is_server()
+                    },
+                );
+            } else {
+                shroudforge_steam_networking::service_shutdown();
+            }
             self.refresh_configuration();
             self.publish_status(true);
             self.next_status = std::time::Instant::now() + std::time::Duration::from_secs(1);

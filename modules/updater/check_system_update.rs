@@ -19,6 +19,18 @@ pub fn start_update_check(
     results: mpsc::Sender<AsyncUiResult>,
     request_id: Option<String>,
 ) {
+    if !crate::update_check::system_updates_enabled(&root) {
+        if let Some(request_id) = request_id {
+            let _ = results.send(AsyncUiResult {
+                request_id,
+                source: "Updates".into(),
+                action: "Check for updates".into(),
+                success_message: "updates.check.upToDate".into(),
+                result: Err("System updates module is disabled".into()),
+            });
+        }
+        return;
+    }
     let updater_status_path =
         shroudforge_loader_config::paths::updates_dir(&root).join("updater-status.json");
     let updater_status = std::fs::read(&updater_status_path)

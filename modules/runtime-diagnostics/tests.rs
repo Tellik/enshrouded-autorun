@@ -21,7 +21,7 @@ fn disabled_means_no_measurements_and_snapshot_finishes() {
     assert!(session.last_sample > 0);
     assert_eq!(
         shroudforge_loader_config::config::read_loader(root.path()).unwrap()["modules"]["runtimeDiagnostics"]
-            ["enabled"],
+            ["sessionActive"],
         false
     );
     assert_eq!(status(root.path())["reason"], "snapshot-complete");
@@ -45,7 +45,8 @@ fn deadline_is_independent_of_sample_interval_and_restart_works() {
         true,
     );
     assert_eq!(
-        super::diagnostics_jobs::mod_callbacks::report(&session.measurements)["mods/example/on_update"]["slowCalls"],
+        super::diagnostics_jobs::mod_callbacks::report(&session.measurements)["mods/example/on_update"]
+            ["slowCalls"],
         1
     );
     session.next_sample = Instant::now() + Duration::from_secs(60);
