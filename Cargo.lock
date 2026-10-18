@@ -3832,8 +3832,7 @@ dependencies = [
 name = "shroudforge-player-name"
 version = "1.0.0"
 dependencies = [
- "serde_json",
- "zstd",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

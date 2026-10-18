@@ -22,7 +22,7 @@ modules/                       # Product modules and application entrypoints
   entrypoints/                # Loader application and Windows DLL entrypoints
   modloader/                  # Find, read, check and configure mods
     ui/                       # Modloader window and its views
-  player-name/                # Discover Enshrouded saves and read character names
+  player-name/                # Read the selected character name from the live Enshrouded UI
   updater/                    # Check, download and install updates
     ui/                       # Its update views
   loader-config/              # Read and save loader settings and state

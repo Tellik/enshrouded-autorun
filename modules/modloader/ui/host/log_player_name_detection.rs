@@ -12,11 +12,13 @@ pub(crate) fn log_player_name_detection(
 
     let detected = report.status == DetectionStatus::Detected;
     let details = format!(
-        "{}. Searched {} directories, found {} character indexes, and could not read {} directories.",
+        "{}. Source: live Enshrouded UI. Selected name: {}. Process ID: {}.",
         report.status.description(),
-        report.directories_scanned,
-        report.indexes_found,
-        report.inaccessible_directories,
+        report.name.as_deref().unwrap_or("unavailable"),
+        report
+            .process_id
+            .map(|process_id| process_id.to_string())
+            .unwrap_or_else(|| "unavailable".into()),
     );
     write_activity(
         root,
