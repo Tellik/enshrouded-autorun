@@ -2,7 +2,7 @@ use super::*;
 use serde_json::json;
 use std::time::{Duration, Instant};
 #[test]
-fn disabled_means_no_measurements_and_snapshot_finishes() {
+fn disabled_module_does_not_measure_and_enabled_snapshot_finishes() {
     let root = tempfile::tempdir().unwrap();
     let mut session = Session::new(root.path());
     session.measure(
@@ -13,6 +13,12 @@ fn disabled_means_no_measurements_and_snapshot_finishes() {
         false,
     );
     assert!(session.measurements.is_empty());
+    assert!(request(root.path(), "snapshot").is_err());
+    shroudforge_loader_config::config::update_loader(root.path(), |value| {
+        value["modules"]["runtimeDiagnostics"]["enabled"] = json!(true);
+        Ok(())
+    })
+    .unwrap();
     request(root.path(), "snapshot").unwrap();
     session.next_config = Instant::now();
     session.tick();
@@ -30,6 +36,7 @@ fn disabled_means_no_measurements_and_snapshot_finishes() {
 fn deadline_is_independent_of_sample_interval_and_restart_works() {
     let root = tempfile::tempdir().unwrap();
     shroudforge_loader_config::config::update_loader(root.path(), |value| {
+        value["modules"]["runtimeDiagnostics"]["enabled"] = json!(true);
         value["modules"]["runtimeDiagnostics"]["maximumDurationSeconds"] = json!(1);
         value["modules"]["runtimeDiagnostics"]["intervalMilliseconds"] = json!(60000);
         Ok(())
