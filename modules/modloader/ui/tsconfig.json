@@ -31,6 +31,9 @@
       ],
       "@generated-flags": [
         "../../../build/ui/modloader-inputs/generated-flags.ts"
+      ],
+      "@generated-crowdin-progress": [
+        "../../../build/ui/modloader-inputs/crowdin-progress.json"
       ]
     }
   },

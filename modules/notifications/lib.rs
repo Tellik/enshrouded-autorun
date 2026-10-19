@@ -17,7 +17,7 @@ mod write_notification_event;
 
 pub use mark_news_read::{mark_news_read, mark_read};
 pub use mark_news_unread::{mark_news_unread, mark_unread};
-pub use notification::{ModNotification, Notice, NoticeAction, NoticeLink};
+pub use notification::{ModNotification, Notice, NoticeAction, NoticeBanner, NoticeLink};
 pub use notification_paths::{directory, events_directory};
 pub use read_news::read;
 pub use read_news_state::{read_ids, read_news_state};

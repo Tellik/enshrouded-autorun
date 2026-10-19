@@ -37,13 +37,28 @@
             "maxItems": 4,
             "items": {
               "type": "object",
-              "required": ["labelKey", "url"],
+              "required": ["url"],
+              "anyOf": [
+                { "required": ["labelKey"] },
+                { "required": ["label"] }
+              ],
               "properties": {
-                "labelKey": { "type": "string", "maxLength": 120 },
+                "labelKey": { "type": "string", "minLength": 1, "maxLength": 120 },
+                "label": { "type": "string", "minLength": 1, "maxLength": 120 },
                 "url": { "type": "string", "pattern": "^https://" }
               },
               "additionalProperties": false
             }
+          },
+          "banner": {
+            "type": "object",
+            "required": ["imageUrl", "linkUrl", "alt"],
+            "properties": {
+              "imageUrl": { "type": "string", "pattern": "^https://" },
+              "linkUrl": { "type": "string", "pattern": "^https://" },
+              "alt": { "type": "string", "minLength": 1, "maxLength": 120 }
+            },
+            "additionalProperties": false
           },
           "actions": {
             "type": "array",

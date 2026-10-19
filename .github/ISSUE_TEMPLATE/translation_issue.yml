@@ -1,0 +1,41 @@
+name: "Report a translation issue"
+description: "Report a mistranslation or unclear wording."
+title: "[Translation]: "
+labels:
+  - bug
+body:
+  - type: dropdown
+    id: language
+    attributes:
+      label: Which language is affected?
+      options:
+        - English
+        - German
+        - French
+        - Spanish
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: current_text
+    attributes:
+      label: Which word or sentence is wrong?
+      description: Copy the wording as it appears in ShroudForge.
+      placeholder: The current word or sentence
+    validations:
+      required: true
+
+  - type: upload
+    id: screenshot
+    attributes:
+      label: Screenshot (optional)
+      description: Upload a screenshot showing where the incorrect wording appears.
+
+  - type: textarea
+    id: suggested_text
+    attributes:
+      label: What should it say instead?
+      description: Enter the correct word or sentence.
+      placeholder: Suggested wording
+    validations:
+      required: true

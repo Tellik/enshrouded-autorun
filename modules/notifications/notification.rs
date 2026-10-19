@@ -15,6 +15,8 @@ pub struct Notice {
     pub action_label_key: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub links: Vec<NoticeLink>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub banner: Option<NoticeBanner>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<NoticeAction>,
     pub updated_at: u64,
@@ -38,8 +40,19 @@ pub struct NoticeAction {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NoticeLink {
-    pub label_key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     pub url: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoticeBanner {
+    pub image_url: String,
+    pub link_url: String,
+    pub alt: String,
 }
 
 /// Mod metadata needed to associate notifications with an installed mod.

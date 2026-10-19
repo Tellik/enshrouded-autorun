@@ -6,6 +6,7 @@ import type { NewsItem, NoticeAction } from './notification-types'
 import { EcosystemBadge } from '../../ui-resources/show-ecosystem-badge'
 import { Icon } from '../../ui-resources/show-icon'
 import { ContributorList } from './show-contributors'
+import { CrowdinProgressPanel } from './show-crowdin-progress'
 export function noticeIcon(item: NewsItem) {
   if (item.level === 'error') return 'issue'
   if (item.level === 'warning') return 'warning'
@@ -21,6 +22,8 @@ export function noticeIcon(item: NewsItem) {
       return 'settings'
     case 'notice.discord':
       return 'discord'
+    case 'notice.localization':
+      return 'discover'
     case 'notice.applySettings':
       return 'refresh'
     case 'notice.feedback':
@@ -70,7 +73,22 @@ export function NoticeCard({
           <EcosystemBadge ecosystem={item.ecosystem} />
           {unread && <i />}
         </div>
+        {!compact && item.banner && (
+          <button
+            className="notice-banner"
+            type="button"
+            aria-label={item.banner.alt}
+            onClick={() =>
+              postRequest('open-url', { url: localizedUrl(item.banner!.linkUrl) })
+            }
+          >
+            <img src={item.banner.imageUrl} alt="" loading="lazy" />
+          </button>
+        )}
         <p>{item.message}</p>
+        {!compact && item.kind === 'notice.localization' && (
+          <CrowdinProgressPanel />
+        )}
         {!compact && item.kind === 'notice.welcome' && <ContributorList />}
         {!compact && item.changelog?.length ? (
           <ul className="notice-changelog">
@@ -104,12 +122,12 @@ export function NoticeCard({
             )}
             {links.map((link, index) => (
               <button
-                key={`${link.labelKey}-${index}`}
+                key={`${link.labelKey || link.label}-${index}`}
                 onClick={() =>
                   postRequest('open-url', { url: localizedUrl(link.url) })
                 }
               >
-                {t(link.labelKey as TranslationKey)}
+                {link.label || t(link.labelKey as TranslationKey)}
               </button>
             ))}
             {actions.map((action) => (

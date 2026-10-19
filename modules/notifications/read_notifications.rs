@@ -1,4 +1,4 @@
-use crate::{ModNotification, Notice, NoticeAction, NoticeLink};
+use crate::{ModNotification, Notice, NoticeAction, NoticeBanner, NoticeLink};
 use std::path::Path;
 
 pub fn read_notifications(root: &Path, mods: &[ModNotification<'_>]) -> Vec<Notice> {
@@ -57,14 +57,46 @@ pub fn read_notifications(root: &Path, mods: &[ModNotification<'_>]) -> Vec<Noti
                     .flatten()
                     .filter_map(|link| {
                         let url = link.get("url")?.as_str()?;
-                        let label_key = link.get("labelKey")?.as_str()?;
-                        (url.starts_with("https://") && !label_key.is_empty()).then(|| NoticeLink {
-                            label_key: label_key.chars().take(120).collect(),
+                        if !url.starts_with("https://") {
+                            return None;
+                        }
+                        let label_key = link
+                            .get("labelKey")
+                            .and_then(|value| value.as_str())
+                            .filter(|value| !value.is_empty())
+                            .map(|value| value.chars().take(120).collect());
+                        let label = link
+                            .get("label")
+                            .and_then(|value| value.as_str())
+                            .filter(|value| !value.is_empty())
+                            .map(|value| value.chars().take(120).collect());
+                        (label_key.is_some() || label.is_some()).then(|| NoticeLink {
+                            label_key,
+                            label,
                             url: url.to_owned(),
                         })
                     })
                     .take(4)
                     .collect(),
+                banner: value.get("banner").and_then(|banner| {
+                    let image_url = banner
+                        .get("imageUrl")
+                        .and_then(|value| value.as_str())
+                        .filter(|url| url.starts_with("https://"))?;
+                    let link_url = banner
+                        .get("linkUrl")
+                        .and_then(|value| value.as_str())
+                        .filter(|url| url.starts_with("https://"))?;
+                    let alt = banner
+                        .get("alt")
+                        .and_then(|value| value.as_str())
+                        .filter(|value| !value.is_empty())?;
+                    Some(NoticeBanner {
+                        image_url: image_url.to_owned(),
+                        link_url: link_url.to_owned(),
+                        alt: alt.chars().take(120).collect(),
+                    })
+                }),
                 actions: value
                     .get("actions")
                     .and_then(|value| value.as_array())

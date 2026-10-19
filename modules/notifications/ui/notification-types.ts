@@ -1,6 +1,12 @@
 export type NoticeAction = { id: string; kind: string; target?: string }
 
-export type NoticeLink = { labelKey: string; url: string }
+export type NoticeLink = { labelKey?: string; label?: string; url: string }
+
+export type NoticeBanner = {
+  imageUrl: string
+  linkUrl: string
+  alt: string
+}
 
 export type GitHubContributor = {
   login: string
@@ -18,6 +24,7 @@ export type Notice = {
   actionUrl?: string
   actionLabelKey?: string
   links?: NoticeLink[]
+  banner?: NoticeBanner
   actions?: NoticeAction[]
   updatedAt: number
   kind?: string
@@ -35,6 +42,7 @@ export type NewsItem = {
   actionUrl?: string
   actionLabelKey?: string
   links?: NoticeLink[]
+  banner?: NoticeBanner
   actions?: NoticeAction[]
   updatedAt: number
   kind?: string
