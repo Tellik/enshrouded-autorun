@@ -5,7 +5,7 @@
       "id": "shroudforge-localization-beta-1",
       "kind": "notice.localization",
       "title": "Welcome! 🌍",
-      "message": "French and Spanish are now available in beta. We now have a Crowdin project where the community can translate and review ShroudForge together. I’d be glad for your help improving these translations or starting another language. Is your language missing? Suggest it with the link below and I’ll add it to the Crowdin project. If you spot a translation issue, please include the language, screen, and affected text in the GitHub form.",
+      "message": "French and Spanish are now available in beta. We now have a Crowdin project where the community can translate and review ShroudForge together. I’d be glad for your help improving these translations or starting another language. Is your language missing? Suggest it with the link below and I’ll add it to the Crowdin project. If anything seems off, please just open a GitHub issue. I’d really appreciate it. Include the language, screen, and affected text.",
       "level": "info",
       "links": [
         { "labelKey": "news.localization.reportIssue", "url": "https://github.com/bonsaibauer/shroudforge/issues/new?template=translation_issue.yml" },
