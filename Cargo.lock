@@ -1924,7 +1924,7 @@ dependencies = [
 
 [[package]]
 name = "kfc"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "kfc-base",
  "kfc-content",
@@ -1936,7 +1936,7 @@ dependencies = [
 
 [[package]]
 name = "kfc-base"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "aes",
  "bitflags 2.13.2",
@@ -1948,7 +1948,7 @@ dependencies = [
 
 [[package]]
 name = "kfc-content"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "block_compression",
@@ -1963,7 +1963,7 @@ dependencies = [
 
 [[package]]
 name = "kfc-resource"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "indexmap",
  "kfc-base",
@@ -2233,7 +2233,7 @@ dependencies = [
 
 [[package]]
 name = "mod-loader-bridge"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "serde_json",
  "windows-sys 0.60.2",

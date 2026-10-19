@@ -173,7 +173,27 @@ pub fn validate_backup(kfc_path: &Path, kfc_path_bak: &Path) -> bool {
         Err(_) => return false,
     };
 
-    file.game_version() == file_bak.game_version() && file.format() == file_bak.format()
+    file.game_version() == file_bak.game_version() && same_kfc_format(kfc_path, kfc_path_bak)
+}
+
+/// ShroudForge compares the on-disk markers here instead of depending on
+/// `KFCFile::format()`, which is not part of upstream `main`'s API. This only
+/// changes backup validation. KFC parsing and EML startup remain unchanged.
+fn same_kfc_format(kfc_path: &Path, backup_path: &Path) -> bool {
+    fn read_format(path: &Path) -> Option<u8> {
+        let mut file = std::fs::File::open(path).ok()?;
+        let mut header = [0; 4];
+        std::io::Read::read_exact(&mut file, &mut header).ok()?;
+        if &header[..3] != b"KFC" {
+            return None;
+        }
+        matches!(header[3], b'3' | b'4').then_some(header[3])
+    }
+
+    matches!(
+        (read_format(kfc_path), read_format(backup_path)),
+        (Some(current), Some(backup)) if current == backup
+    )
 }
 
 pub fn restore(game_dir: impl AsRef<Path>, file_name: &str) -> bool {
