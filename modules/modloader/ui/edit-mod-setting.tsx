@@ -184,6 +184,7 @@ export function ModSetting({
         </div>
       }
       rowClass={[
+        control === 'slider' ? 'slider-setting' : '',
         control === 'radio' || control === 'segmented' ? 'expanded' : '',
         disabled ? 'disabled' : '',
       ]
