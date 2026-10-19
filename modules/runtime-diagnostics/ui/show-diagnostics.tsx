@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { postRequest } from '../../transport/ui/send-host-command'
+import { writeClipboardText } from '../../ui-resources/copy-to-clipboard'
 import { TranslationKey, useI18n } from '../../ui-resources/i18n'
 import type { DiagnosticStatus } from './diagnostic-status'
 import type { DiagnosticJob } from '../../loader-config/ui/loader-settings'
@@ -62,6 +64,9 @@ export function DiagnosticsControls({
   selectedJobId: string
 }) {
   const { t } = useI18n()
+  const [copyState, setCopyState] = useState<
+    'idle' | 'copying' | 'copied' | 'error'
+  >('idle')
   const preferredJobId = prefs.runtimeDiagnostics?.jobId
   const moduleEnabled = prefs.runtimeDiagnostics?.enabled === true
   const jobId = jobs.some((job) => job.id === preferredJobId)
@@ -79,6 +84,17 @@ export function DiagnosticsControls({
       ? `${t('settings.modules.diagnosticActive')} · ${data.diagnostics.remainingSeconds}s`
       : data.diagnostics.reason
     : t('settings.modules.diagnosticUnavailable')
+  const reportText = data.diagnostics?.report
+    ? JSON.stringify(data.diagnostics.report, null, 2)
+    : undefined
+  const copyLabel =
+    copyState === 'copying'
+      ? t('activity.copying')
+      : copyState === 'copied'
+        ? t('activity.copied')
+        : copyState === 'error'
+          ? t('activity.copyFailed')
+          : t('activity.copyLogs')
   return (
     <div className="settings-diagnostics">
       <label className="settings-diagnostic-job">
@@ -122,12 +138,42 @@ export function DiagnosticsControls({
       <p className="hint">
         {t('settings.modules.diagnosticJobFolder')}: <code>{jobDirectory}</code>
       </p>
-      <button
-        className="button ghost settings-module-action"
-        onClick={() => postRequest('open-path', { key: 'diagnostic-jobs' })}
-      >
-        {t('settings.modules.openDiagnosticJobFolder')}
-      </button>
+      <div className="settings-diagnostic-actions">
+        <button
+          className="button ghost"
+          onClick={() => postRequest('open-path', { key: 'diagnostic-jobs' })}
+        >
+          {t('settings.modules.openDiagnosticJobFolder')}
+        </button>
+        <button
+          className="button ghost"
+          onClick={() => postRequest('open-path', { key: 'diagnostic-exports' })}
+        >
+          {t('settings.modules.openDiagnosticExportFolder')}
+        </button>
+        <button
+          className="button ghost"
+          disabled={!reportText || copyState === 'copying'}
+          onClick={() => {
+            if (!reportText) return
+            setCopyState('copying')
+            void writeClipboardText(reportText)
+              .then(() => {
+                setCopyState('copied')
+                window.setTimeout(
+                  () =>
+                    setCopyState((current) =>
+                      current === 'copied' ? 'idle' : current,
+                    ),
+                  1800,
+                )
+              })
+              .catch(() => setCopyState('error'))
+          }}
+        >
+          {copyLabel}
+        </button>
+      </div>
       {jobErrors.length > 0 && (
         <details className="settings-diagnostic-job-errors">
           <summary>{t('settings.modules.diagnosticJobErrors', { count: jobErrors.length })}</summary>
@@ -148,11 +194,7 @@ export function DiagnosticsControls({
           </button>
         ))}
       </div>
-      {data.diagnostics?.report && (
-        <pre className="diagnostic-report">
-          {JSON.stringify(data.diagnostics.report, null, 2)}
-        </pre>
-      )}
+      {reportText && <pre className="diagnostic-report">{reportText}</pre>}
     </div>
   )
 }

@@ -504,6 +504,7 @@
   "settings.modules.diagnosticJobSelector": "Tarea de diagnóstico",
   "settings.modules.diagnosticJobFolder": "Carpeta de tareas personalizada",
   "settings.modules.openDiagnosticJobFolder": "Abrir la carpeta de tareas",
+  "settings.modules.openDiagnosticExportFolder": "Abrir la carpeta de exportación de diagnósticos",
   "settings.modules.diagnosticJobActive": "Tarea activa",
   "settings.modules.diagnosticJobMissing": "No disponible: {jobId}",
   "settings.modules.diagnosticJobErrors": "Archivos de tarea no válidos: {count}",

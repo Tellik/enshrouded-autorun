@@ -504,6 +504,7 @@
   "settings.modules.diagnosticJobSelector": "Diagnosejob",
   "settings.modules.diagnosticJobFolder": "Ordner für eigene Jobs",
   "settings.modules.openDiagnosticJobFolder": "Jobordner öffnen",
+  "settings.modules.openDiagnosticExportFolder": "Diagnose-Exportordner öffnen",
   "settings.modules.diagnosticJobActive": "Laufender Job",
   "settings.modules.diagnosticJobMissing": "Nicht verfügbar: {jobId}",
   "settings.modules.diagnosticJobErrors": "{count} ungültige Jobdatei(en)",

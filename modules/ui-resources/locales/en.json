@@ -504,6 +504,7 @@
   "settings.modules.diagnosticJobSelector": "Diagnostic job",
   "settings.modules.diagnosticJobFolder": "Custom job folder",
   "settings.modules.openDiagnosticJobFolder": "Open job folder",
+  "settings.modules.openDiagnosticExportFolder": "Open diagnostics export folder",
   "settings.modules.diagnosticJobActive": "Active job",
   "settings.modules.diagnosticJobMissing": "Unavailable: {jobId}",
   "settings.modules.diagnosticJobErrors": "{count} invalid job file(s)",

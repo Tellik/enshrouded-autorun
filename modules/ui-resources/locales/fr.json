@@ -480,6 +480,7 @@
   "settings.modules.network.serverSteamId": "SteamID64 de secours pour le serveur distant",
   "settings.modules.network.title": "Network",
   "settings.modules.openDiagnosticJobFolder": "Ouvrir le dossier des tâches",
+  "settings.modules.openDiagnosticExportFolder": "Ouvrir le dossier d’export des diagnostics",
   "settings.modules.runtimeDiagnostics.description": "Les diagnostics sont désactivés par défaut. Les changements prennent effet en moins de 500 ms. Les données enregistrées concernent l’état du runtime et du monde, pas la compatibilité.",
   "settings.modules.runtimeDiagnostics.title": "Diagnostics du runtime",
   "settings.modules.saveHint": "Les paramètres et les demandes de tâche sont enregistrés. La tâche s’exécute en arrière-plan quand le chargeur du jeu est actif.",
