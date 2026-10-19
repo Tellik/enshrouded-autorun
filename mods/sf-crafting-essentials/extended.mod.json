@@ -3,6 +3,11 @@
   "schemaVersion": 1,
   "enabled": true,
   "targets": ["client", "server"],
+  "links": {
+    "source-github": "https://github.com/bonsaibauer/shroudforge",
+    "issues": "https://github.com/bonsaibauer/shroudforge/issues/new?template=bug_report.yml",
+    "support-bmac": "https://buymeacoffee.com/bonsaibauer"
+  },
   "settings": {
     "noResourceCost": {
       "value": true,
