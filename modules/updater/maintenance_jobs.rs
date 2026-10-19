@@ -62,11 +62,11 @@ impl Action {
     }
 }
 
-const REQUIRED_MIGRATIONS: [(Trigger, Action); 4] = [
-    (Trigger::BeforeUpdate, Action::MigrateLegacyBackups),
-    (Trigger::BeforeUpdate, Action::MigrateLegacyUpdateFiles),
-    (Trigger::BeforeUpdate, Action::MigrateLegacyMods),
-    (Trigger::AfterInstall, Action::MigrateLegacyEventLevels),
+const REQUIRED_MIGRATIONS: [(Trigger, Action, u32); 4] = [
+    (Trigger::BeforeUpdate, Action::MigrateLegacyBackups, 2),
+    (Trigger::BeforeUpdate, Action::MigrateLegacyUpdateFiles, 3),
+    (Trigger::BeforeUpdate, Action::MigrateLegacyMods, 1),
+    (Trigger::AfterInstall, Action::MigrateLegacyEventLevels, 2),
 ];
 
 const CURRENT_MOD_IDS: &[&str] = &[
@@ -134,12 +134,13 @@ fn enqueue_for_trigger(root: &Path, trigger: Trigger) -> Result<(), String> {
     }
     if REQUIRED_MIGRATIONS
         .iter()
-        .any(|(required_trigger, required)| {
+        .any(|(required_trigger, required, minimum_revision)| {
             *required_trigger == trigger
-                && !catalog
-                    .jobs
-                    .iter()
-                    .any(|job| job.trigger == trigger && job.action == *required)
+                && !catalog.jobs.iter().any(|job| {
+                    job.trigger == trigger
+                        && job.action == *required
+                        && job.revision >= *minimum_revision
+                })
         })
     {
         return Err(format!(
@@ -895,6 +896,7 @@ fn upgrade_legacy_update_files_job_revision(path: &Path) -> Result<(), String> {
         return Ok(());
     }
     job["revision"] = serde_json::json!(3);
+    job["name"] = serde_json::json!("Migrate legacy updater files");
     job["description"] = serde_json::json!(
         "Removes the previous scheduled task and its per-installation AppData cache, then finishes pending requests from older updater versions."
     );
@@ -989,6 +991,7 @@ mod tests {
 
         let upgraded: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
         assert_eq!(upgraded["revision"], 3);
+        assert_eq!(upgraded["name"], "Migrate legacy updater files");
         assert!(
             upgraded["description"]
                 .as_str()
