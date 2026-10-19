@@ -20,12 +20,8 @@ pub(crate) fn configured_level(root: &Path) -> LevelFilter {
 }
 
 pub fn allows(root: &Path, level: char) -> bool {
-    let level = match level {
-        'T' => LevelFilter::TRACE,
-        'D' => LevelFilter::DEBUG,
-        'W' => LevelFilter::WARN,
-        'E' => LevelFilter::ERROR,
-        _ => LevelFilter::INFO,
-    };
-    level <= configured_level(root)
+    LogLevel::from_char(level)
+        .unwrap_or(LogLevel::Info)
+        .filter()
+        <= configured_level(root)
 }

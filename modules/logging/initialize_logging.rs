@@ -1,7 +1,6 @@
 use crate::*;
 
 pub fn initialize(root: impl AsRef<Path>, archive_existing: bool) -> io::Result<()> {
-    STARTED.get_or_init(Instant::now);
     let root = root.as_ref();
     let current = shroudforge_loader_config::paths::current_log(root);
     fs::create_dir_all(

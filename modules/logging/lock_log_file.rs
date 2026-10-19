@@ -31,7 +31,34 @@ pub(crate) fn with_log_lock<T>(
     result
 }
 
-#[cfg(not(windows))]
+#[cfg(unix)]
+pub(crate) fn with_log_lock<T>(
+    root: &Path,
+    operation: impl FnOnce() -> io::Result<T>,
+) -> io::Result<T> {
+    use std::{fs::OpenOptions, os::fd::AsRawFd};
+
+    let log = shroudforge_loader_config::paths::current_log(root);
+    let file_name = log
+        .file_name()
+        .ok_or_else(|| io::Error::other("log path has no file name"))?;
+    let lock = log.with_file_name(format!("{}.lock", file_name.to_string_lossy()));
+    if let Some(parent) = lock.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let file = OpenOptions::new().create(true).read(true).write(true).open(lock)?;
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let result = operation();
+    let unlock = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+    if unlock != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    result
+}
+
+#[cfg(not(any(windows, unix)))]
 pub(crate) fn with_log_lock<T>(
     _root: &Path,
     operation: impl FnOnce() -> io::Result<T>,
