@@ -16,14 +16,14 @@ concurrency:
 jobs:
   security:
     name: Trivy filesystem scan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       actions: read
       contents: read
       security-events: write
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Scan source and dependencies with Trivy
         uses: aquasecurity/trivy-action@v0.36.0
@@ -77,7 +77,7 @@ jobs:
 
       - name: Save Trivy SARIF report
         if: always() && hashFiles('trivy-results.sarif') != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: trivy-sarif-${{ github.run_number }}
           path: trivy-results.sarif
@@ -86,7 +86,7 @@ jobs:
 
   release-check:
     name: Check whether this event builds a release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       build_release: ${{ steps.check.outputs.build_release }}
     steps:
@@ -109,7 +109,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.value }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -181,7 +181,7 @@ jobs:
   clamav:
     name: Scan built release with Trivy and ClamAV
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       actions: read
@@ -189,7 +189,7 @@ jobs:
       security-events: write
     steps:
       - name: Check out release source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -279,12 +279,12 @@ jobs:
   publish:
     name: Publish scanned release packages
     needs: [build, clamav, security]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - name: Check out release commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -296,7 +296,7 @@ jobs:
 
       - name: Publish development prerelease
         if: github.event_name == 'push'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ needs.build.outputs.version }}-dev.${{ github.run_id }}
           name: Dev v${{ needs.build.outputs.version }}
