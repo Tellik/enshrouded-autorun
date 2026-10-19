@@ -57,6 +57,14 @@ export function NoticeCard({
   const { t, locale } = useI18n()
   const actions = item.actions || []
   const links = item.links || []
+  const title =
+    item.kind === 'notice.localization'
+      ? t('news.notice.localization.title')
+      : item.title
+  const message =
+    item.kind === 'notice.localization'
+      ? t('news.notice.localization.message')
+      : item.message
   const localizedUrl = (url: string) =>
     url.replace('{locale}', locale === 'de' ? 'de' : 'en')
   return (
@@ -69,7 +77,7 @@ export function NoticeCard({
       </span>
       <div>
         <div className="notice-title">
-          <h3>{item.title}</h3>
+          <h3>{title}</h3>
           <EcosystemBadge ecosystem={item.ecosystem} />
           {unread && <i />}
         </div>
@@ -85,7 +93,7 @@ export function NoticeCard({
             <img src={item.banner.imageUrl} alt="" loading="lazy" />
           </button>
         )}
-        <p>{item.message}</p>
+        <p>{message}</p>
         {!compact && item.kind === 'notice.localization' && (
           <CrowdinProgressPanel />
         )}
