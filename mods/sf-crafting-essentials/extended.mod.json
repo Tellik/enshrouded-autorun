@@ -15,8 +15,8 @@
     },
     "infiniteItemUse": {
       "value": true,
-      "label": "Keep Used Items",
-      "description": "Prevents item consumption when actions pay their usage cost or apply buffs. Mana, stamina and fuel costs remain unchanged. Crafting ingredients and inventory transfers are unaffected.",
+      "label": "No Item Consumption",
+      "description": "Used food, potions, bandages and other supported items stay in your inventory instead of being consumed. Applies live to supported use actions. Recipe ingredients, trades and inventory transfers are unchanged. Some item actions are not supported.",
       "control": "checkbox",
       "applyAt": "live",
       "restartRequired": false
@@ -53,10 +53,10 @@
     "workshopTimeFactorPercent": {
       "value": 100,
       "label": "Production Duration Scale",
-      "description": "Applied live. At 0%, the shortest timed recipe is scaled to 1 second and other recipes keep their relative times. 100% preserves normal world speed. 200% doubles normal duration.",
+      "description": "Applied live to loaded recipe times. At 0%, the shortest timed recipe takes 1 second and other recipes keep their relative times. 100% restores original recipe times. The world speed setting stays unchanged. Changes also affect running production.",
       "control": "slider",
       "min": 0,
-      "max": 200,
+      "max": 100,
       "step": 5,
       "enabledWhen": {
         "setting": "productionTimeMode",
@@ -69,7 +69,7 @@
   "groups": [
     {
       "label": "Resources and Inventory",
-      "description": "Recipe ingredient and water costs are changed before startup. Keep Used Items controls supported action usage costs and buff application.",
+      "description": "Recipe ingredient and water costs are removed before startup. No Item Consumption prevents supported items from being consumed when used.",
       "settings": ["noResourceCost", "infiniteItemUse"]
     },
     {
