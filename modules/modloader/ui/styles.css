@@ -175,6 +175,7 @@ html,body,#root{width:100%;height:100%;margin:0;overflow:hidden}body{color:var(-
 .dependency-row{align-items:flex-start}.dependency-row>span:first-child{min-width:0}.dependency-row strong{overflow-wrap:anywhere}.dependency-row small{overflow-wrap:anywhere}.dependency-status{max-width:45%;text-align:right;color:var(--sf-green);font-size:11px}.dependency-row.missing .dependency-status,.dependency-row.disabled .dependency-status,.dependency-row.version-mismatch .dependency-status,.dependency-row.invalid-version .dependency-status,.dependency-row.blocked .dependency-status{color:var(--sf-orange)}.dependency-row.optional-missing .dependency-status,.dependency-row.optional-disabled .dependency-status,.dependency-row.loader-api .dependency-status{color:var(--sf-muted)}
 .notice[data-kind="notice.modsGuide"] .notice-icon{color:var(--sf-blue);background:rgba(83,173,215,.12)}
 .notice[data-kind="notice.modsGuide"] p,.notice[data-kind="notice.localization"] p{white-space:pre-line}
+.notice[data-kind="notice.localization"] p{margin-top:1.6em}
 .notice-banner{display:inline-flex;max-width:100%;margin-top:8px;padding:0;border:0;background:transparent;cursor:pointer}.notice-banner img{display:block;max-width:100%;height:auto}
 
 .crowdin-progress{max-width:760px;margin:14px 0 12px;padding:16px 18px;border:1px solid rgba(83,173,215,.2);border-radius:16px;background:linear-gradient(140deg,rgba(83,173,215,.09),rgba(13,22,28,.72));box-shadow:inset 0 1px rgba(255,255,255,.035)}
