@@ -26,6 +26,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Scan source and dependencies with Trivy
+        id: trivy_source
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
@@ -40,6 +41,7 @@ jobs:
           exit-code: "0"
 
       - name: Upload Trivy SARIF to GitHub Code Scanning
+        id: upload_source_sarif
         if: >-
           always() && hashFiles('trivy-results.sarif') != '' &&
           (github.event_name != 'pull_request' ||
@@ -49,40 +51,30 @@ jobs:
           sarif_file: trivy-results.sarif
           category: trivy-filesystem
 
-      - name: Summarize Trivy findings
+      - name: Prepare Trivy filesystem report
         if: always()
         shell: bash
+        env:
+          TRIVY_SCAN_OUTCOME: ${{ steps.trivy_source.outcome }}
+          TRIVY_SARIF_UPLOAD_OUTCOME: ${{ steps.upload_source_sarif.outcome }}
         run: |
-          if [[ -f trivy-results.sarif ]]; then
-            total=$(jq '[.runs[].results[]?] | length' trivy-results.sarif)
-            errors=$(jq '[.runs[].results[]? | select((.level // "" | ascii_downcase) == "error")] | length' trivy-results.sarif)
-            warnings=$(jq '[.runs[].results[]? | select((.level // "" | ascii_downcase) == "warning")] | length' trivy-results.sarif)
-            notes=$(jq '[.runs[].results[]? | select((.level // "" | ascii_downcase) == "note")] | length' trivy-results.sarif)
-          else
-            total=0
-            errors=0
-            warnings=0
-            notes=0
-          fi
+          python3 dev/build/write_release_security_report.py trivy \
+            --target "Quellcode und Abhängigkeiten" \
+            --sarif trivy-results.sarif \
+            --scan-outcome "$TRIVY_SCAN_OUTCOME" \
+            --sarif-upload-outcome "$TRIVY_SARIF_UPLOAD_OUTCOME" \
+            --output trivy-filesystem.json
 
-          {
-            echo "## Trivy filesystem scan"
-            echo
-            echo "| Total findings | Errors | Warnings | Notes |"
-            echo "|---:|---:|---:|---:|"
-            echo "| ${total} | ${errors} | ${warnings} | ${notes} |"
-            echo
-            echo "Trivy findings do not block this workflow. SARIF is uploaded to Code Scanning when the event token permits it."
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Save Trivy SARIF report
-        if: always() && hashFiles('trivy-results.sarif') != ''
+      - name: Save Trivy filesystem report
+        if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: trivy-sarif-${{ github.run_number }}
-          path: trivy-results.sarif
+          name: trivy-filesystem-report-${{ github.run_id }}
+          path: |
+            trivy-filesystem.json
+            trivy-results.sarif
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 90
 
   release-check:
     name: Check whether this event builds a release
@@ -131,44 +123,6 @@ jobs:
           CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
         run: .\dev\build\dev_build.ps1 -BuildNumber "${{ github.run_id }}"
 
-      - name: Scan release packages for malware with Microsoft Defender
-        shell: pwsh
-        run: |
-          try {
-            Update-MpSignature -ErrorAction Stop
-            Write-Host 'Microsoft Defender signature update completed.'
-          } catch {
-            Write-Warning "Microsoft Defender signature update failed; scanning with the signatures already present on the runner. Other malware scans remain required. $($_.Exception.Message)"
-          }
-
-          $archives = @(Get-ChildItem -LiteralPath 'build' -Filter 'shroudforge-*.zip' -File)
-          if ($archives.Count -eq 0) {
-            throw 'No release ZIPs were found for malware scanning.'
-          }
-
-          $scanRoot = Join-Path $env:RUNNER_TEMP 'shroudforge-release-scan'
-          Remove-Item -LiteralPath $scanRoot -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Path $scanRoot | Out-Null
-
-          foreach ($archive in $archives) {
-            $destination = Join-Path $scanRoot ([IO.Path]::GetFileNameWithoutExtension($archive.Name))
-            Expand-Archive -LiteralPath $archive.FullName -DestinationPath $destination
-          }
-
-          $scanStartedAt = Get-Date
-          Start-MpScan -ScanType CustomScan -ScanPath $scanRoot
-
-          $detections = @(Get-MpThreatDetection | Where-Object {
-            $_.InitialDetectionTime -ge $scanStartedAt -and
-            (($_.Resources -join "`n") -match [regex]::Escape($scanRoot))
-          })
-          if ($detections.Count -gt 0) {
-            $detections | Format-List * | Out-String | Write-Host
-            throw "Microsoft Defender detected malware in the release payload ($($detections.Count) detection(s))."
-          }
-
-          Write-Host "Microsoft Defender found no malware in $($archives.Count) release ZIP(s)."
-
       - name: Upload release packages for malware scan
         uses: actions/upload-artifact@v7
         with:
@@ -177,6 +131,52 @@ jobs:
             build/shroudforge-*.zip
             build/shroudforge-*.zip.sha256
           if-no-files-found: error
+
+  defender:
+    name: Microsoft Defender release scan
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out Defender scan script
+        uses: actions/checkout@v7
+
+      - name: Download release packages
+        uses: actions/download-artifact@v7
+        with:
+          name: shroudforge-release-${{ github.run_id }}
+          path: build
+
+      - name: Scan release packages with Microsoft Defender
+        id: defender_scan
+        continue-on-error: true
+        shell: pwsh
+        run: .\dev\build\scan_release_with_defender.ps1 -ArchiveDirectory build -ReportPath defender-release-report.json
+
+      - name: Save Microsoft Defender report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: defender-release-report-${{ github.run_id }}
+          path: defender-release-report.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Enforce Microsoft Defender scan result
+        if: always()
+        shell: pwsh
+        env:
+          DEFENDER_SCAN_OUTCOME: ${{ steps.defender_scan.outcome }}
+        run: |
+          if (-not (Test-Path -LiteralPath 'defender-release-report.json')) {
+            throw "Microsoft Defender did not produce a scan report. Scan step: $env:DEFENDER_SCAN_OUTCOME"
+          }
+          $report = Get-Content -LiteralPath 'defender-release-report.json' -Raw | ConvertFrom-Json
+          if ($env:DEFENDER_SCAN_OUTCOME -ne 'success' -or $report.status -ne 'clean') {
+            throw "Microsoft Defender result is '$($report.status)'. See the unified release security report for details."
+          }
 
   clamav:
     name: Scan built release with Trivy and ClamAV
@@ -218,6 +218,7 @@ jobs:
           done
 
       - name: Scan built release packages with Trivy
+        id: trivy_release
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
@@ -232,53 +233,128 @@ jobs:
           exit-code: "0"
 
       - name: Upload release Trivy SARIF to GitHub Code Scanning
+        id: upload_release_sarif
         if: always() && hashFiles('trivy-release.sarif') != ''
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-release.sarif
           category: trivy-release
 
-      - name: Save release Trivy SARIF report
-        if: always() && hashFiles('trivy-release.sarif') != ''
-        uses: actions/upload-artifact@v7
-        with:
-          name: trivy-release-sarif-${{ github.run_number }}
-          path: trivy-release.sarif
-          if-no-files-found: warn
-          retention-days: 14
-
       - name: Install ClamAV and update signatures
+        id: clamav_signatures
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends clamav clamav-freshclam
           sudo systemctl stop clamav-freshclam.service 2>/dev/null || true
-          sudo freshclam
+          sudo freshclam 2>&1 | tee freshclam.log
 
       - name: Scan packaged release files for malware
+        id: clamav_scan
         run: |
-          shopt -s nullglob
-          archives=(build/*.zip)
-          if (( ${#archives[@]} == 0 )); then
-            echo "No release ZIPs were downloaded." >&2
-            exit 1
-          fi
+          set +e
+          clamscan --recursive --infected build scanned-release 2>&1 | tee clamav-output.log
+          scan_status=${PIPESTATUS[0]}
+          set -e
+          exit "$scan_status"
 
-          clamscan --recursive --infected \
-            --log=clamav.log \
-            build scanned-release
+      - name: Prepare release scanner reports
+        if: always()
+        shell: bash
+        env:
+          TRIVY_SCAN_OUTCOME: ${{ steps.trivy_release.outcome }}
+          TRIVY_SARIF_UPLOAD_OUTCOME: ${{ steps.upload_release_sarif.outcome }}
+          CLAMAV_SIGNATURE_UPDATE_OUTCOME: ${{ steps.clamav_signatures.outcome }}
+          CLAMAV_SCAN_OUTCOME: ${{ steps.clamav_scan.outcome }}
+        run: |
+          python3 dev/build/write_release_security_report.py trivy \
+            --target "Release-Paket" \
+            --sarif trivy-release.sarif \
+            --scan-outcome "$TRIVY_SCAN_OUTCOME" \
+            --sarif-upload-outcome "$TRIVY_SARIF_UPLOAD_OUTCOME" \
+            --output trivy-release.json
 
-      - name: Save ClamAV scan report
-        if: always() && hashFiles('clamav.log') != ''
+          clamav_version="$(clamscan --version 2>/dev/null || true)"
+          python3 dev/build/write_release_security_report.py clamav \
+            --scan-outcome "$CLAMAV_SCAN_OUTCOME" \
+            --signature-update-outcome "$CLAMAV_SIGNATURE_UPDATE_OUTCOME" \
+            --version "$clamav_version" \
+            --log clamav-output.log \
+            --output clamav-release.json
+
+      - name: Save release scanner reports
+        if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: clamav-release-report-${{ github.run_number }}
-          path: clamav.log
+          name: release-scanner-reports-${{ github.run_id }}
+          path: |
+            trivy-release.json
+            trivy-release.sarif
+            clamav-release.json
+            clamav-output.log
+            freshclam.log
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 90
+
+  security-report:
+    name: Unified release security report
+    if: always()
+    needs: [build, security, defender, clamav]
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out report generator
+        uses: actions/checkout@v7
+
+      - name: Prepare report folders
+        run: mkdir -p security-reports/trivy-filesystem security-reports/defender security-reports/release
+
+      - name: Download Trivy filesystem report
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: trivy-filesystem-report-${{ github.run_id }}
+          path: security-reports/trivy-filesystem
+
+      - name: Download Defender report
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: defender-release-report-${{ github.run_id }}
+          path: security-reports/defender
+
+      - name: Download release scanner reports
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: release-scanner-reports-${{ github.run_id }}
+          path: security-reports/release
+
+      - name: Write unified release security report
+        if: always()
+        env:
+          BUILD_JOB_RESULT: ${{ needs.build.result }}
+          TRIVY_SOURCE_JOB_RESULT: ${{ needs.security.result }}
+          DEFENDER_JOB_RESULT: ${{ needs.defender.result }}
+          RELEASE_SCAN_JOB_RESULT: ${{ needs.clamav.result }}
+        run: python3 dev/build/write_release_security_report.py aggregate --reports-dir security-reports --output-dir security-reports/unified
+
+      - name: Save unified release security report and source reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: unified-release-security-report-${{ github.run_id }}
+          path: security-reports/
+          if-no-files-found: error
+          retention-days: 90
 
   publish:
     name: Publish scanned release packages
-    needs: [build, clamav, security]
+    needs: [build, defender, clamav, security, security-report]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
