@@ -8,8 +8,8 @@
       "message": "ShroudForge now includes French and Spanish translations in beta. We are still polishing them, so if you notice a mistranslation, awkward wording, or text that does not fit, please use the GitHub bug report form and mention the language and screen. Crowdin is our localization platform, where contributors can suggest and review translations together. Want to help? Use the Crowdin project link below to suggest or review translations.",
       "level": "info",
       "links": [
-        { "label": "Report a translation issue", "url": "https://github.com/bonsaibauer/shroudforge/issues/new?template=translation_issue.yml" },
-        { "label": "Contribute to ShroudForge", "url": "https://crowdin.com/project/shroudforge" }
+        { "labelKey": "news.localization.reportIssue", "url": "https://github.com/bonsaibauer/shroudforge/issues/new?template=translation_issue.yml" },
+        { "labelKey": "news.localization.contribute", "url": "https://crowdin.com/project/shroudforge" }
       ]
     },
     {
