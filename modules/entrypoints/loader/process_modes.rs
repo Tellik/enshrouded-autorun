@@ -2,7 +2,22 @@ use std::{env, ffi::OsString, path::PathBuf};
 
 pub(crate) fn run(args: &[OsString]) -> Option<Result<(), Box<dyn std::error::Error>>> {
     match args.get(1).and_then(|value| value.to_str()) {
-        Some("--module-ui") => return Some(shroudforge_modloader_ui::run_module()),
+        Some("--module-ui") => {
+            if let Some(root) = args
+                .windows(2)
+                .find(|pair| pair[0].to_str() == Some("--root"))
+                .map(|pair| PathBuf::from(&pair[1]))
+                && let Err(error) = shroudforge_modloader::run_post_install_migrations(&root)
+            {
+                let message = format!(
+                    "Post-install migration did not finish before the Modloader opened: {error}"
+                );
+                let _ = shroudforge_logging::append(&root, 'E', "updater", &message);
+                #[cfg(windows)]
+                show_post_install_migration_error(&message);
+            }
+            return Some(shroudforge_modloader_ui::run_module());
+        }
         Some("--debug-console") => {
             return Some(match shroudforge_debug_console::run_module() {
                 Ok(()) => Ok(()),
@@ -75,6 +90,31 @@ pub(crate) fn run(args: &[OsString]) -> Option<Result<(), Box<dyn std::error::Er
         _ => {}
     }
     None
+}
+
+#[cfg(windows)]
+fn show_post_install_migration_error(message: &str) {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        MB_ICONERROR, MB_OK, MB_SETFOREGROUND, MessageBoxW,
+    };
+
+    let message: Vec<u16> = std::ffi::OsStr::new(message)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let title: Vec<u16> = "ShroudForge Updater"
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    unsafe {
+        MessageBoxW(
+            std::ptr::null_mut(),
+            message.as_ptr(),
+            title.as_ptr(),
+            MB_OK | MB_ICONERROR | MB_SETFOREGROUND,
+        );
+    }
 }
 
 pub(crate) fn launch_desktop() -> Result<(), Box<dyn std::error::Error>> {

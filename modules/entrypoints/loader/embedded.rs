@@ -28,6 +28,65 @@ pub struct LoadReport {
     pub lua: Vec<String>,
 }
 
+/// Run update-versioned migrations with the installed updater before the loader
+/// reads data that the update may have changed.
+#[cfg(windows)]
+pub fn run_post_install_migrations(root: &Path) -> Result<(), String> {
+    use std::{io::Write, os::windows::process::CommandExt, process::Stdio, time::Duration};
+
+    let executable = shroudforge_loader_config::paths::updater_executable(root);
+    if !executable.is_file() {
+        return Ok(());
+    }
+    let request = serde_json::to_vec(&serde_json::json!({
+        "command": "run-post-install-maintenance"
+    }))
+    .map_err(|error| format!("could not encode post-install maintenance request: {error}"))?;
+
+    for attempt in 0..40 {
+        let mut child = std::process::Command::new(&executable)
+            .args(["--request", "--root"])
+            .arg(root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .creation_flags(0x08000000)
+            .spawn()
+            .map_err(|error| format!("could not start the installed updater: {error}"))?;
+        child
+            .stdin
+            .take()
+            .ok_or("installed updater request stdin is unavailable")?
+            .write_all(&request)
+            .map_err(|error| format!("could not send post-install maintenance request: {error}"))?;
+        let output = child
+            .wait_with_output()
+            .map_err(|error| format!("could not read post-install maintenance result: {error}"))?;
+        let response: serde_json::Value = serde_json::from_slice(&output.stdout)
+            .map_err(|error| format!("installed updater returned an invalid response: {error}"))?;
+        if output.status.success() && response["ok"] == true {
+            return Ok(());
+        }
+        let error = response["error"]
+            .as_str()
+            .unwrap_or("installed updater could not finish post-install maintenance");
+        let worker_is_busy = error.contains("post-install maintenance was deferred")
+            || error.contains("previous update queue finishes");
+        if !worker_is_busy || attempt == 39 {
+            let message = format!("post-install migration failed: {error}");
+            let _ = shroudforge_logging::append(root, 'E', "updater", &message);
+            return Err(message);
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+pub fn run_post_install_migrations(_: &Path) -> Result<(), String> {
+    Ok(())
+}
+
 pub struct ModLoader {
     api: Option<ShroudForgeApi>,
     runtime: Option<IngameRuntime>,
@@ -112,9 +171,21 @@ pub unsafe extern "C" fn shroudforge_prepare_startup(game: *const u16) -> bool {
         };
         let _ = shroudforge_logging::initialize(&game, false);
         let started = std::time::Instant::now();
+        let migrations_ready = match run_post_install_migrations(&game) {
+            Ok(()) => true,
+            Err(error) => {
+                let _ = shroudforge_logging::append(
+                    &game,
+                    'E',
+                    "updater",
+                    &format!("Post-install migrations failed before startup preparation: {error}"),
+                );
+                false
+            }
+        };
         let startup_result = pregame::run_startup(&game);
         #[cfg(any(windows, target_os = "linux"))]
-        if let Err(error) = start_updater_controller::start(&game) {
+        if migrations_ready && let Err(error) = start_updater_controller::start(&game) {
             let _ = shroudforge_logging::append(
                 &game,
                 'E',

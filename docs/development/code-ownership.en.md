@@ -153,6 +153,12 @@ A file contains the implementation of the action named by that file. Related hel
 | Measure runtime operations | `modules/runtime-diagnostics/collectors/operation_timings.rs` |
 | Report connection health | `modules/transport/report_network_health.rs` |
 
+### Updater migration timing
+
+Updater migrations have two execution points. A `before-update` job runs in the updater that is already installed, before the update queue replaces program files. An `after-install` job needs code from the new updater, so it runs after the system installer has written a successful install receipt. Where the queue worker supports the handoff, it starts the newly installed updater for this phase. The Modloader UI, standalone Updater window, and game bootstrap also ask the installed updater to finish pending after-install jobs, which covers the first release that introduces the handoff. The install receipt and `lastAfterInstall` marker make completed work idempotent. A failed required migration keeps its queue item in error and stops the current updater request so a later start or request can retry it.
+
+Job definitions are embedded in `modules/updater/maintenance_jobs.rs` and copied to the configured updater-jobs folder only when a definition is absent. Existing files are not silently overwritten. When a release changes an existing job's phase or revision, add an explicit upgrade for that persisted definition, as `upgrade_legacy_event_job_phase` does. Add each required migration to `REQUIRED_MIGRATIONS`, register its action in the job parser and executor, include its JSON file in `DEFAULT_JOBS`, and give each distinct migration a new ID or revision. The catalog is not filtered by application version, so keep migration definitions and their actions in later releases that users may install directly until those installations can complete the job. Keep the old data readable until an after-install migration succeeds. A manual ZIP replacement does not write the system install receipt, so it does not trigger after-install jobs.
+
 The module guide is [modules/README.md](../../modules/README.md). Public entry points assemble these actions. A UI command does not carry its own second implementation of mod validation, saving or update installation.
 
 ## The native runtime and game profiles

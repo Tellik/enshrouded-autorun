@@ -19,52 +19,119 @@ pub fn run_scheduled_worker() -> Result<(), String> {
         );
         return Ok(());
     };
-    let queue = read_update_queue_value(&root);
-    if queue["run"]["state"] == "running" {
-        return run_queue_with_failure_handling(&root);
-    }
-
-    // Old request files are imported by versioned jobs in the one update queue.
-    // They are not processed by a second worker path.
-    crate::maintenance_jobs::enqueue_before_update(&root)?;
-    let queue = read_update_queue_value(&root);
-    let ids = queue["items"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|item| item["kind"] == "maintenance" && item["state"] == "queued")
-        .filter_map(|item| item["id"].as_str().map(str::to_owned))
-        .collect::<Vec<_>>();
-    if ids.is_empty() {
-        return Ok(());
-    }
-    let updates = shroudforge_loader_config::paths::updates_dir(&root);
-    let wait_for_game = updates.join("worker-queue.json").is_file();
-    let wait_pid = std::fs::read(updates.join("worker-queue.json"))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-        .and_then(|value| value["waitPid"].as_u64())
-        .unwrap_or_default();
-    crate::update_queue_storage::update_update_queue(&root, |queue| {
+    let queue_result = (|| {
+        let queue = read_update_queue_value(&root);
         if queue["run"]["state"] == "running" {
-            return Err("the update queue is already running".into());
+            return run_queue_with_failure_handling(&root);
         }
-        queue["run"] = serde_json::json!({
-            "state": "running",
-            "waitForGame": wait_for_game,
-            "waitPid": wait_pid,
-            "showWindow": false,
-            "itemIds": ids,
-            "activeItemId": null,
-            "installing": false,
-            "startedAt": std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs()
-        });
-        Ok(())
-    })?;
-    run_queue_with_failure_handling(&root)
+
+        // Old request files are imported by versioned jobs in the one update queue.
+        // They are not processed by a second worker path.
+        crate::maintenance_jobs::enqueue_before_update(&root)?;
+        let queue = read_update_queue_value(&root);
+        let ids = queue["items"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|item| item["kind"] == "maintenance" && item["state"] == "queued")
+            .filter_map(|item| item["id"].as_str().map(str::to_owned))
+            .collect::<Vec<_>>();
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let updates = shroudforge_loader_config::paths::updates_dir(&root);
+        let wait_for_game = updates.join("worker-queue.json").is_file();
+        let wait_pid = std::fs::read(updates.join("worker-queue.json"))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+            .and_then(|value| value["waitPid"].as_u64())
+            .unwrap_or_default();
+        crate::update_queue_storage::update_update_queue(&root, |queue| {
+            if queue["run"]["state"] == "running" {
+                return Err("the update queue is already running".into());
+            }
+            queue["run"] = serde_json::json!({
+                "state": "running",
+                "waitForGame": wait_for_game,
+                "waitPid": wait_pid,
+                "showWindow": false,
+                "itemIds": ids,
+                "activeItemId": null,
+                "installing": false,
+                "startedAt": std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            });
+            Ok(())
+        })?;
+        run_queue_with_failure_handling(&root)
+    })();
+
+    drop(_worker_mutex);
+    if let Err(error) = run_installed_post_install_maintenance(&root) {
+        scheduled::write_status(
+            &root,
+            "error",
+            &format!("Post-install migration failed: {error}"),
+        );
+        shroudforge_logging::write_activity(
+            &root,
+            "Updates",
+            "Post-install migration",
+            "Failed",
+            Some(&error),
+            "error",
+        );
+    }
+    queue_result
+}
+
+#[cfg(windows)]
+fn run_installed_post_install_maintenance(root: &std::path::Path) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    use std::{io::Write, process::Stdio};
+
+    let executable = shroudforge_loader_config::paths::updater_executable(root);
+    if !executable.is_file() {
+        return Err(format!(
+            "installed updater executable is missing: {}",
+            executable.display()
+        ));
+    }
+    let request = serde_json::to_vec(&serde_json::json!({
+        "command": "run-post-install-maintenance"
+    }))
+    .map_err(|error| format!("could not encode post-install maintenance request: {error}"))?;
+    let mut child = std::process::Command::new(&executable)
+        .args(["--request", "--root"])
+        .arg(root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .creation_flags(0x08000000)
+        .spawn()
+        .map_err(|error| format!("could not start the installed updater: {error}"))?;
+    child
+        .stdin
+        .take()
+        .ok_or("installed updater request stdin is unavailable")?
+        .write_all(&request)
+        .map_err(|error| format!("could not send post-install maintenance request: {error}"))?;
+    let output = child
+        .wait_with_output()
+        .map_err(|error| format!("could not read post-install maintenance result: {error}"))?;
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|error| format!("installed updater returned an invalid response: {error}"))?;
+    if !output.status.success() || response["ok"] != true {
+        return Err(response["error"]
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| {
+                "installed updater could not finish post-install maintenance".into()
+            }));
+    }
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -262,7 +329,7 @@ pub fn run_module() -> Result<(), String> {
             .find(|pair| pair[0] == "--root")
             .map(|pair| std::path::PathBuf::from(&pair[1]))
             .ok_or("missing --root")?;
-        return crate::ui::host::window::run(Some(root));
+        return run_updater_window(root);
     }
     if args.len() == 1 {
         let executable = std::env::current_exe().map_err(|error| error.to_string())?;
@@ -273,9 +340,18 @@ pub fn run_module() -> Result<(), String> {
             .parent()
             .ok_or("updater executable is not inside the ShroudForge module directory")?
             .to_path_buf();
-        return crate::ui::host::window::run(Some(root));
+        return run_updater_window(root);
     }
     windows::run()
+}
+
+#[cfg(windows)]
+fn run_updater_window(root: std::path::PathBuf) -> Result<(), String> {
+    let _ = crate::run_request(
+        &root,
+        &serde_json::json!({"command":"run-post-install-maintenance"}),
+    );
+    crate::ui::host::window::run(Some(root))
 }
 
 #[cfg(not(windows))]

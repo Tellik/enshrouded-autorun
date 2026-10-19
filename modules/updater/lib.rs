@@ -112,15 +112,19 @@ pub fn run_request(
     if let Err(error) = maintenance_jobs::run_after_install(root) {
         let _ = shroudforge_logging::append(
             root,
-            'W',
+            'E',
             "updater",
-            &format!("Post-install maintenance will be retried: {error}"),
+            &format!("Updater request stopped because post-install maintenance failed: {error}"),
         );
+        return Err(error);
     }
     let command = request
         .get("command")
         .and_then(serde_json::Value::as_str)
         .ok_or("updater request is missing its command")?;
+    if command == "run-post-install-maintenance" {
+        return Ok(serde_json::json!({"completed":true}));
+    }
     let details = request
         .get("id")
         .or_else(|| request.get("modId"))

@@ -185,6 +185,10 @@ pub(crate) fn run_after_install(root: &Path) -> Result<(), String> {
     let Some(receipt) = read_install_receipt(root)? else {
         return Ok(());
     };
+    let queue = crate::update_queue_storage::read_update_queue_value(root);
+    if queue["lastAfterInstall"] == receipt {
+        return Ok(());
+    }
     let Some(_worker_mutex) = crate::acquire_queue_worker_mutex(root)? else {
         return Err(
             "post-install maintenance was deferred while the update queue worker is active".into(),
@@ -876,5 +880,35 @@ mod tests {
             queue["items"][0]["state"], "complete",
             "post-install migration must complete"
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn updater_request_stops_when_required_post_install_job_is_invalid() {
+        let root = tempfile::tempdir().unwrap();
+        let state_path = shroudforge_loader_config::paths::state_file(root.path());
+        fs::create_dir_all(state_path.parent().unwrap()).unwrap();
+        fs::write(
+            &state_path,
+            serde_json::to_vec_pretty(&json!({
+                "schemaVersion": 1,
+                "updates": {
+                    "status": "installed",
+                    "version": "1.7.0",
+                    "build": 1,
+                    "installedAt": 12345
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let jobs = shroudforge_loader_config::paths::updater_jobs_dir(root.path());
+        fs::create_dir_all(&jobs).unwrap();
+        fs::write(jobs.join("migrate-legacy-event-levels.json"), "{").unwrap();
+
+        let error =
+            crate::run_request(root.path(), &json!({"command":"check-system-update"})).unwrap_err();
+
+        assert!(error.contains("required updater migration jobs for after-install"));
     }
 }
