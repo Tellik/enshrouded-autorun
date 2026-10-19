@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "id": "runtime.queue",
+  "name": "Queue activity",
+  "description": "Dispatcher and runtime queue observations.",
+  "capabilities": ["queue"]
+}

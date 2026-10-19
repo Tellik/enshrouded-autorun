@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "world-editor.voxel-write-ab",
+  "name": "World Editor: one-cell write and recovery A/B",
+  "description": "Disposable test world only. Saves a full chunk, changes one occupied cell, verifies it and restores it. Earlier evidence blocks repetition.",
+  "capabilities": ["runtime", "operations"],
+  "execution": {
+    "kind": "lua",
+    "modId": "world-editor",
+    "script": "world-editor/check_voxel_write_restore.lua"
+  }
+}

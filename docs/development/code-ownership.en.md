@@ -30,7 +30,11 @@ modules/                       # Product modules and application entrypoints
   logging/                    # Write logs and display activity
   notifications/              # News, saved events, read state and toasts
   runtime-diagnostics/        # Selectable, time-limited runtime diagnostic jobs
-    diagnostics-jobs/         # Built-in collectors and operation measurements
+    diagnostics-jobs/         # Categorized *.job.json definitions and scripts
+      runtime/                # Runtime collector job definitions
+      world-editor/           # Lua job definitions and scripts
+      game_inspection/        # Python job definitions, programs and shared imports
+    tests/                    # Rust and Python checks with private Lua fixtures
   debug-console/              # Separate log window
   world-editor/               # Separate editor window
   commands/                   # Existing command mode
@@ -48,7 +52,7 @@ modules/                       # Product modules and application entrypoints
     native/                   # C++ owners, ECS, resources, hooks and game-thread queue
     profiles/                 # Complete approved profiles for individual game builds
 kfc-parser/                   # Direct parser Git submodule
-mods/                         # sf-survival and sf-unlimited-flight
+mods/                         # Independent Lua mod packages, including world-editor
 dev/
   build/                      # Product, runtime, website, and complete dev/release build actions
   parser/                     # Prepare the pinned parser submodule integration
@@ -57,11 +61,8 @@ dev/
     cli/                      # Native kfc-runtime-dev command implementation
     capture/                  # Collect executable and live-process evidence
     inspect/                  # Read executable, reflection, and KFC resources
-    compare/                  # Compare captures from different builds
-    analyze/                  # Index and trace captured evidence
     verify/                   # Check profile and runtime evidence
-    checks/                   # Explicit native and Python technical checks
-    tests/                    # Tests for the profile development tools
+    checks/                   # Explicit native checks and corpus-test action
     catalogs/                 # Maintained build catalogs and indexes
     schemas/                  # Profile and catalog data contracts
     captures/                 # Ignored local originals and capture results
@@ -148,8 +149,8 @@ A file contains the implementation of the action named by that file. Related hel
 | Restore verified original game files | `modules/game-files/originals/restore_original_game_files.rs` |
 | Publish or recover a changed game-file set | `modules/game-files/game_file_transaction.rs` |
 | Apply game-file mods before startup | `modules/entrypoints/loader/asset_preparation/prepare_startup_assets.rs` |
-| Select and run a runtime diagnostics job | `modules/runtime-diagnostics/diagnostics-jobs/` |
-| Measure runtime operations | `modules/runtime-diagnostics/diagnostics-jobs/operation_timings.rs` |
+| Select and run a runtime diagnostics job, export its results, or execute Lua, Python, Rust and mod actions | `modules/runtime-diagnostics/diagnostics-jobs/**/*.job.json` defines all built-in jobs using `catalog/diagnostic-job.schema.json` and the shared parser. The module owns `session/`, `catalog/`, `collectors/` and `execution/`. `execution/write_job_exports.rs` owns `JobExports` under the configured exports folder at `diagnostics/<job-id>/`. Messages use the shared Debug Log. Lua jobs live under `world-editor/`, Python jobs and imports under `game_inspection/`, compiled Rust job actions live alongside their definitions under `game_inspection/`, and tests and fixtures remain under `modules/runtime-diagnostics/tests/`. `modules/mod-runtime/ingame/run_diagnostic_job.rs` hosts the active mod sandbox, Rust actions and canonical mod-action call. |
+| Measure runtime operations | `modules/runtime-diagnostics/collectors/operation_timings.rs` |
 | Report connection health | `modules/transport/report_network_health.rs` |
 
 The module guide is [modules/README.md](../../modules/README.md). Public entry points assemble these actions. A UI command does not carry its own second implementation of mod validation, saving or update installation.
@@ -187,8 +188,8 @@ ShroudForge also creates or updates these working files as you use it:
 | **shroudforge/updates/** | Update downloads, queued work, and backups. |
 | **shroudforge/runtime/** | Runtime status and requests shared with the running game. |
 | **shroudforge/runtime/diagnostics/jobs/** | User-defined diagnostic job manifests. This folder follows a custom Runtime storage path when configured. |
-| **shroudforge/cache/** | Saved parser and Lua type information used to speed up work. |
-| **shroudforge/exports/** | Files created by mods that use the export feature. |
+| **shroudforge/cache/** | Saved parser and Lua type information, plus temporary bundled diagnostic sources under **diagnostics/**. |
+| **shroudforge/exports/** | Mod exports and diagnostic result files under **diagnostics/&lt;job-id&gt;/**. |
 
 The Settings → Storage locations page can redirect the mods, status, logs, cache, exports, updates, UI-data, and runtime-data folders. Those paths resolve through `modules/loader-config/resolve_installation_paths.rs`; modules should use that resolver instead of constructing paths themselves. The game install root, configuration file, and injected DLL locations stay fixed because the Windows bootstrap needs them before the configurable storage paths can be read. Selecting a folder changes where new files are written; it does not copy existing files. A custom mods folder outside the game directory may not be discovered by EML.
 

@@ -12,8 +12,9 @@ param(
     [switch]$RunCallbackCorpusTests
 )
 $ErrorActionPreference = 'Stop'
-$runtimeRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../kfc-runtime'))
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
+$runtimeRoot = Join-Path $repositoryRoot 'modules/game-runtime'
+$pythonRoot = Join-Path $repositoryRoot 'modules/runtime-diagnostics/diagnostics-jobs'
 if (-not $NativeVerifier) {
     $NativeVerifier = Join-Path $repositoryRoot 'build/native-runtime/tools/kfc-runtime-verify-component-registry.exe'
 }
@@ -50,9 +51,9 @@ foreach ($kind in @('client', 'server')) {
         }
         $arguments += @('--pid', [string]$processes[0].Id)
     }
-    Push-Location $repositoryRoot
+    Push-Location -LiteralPath $pythonRoot
     try {
-        & $Python -m dev.profiles.capture.discover_runtime_build @arguments
+        & $Python -m game_inspection.capture.discover_runtime_build @arguments
     } finally {
         Pop-Location
     }
@@ -66,9 +67,9 @@ foreach ($kind in @('client', 'server')) {
         & $ResourceExporter $exe (Join-Path $capture 'resources.json')
         if ($LASTEXITCODE -ne 0) { throw "$kind KFC resource inspection failed" }
         if ($matchingProfiles.Count -eq 1) {
-            Push-Location $repositoryRoot
+            Push-Location -LiteralPath $pythonRoot
             try {
-                & $Python -m dev.profiles.verify.verify_runtime_origins $exe --profile $matchingProfiles[0].FullName `
+                & $Python -m game_inspection.verify.verify_runtime_origins $exe --profile $matchingProfiles[0].FullName `
                     --functions (Join-Path $capture 'functions.json') --resources (Join-Path $capture 'resources.json') `
                     --out (Join-Path $capture 'mod-origins.json')
             } finally {
@@ -91,9 +92,9 @@ foreach ($kind in @('client', 'server')) {
             & (Join-Path $PSScriptRoot '..\checks\run_callback_corpus_tests.ps1') -RegistryCapture $verification
         }
         if ($VerifyBufferAdapters) {
-            Push-Location $repositoryRoot
+            Push-Location -LiteralPath $pythonRoot
             try {
-                & $Python -m dev.profiles.checks.verify_component_copy_adapters $exe `
+                & $Python -m game_inspection.checks.verify_component_copy_adapters $exe `
                     --registry $verification --adapters "$verification.adapters.json" `
                     --out (Join-Path $capture 'adapter-verification.json')
             } finally {
@@ -101,9 +102,9 @@ foreach ($kind in @('client', 'server')) {
             }
             if ($LASTEXITCODE -ne 0) { throw "$kind isolated callback differential verification failed" }
         }
-        Push-Location $repositoryRoot
+        Push-Location -LiteralPath $pythonRoot
         try {
-            & $Python -m dev.profiles.capture.export_runtime_bindings $exe `
+            & $Python -m game_inspection.capture.export_runtime_bindings $exe `
                 --capture $capture --out (Join-Path $capture 'runtime-bindings.json') `
                 --index (Join-Path $capture 'runtime-index.json')
         } finally {
@@ -113,9 +114,9 @@ foreach ($kind in @('client', 'server')) {
     }
 }
 if ($Target -eq 'both') {
-    Push-Location $repositoryRoot
+    Push-Location -LiteralPath $pythonRoot
     try {
-        & $Python -m dev.profiles.compare.compare_runtime_builds `
+        & $Python -m game_inspection.compare.compare_runtime_builds `
             (Join-Path $OutputDirectory 'client') (Join-Path $OutputDirectory 'server') `
             --out (Join-Path $OutputDirectory 'client-to-server.json')
     } finally {

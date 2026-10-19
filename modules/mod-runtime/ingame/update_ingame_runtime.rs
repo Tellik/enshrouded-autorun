@@ -3,7 +3,11 @@ use crate::env::AppState;
 
 impl IngameRuntime {
     pub fn update(&mut self, delta_seconds: f64) {
-        self.diagnostics.tick();
+        let mut diagnostic_host = super::run_diagnostic_job::RuntimeDiagnosticHost::new(
+            &self.runner,
+            self.active_mod_ids(),
+        );
+        self.diagnostics.tick_with_host(&mut diagnostic_host);
         self.runner
             .lua
             .app_data_ref::<AppState>()

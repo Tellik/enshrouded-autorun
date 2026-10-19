@@ -10,6 +10,7 @@ mod publish_runtime_status;
 mod refresh_runtime_configuration;
 mod reload_runtime_packages;
 mod restore_runtime_packages;
+mod run_diagnostic_job;
 mod start_ingame_runtime;
 mod stop_ingame_runtime;
 mod unload_runtime_mod;

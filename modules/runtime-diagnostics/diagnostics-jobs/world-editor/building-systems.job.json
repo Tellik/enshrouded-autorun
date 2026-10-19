@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "world-editor.building-systems",
+  "name": "Inspect building systems",
+  "description": "Reads the original blueprint and undo system descriptors and reflected cursor input layout from the latest capture.runtime export. Run capture.runtime first.",
+  "capabilities": [],
+  "execution": {
+    "kind": "python",
+    "script": "game_inspection/inspect/read_system_descriptors.py",
+    "args": [
+      "{gameExe}",
+      "--capture", "{diagnosticExports}/capture.runtime",
+      "--system", "player_building_blueprints",
+      "--system", "player_building_undo",
+      "--layout", "keen::ecs::ClientPlayerInput", "data", "cursorInput",
+      "--out", "{exports}/building-systems.json"
+    ]
+  }
+}

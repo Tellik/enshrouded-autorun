@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "world-editor.api-read-ab",
+  "name": "World Editor: API read A/B",
+  "description": "Compares cursor, authority, props and voxel reads through the active World Editor API. Reads only.",
+  "capabilities": ["runtime", "operations"],
+  "execution": {
+    "kind": "lua",
+    "modId": "world-editor",
+    "script": "world-editor/compare_api_reads.lua"
+  }
+}

@@ -24,6 +24,22 @@ const builtInJobLabels: Record<string, [TranslationKey, TranslationKey]> = {
     'settings.modules.diagnosticJob.operations',
     'settings.modules.diagnosticJob.operationsDescription',
   ],
+  'world-editor.api-read-ab': [
+    'settings.modules.diagnosticJob.worldEditorReadAb',
+    'settings.modules.diagnosticJob.worldEditorReadAbDescription',
+  ],
+  'world-editor.typed-inputs': [
+    'settings.modules.diagnosticJob.worldEditorTypedInputs',
+    'settings.modules.diagnosticJob.worldEditorTypedInputsDescription',
+  ],
+  'world-editor.registered-impact-ab': [
+    'settings.modules.diagnosticJob.worldEditorImpactAb',
+    'settings.modules.diagnosticJob.worldEditorImpactAbDescription',
+  ],
+  'world-editor.voxel-write-ab': [
+    'settings.modules.diagnosticJob.worldEditorVoxelWriteAb',
+    'settings.modules.diagnosticJob.worldEditorVoxelWriteAbDescription',
+  ],
 }
 
 export function DiagnosticsControls({

@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "id": "runtime.overview",
+  "name": "Runtime overview",
+  "description": "Runtime health, queue activity, mod callbacks and operation timings.",
+  "capabilities": ["runtime", "queue", "mods", "operations"]
+}

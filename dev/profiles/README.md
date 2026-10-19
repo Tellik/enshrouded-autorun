@@ -1,8 +1,8 @@
 # Game build and runtime profile actions
 
-This directory contains the focused C++, Python, and PowerShell actions used to inspect game builds, capture runtime evidence, validate candidate profiles, and approve supported data. The actions and their inputs are listed in the current [game build and runtime profile guide](../../docs/development/inspect-game-build-and-create-runtime-profile.de.md).
+This directory contains the native C++, Rust and PowerShell development actions and capture data. The Python implementations live together under [`modules/runtime-diagnostics/diagnostics-jobs/game_inspection/`](../../modules/runtime-diagnostics/diagnostics-jobs/game_inspection/). Their subdirectories and shared imports are preserved. The actions and their inputs are listed in the [game build and runtime profile guide](../../docs/development/inspect-game-build-and-create-runtime-profile.de.md).
 
-The folders separate the native developer CLI, capture tools, inspection, comparison, analysis, verification, explicit checks, and their tests. Catalogs, schemas, and local captures remain at this directory's root because they are data used across those actions.
+In the tables below, Python tool paths are relative to that `game_inspection/` source folder. Native files and PowerShell actions remain relative to this directory. Python tests are linked to their module location. Catalogs, schemas and local captures remain here.
 
 ## Native developer CLI
 
@@ -51,11 +51,10 @@ The folders separate the native developer CLI, capture tools, inspection, compar
 | `inspect/read_pe_image.py` | Reads PE sections, RVAs, and executable identity for Python tools. |
 | `inspect/extract_executable_reflection.py` | Extracts the reflected type catalog directly from an executable. |
 | `inspect/discover_executable_functions.py` | Disassembles PE function ranges and records static code references. |
-| `inspect/read_system_descriptors.py` | Reads named ECS system execution descriptors. |
+| `inspect/read_system_descriptors.py` | Reads named ECS descriptors, read/write service names, direct calls and compiler decoding boundaries. Select full original names with repeatable `--system` and reflected field paths with `--layout TYPE FIELD...`. Preserves the shared `discover(pe, functions)` API. Offline only. |
 | `inspect/inspect_inventory_transactions.py` | Resolves inventory quantity removal, partial source removal, and usage-cost relationships from original named descriptors, reflected layouts, and decoded instructions. It reports evidence without calling or changing the game. |
 | `inspect/inspect_component_metadata.cpp` | Examines component metadata fields against component indices. |
 | `inspect/export_kfc_resources.rs` | Exports selected KFC resources through the parser. |
-| `inspect/inspect_system_dependencies.rs` | Resolves system dependencies using the runtime resolver. |
 
 ## Build comparison
 
@@ -105,9 +104,9 @@ The folders separate the native developer CLI, capture tools, inspection, compar
 
 | File | Action |
 | --- | --- |
-| `tests/test_components.py` | Tests component registry parsing and validation with independent fixtures. |
-| `tests/test_discovery.py` | Tests PE, reflection, function, system, and anchor discovery with synthetic files. |
-| `tests/test_mod_origins.py` | Tests that known invalid runtime patch payloads fail validation. |
+| [`tests/python/test_components.py`](../../modules/runtime-diagnostics/tests/python/test_components.py) | Tests component registry parsing and validation with independent fixtures. |
+| [`tests/python/test_discovery.py`](../../modules/runtime-diagnostics/tests/python/test_discovery.py) | Tests PE, reflection, function, system, and anchor discovery with synthetic files. |
+| [`tests/python/test_mod_origins.py`](../../modules/runtime-diagnostics/tests/python/test_mod_origins.py) | Tests that known invalid runtime patch payloads fail validation. |
 
 ## Shared data and boundaries
 
@@ -116,9 +115,23 @@ The folders separate the native developer CLI, capture tools, inspection, compar
 | `catalogs/` | Maintained function signatures and captured build indexes. |
 | `schemas/` | Contracts for profiles, function catalogs, and component catalogs. |
 | `captures/` | Ignored local input files, original executable copies, capture results, and drafts. |
-| `requirements-discovery.txt` | Python dependencies for executable discovery. |
+| [`game_inspection/requirements.txt`](../../modules/runtime-diagnostics/diagnostics-jobs/game_inspection/requirements.txt) | Python dependencies beside the diagnostic source package. |
 | `../../modules/game-runtime/profiles/` | Approved runtime profiles shipped with the native runtime. |
 
-The native CLI is compiled directly from `modules/game-runtime/native/CMakeLists.txt`. Its build targets and profile-directory definition point to these source folders and the shared catalog root. Python tools use package-qualified imports so scripts can run directly and their modules can be shared across the folders.
+The native CLI is compiled directly from `modules/game-runtime/native/CMakeLists.txt`. Its build targets and profile-directory definition point to these source folders and the shared catalog root. Python tools use the `game_inspection.*` package under the diagnostic job root. Direct file calls and the existing PowerShell capture action use the same implementations.
 
 Profile approval remains tied to the exact executable identity and its recorded evidence. A function match is not approval to call an engine function.
+
+## World Editor diagnostic jobs
+
+Live World Editor definitions and Lua scripts live together under [`modules/runtime-diagnostics/diagnostics-jobs/world-editor/`](../../modules/runtime-diagnostics/diagnostics-jobs/world-editor/). Runtime collector definitions use `runtime/`, Python definitions and implementations use `game_inspection/`. All jobs share one schema, parser and lifecycle. The six World Editor IDs are `world-editor.api-read-ab`, `world-editor.typed-inputs`, `world-editor.registered-impact-ab`, `world-editor.building-systems`, `world-editor.cursor-type-references` and `world-editor.voxel-write-ab`. The game-inspection jobs also include `inspect.system-dependencies`, which uses the production Rust resolver on exact-matching reports from `capture.runtime`. Select and start jobs through the existing Runtime Diagnostics controls or CLI. Lua and registered mod-action execution retain the active mod's normal permissions and do not load mods. The voxel job changes one cell in a disposable world and is never started just by appearing in the catalog.
+
+Job reports and recovery files belong to the configured Export folder under `diagnostics/<job-id>/`. Job progress appears in the Debug Log. These exports are separate from the ignored developer captures. Existing captures, earlier export reports and the active installation are not moved or rewritten by this source migration. The [diagnostic job guide](../../modules/runtime-diagnostics/diagnostics-jobs/README.md) documents lifecycle, mod calls and export behavior.
+
+The former `inspect_world_editor_operations.py` offline capabilities are consolidated in the existing generic `game_inspection/inspect/read_system_descriptors.py`. For example, from the repository root:
+
+```powershell
+python modules/runtime-diagnostics/diagnostics-jobs/game_inspection/inspect/read_system_descriptors.py <executable> --capture <capture-directory> --system player_building_blueprints --system player_building_undo --layout keen::ecs::ClientPlayerInput data cursorInput
+```
+
+This action retains exact original system names, service access roles and ordinals, direct call edges, reflected layouts and explicit decoding gaps. It opens no process. The old inspector's raw live code comparisons, owner validation, entity membership, component stride checks and service-binding comparisons are not claimed as equivalent API-job coverage. The unused `watch_entity_command_queues.py` fixed-layout watcher is removed. Its raw queue observations remain historical capture evidence rather than an API measurement.

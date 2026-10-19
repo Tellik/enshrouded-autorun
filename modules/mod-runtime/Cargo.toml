@@ -60,14 +60,6 @@ path = "../../dev/profiles/inspect/export_kfc_resources.rs"
 name = "inspect_building_inputs"
 path = "../../dev/profiles/inspect/export_kfc_resources.rs"
 
-[[example]]
-name = "inspect_system_dependencies"
-path = "../../dev/profiles/inspect/inspect_system_dependencies.rs"
-
-[[example]]
-name = "inspect_runtime_functions"
-path = "../../dev/profiles/inspect/inspect_system_dependencies.rs"
-
 [[test]]
 name = "flight"
 path = "tests/unlimited_flight_lifecycle.rs"

@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "id": "runtime.operations",
+  "name": "Runtime operation timings",
+  "description": "Timing samples for instrumented native and Lua operations.",
+  "capabilities": ["operations"]
+}

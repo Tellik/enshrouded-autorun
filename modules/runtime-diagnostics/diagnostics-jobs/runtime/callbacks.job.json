@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "id": "runtime.callbacks",
+  "name": "Mod callbacks",
+  "description": "Lua mod callback duration, errors and slow calls.",
+  "capabilities": ["mods"]
+}
