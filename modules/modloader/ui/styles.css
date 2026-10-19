@@ -228,3 +228,16 @@ html,body,#root{width:100%;height:100%;margin:0;overflow:hidden}body{color:var(-
 .settings-option.slider-setting .mod-setting-control{flex-shrink:0}
 .slider-control input[type=range]{width:100%;min-width:0}
 .feature-banner-copy .feature-banner-contact{margin-top:10px}
+
+/* Keep page actions outlined and aligned, with a small theme-colored hover lift. */
+.button:not(.danger){color:var(--sf-gold-bright);border-color:rgba(202,170,103,.42);background:rgba(202,170,103,.025);box-shadow:none;transition:color .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease,transform .18s ease}
+.button:not(.danger):hover:not(:disabled){color:var(--sf-text-strong);border-color:rgba(202,170,103,.76);background:rgba(202,170,103,.11);box-shadow:0 5px 15px rgba(202,170,103,.1);transform:translateY(-1px);filter:none}
+.button.ghost:not(.danger){color:var(--sf-gold-bright);border-color:rgba(202,170,103,.42);background:transparent;box-shadow:none}
+.button:not(.danger):disabled{opacity:.45;cursor:default;transform:none;box-shadow:none}
+.page-actions{align-items:center}
+.page-zoom-controls{display:inline-flex;align-items:center;gap:4px}
+.page-zoom-step{width:36px;min-height:36px;padding:0;font-size:17px;line-height:1}
+.page-zoom-value{min-width:39px;color:var(--sf-gold-bright);font-size:10px;font-variant-numeric:tabular-nums;text-align:center}
+@media(prefers-reduced-motion:reduce){.button:not(.danger){transition:none}}
+.zoom-setting-control{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:10px}
+.zoom-setting-value{min-width:40px;color:var(--sf-gold-bright);font-size:11px;font-variant-numeric:tabular-nums;text-align:right}

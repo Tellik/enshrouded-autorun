@@ -127,6 +127,7 @@ export const empty: Snapshot = {
   settings: {
     compactMode: false,
     reducedMotion: false,
+    zoomPercent: 100,
     usernameMode: 'auto',
     detectedUsername: null,
     effectiveUsername: 'Flameborn',
