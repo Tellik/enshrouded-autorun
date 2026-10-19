@@ -5,7 +5,23 @@
   "required": ["schemaVersion"],
   "properties": {
     "schemaVersion": { "const": 1 },
-    "updates": { "type": "object" },
+    "updates": {
+      "type": "object",
+      "properties": {
+        "missingUpdaterAnnouncement": {
+          "type": "object",
+          "required": ["lastAttemptAt", "checkedAt", "updateAvailable", "version", "releaseUrl"],
+          "properties": {
+            "lastAttemptAt": { "type": "integer", "minimum": 0 },
+            "checkedAt": { "type": ["integer", "null"], "minimum": 0 },
+            "updateAvailable": { "type": "boolean" },
+            "version": { "type": ["string", "null"] },
+            "releaseUrl": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
     "assets": { "type": "object" },
     "runtime": { "type": "object" },
     "diagnostics": { "type": "object" },

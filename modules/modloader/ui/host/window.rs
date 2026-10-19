@@ -17,6 +17,7 @@ use super::parse_ui_command::parse_ui_command;
 use super::read_host_arguments::Arguments;
 use super::read_host_arguments::arguments;
 use super::read_installed_mods::read_mods;
+use super::read_missing_updater_announcement;
 use super::read_release_status::idle_release_status;
 use super::read_ui_configuration::default_refresh;
 use super::read_ui_configuration::default_toggle_key;
@@ -92,6 +93,17 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
     let user_config = load_user_config(&arguments.root);
     let provider = effective_provider(&user_config);
     let release_state = Arc::new(Mutex::new(idle_release_status(&arguments.root)));
+    let release_announcement = Arc::new(Mutex::new(
+        read_missing_updater_announcement::read_cached(&arguments.root),
+    ));
+    let announcement_config = read_central_config(&arguments.root);
+    if !arguments.server {
+        read_missing_updater_announcement::start_refresh(
+            &arguments.root,
+            &announcement_config,
+            release_announcement.clone(),
+        );
+    }
     let catalog_state = Arc::new(Mutex::new(default_catalog_state()));
     let stop_event = arguments
         .stop_name
@@ -781,6 +793,7 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                         &arguments,
                         &active_provider,
                         &release_state,
+                        &release_announcement,
                         &catalog_state,
                         central,
                         mods,

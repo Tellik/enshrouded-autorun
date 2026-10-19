@@ -3819,6 +3819,7 @@ dependencies = [
  "shroudforge-news",
  "shroudforge-package",
  "shroudforge-player-name",
+ "shroudforge-release-feed",
  "shroudforge-runtime-diagnostics",
  "shroudforge-ui-resources",
  "shroudforge-window-management",
@@ -3873,6 +3874,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "shroudforge-release-feed"
+version = "1.0.0"
+dependencies = [
+ "reqwest",
+ "semver",
+ "serde",
+]
+
+[[package]]
 name = "shroudforge-runtime-bridge"
 version = "1.0.0"
 dependencies = [
@@ -3923,7 +3933,6 @@ dependencies = [
  "mod-loader-bridge",
  "parking_lot",
  "reqwest",
- "semver",
  "serde",
  "serde_json",
  "sha2",
@@ -3931,6 +3940,7 @@ dependencies = [
  "shroudforge-loader-config",
  "shroudforge-logging",
  "shroudforge-package",
+ "shroudforge-release-feed",
  "shroudforge-window-management",
  "tao",
  "windows-sys 0.61.2",

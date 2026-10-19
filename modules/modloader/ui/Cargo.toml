@@ -15,6 +15,7 @@ shroudforge-logging.workspace = true
 shroudforge-news.workspace = true
 shroudforge-game-assets.workspace = true
 shroudforge-ui-resources.workspace = true
+shroudforge-release-feed.workspace = true
 shroudforge-player-name.workspace = true
 shroudforge-runtime-diagnostics = { path = "../../runtime-diagnostics" }
 semver.workspace = true

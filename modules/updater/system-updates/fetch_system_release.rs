@@ -1,9 +1,5 @@
-use crate::compare_release_versions::parse_release_tag;
-use crate::github_release::GithubRelease;
 use crate::provider_config::ProviderConfig;
 use crate::release::Release;
-use semver::Version;
-use std::time::Duration;
 
 pub fn fetch_latest(provider: &ProviderConfig, current: &str) -> Result<Option<Release>, String> {
     if provider.kind != "github-releases" {
@@ -16,74 +12,27 @@ pub fn fetch_latest_github(
     provider: &ProviderConfig,
     current: &str,
 ) -> Result<Option<Release>, String> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(15))
-        .user_agent(format!("ShroudForge/{current} (modloader-ui)"))
-        .build()
-        .map_err(|error| error.to_string())?;
-    let url = format!(
-        "{}/repos/{}/releases?per_page=100",
-        provider.base_url.trim_end_matches('/'),
-        provider.project_id.trim_matches('/')
-    );
-    let response = client
-        .get(url)
-        .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .send()
-        .map_err(|error| format!("GitHub is unreachable: {error}"))?;
-    if response.status() == reqwest::StatusCode::NOT_FOUND {
-        return Ok(None);
-    }
-    if !response.status().is_success() {
-        return Err(format!("GitHub returned HTTP {}", response.status()));
-    }
-    let releases: Vec<GithubRelease> = response
-        .json()
-        .map_err(|error| format!("Invalid GitHub response: {error}"))?;
-    let mut eligible = releases
-        .into_iter()
-        .filter(|release| !release.draft && (provider.include_prereleases || !release.prerelease))
-        .filter_map(|release| {
-            let version = release.tag_name.trim_start_matches('v').to_owned();
-            let (base_version, build) = parse_release_tag(&version).ok()?;
-            let parsed_version = Version::parse(&base_version).ok()?;
-            let archive = release.assets.iter().find(|asset| {
-                asset.name.starts_with("shroudforge-") && asset.name.ends_with(".zip")
-            })?;
-            let checksum_name = format!("{}.sha256", archive.name);
-            let checksum_asset = release
-                .assets
-                .iter()
-                .find(|asset| asset.name == checksum_name)?;
-            let archive_url = archive.browser_download_url.clone();
-            let checksum_url = checksum_asset.browser_download_url.clone();
-            Some((
-                parsed_version,
-                build,
-                release,
-                archive_url,
-                checksum_url,
-                base_version,
-                version,
-            ))
-        })
-        .collect::<Vec<_>>();
-    eligible.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
-    let Some((_, build, release, archive_url, checksum_url, base_version, version)) =
-        eligible.pop()
+    let Some(release) = shroudforge_release_feed::fetch_latest(
+        &provider.base_url,
+        &provider.project_id,
+        current,
+        provider.include_prereleases,
+        true,
+    )?
     else {
         return Ok(None);
     };
-    let checksum = fetch_checksum(&client, &checksum_url)?;
+    let checksum = release
+        .checksum
+        .ok_or("GitHub release checksum was not fetched")?;
     let (mandatory, notes) = crate::parse_release_notes(&release.body);
     Ok(Some(Release {
-        version,
-        base_version,
-        build,
-        download_url: archive_url,
+        version: release.version,
+        base_version: release.base_version,
+        build: release.build,
+        download_url: release.download_url,
         checksum,
-        release_url: Some(release.html_url),
+        release_url: Some(release.release_url),
         prerelease: release.prerelease,
         mandatory,
         message: if notes.trim().is_empty() {
@@ -92,32 +41,4 @@ pub fn fetch_latest_github(
             notes
         },
     }))
-}
-
-fn fetch_checksum(client: &reqwest::blocking::Client, url: &str) -> Result<String, String> {
-    let response = client
-        .get(url)
-        .send()
-        .map_err(|error| format!("Could not download GitHub checksum: {error}"))?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "GitHub checksum endpoint returned HTTP {}",
-            response.status()
-        ));
-    }
-    let checksum = response
-        .text()
-        .map_err(|error| format!("Could not read GitHub checksum: {error}"))?
-        .split_whitespace()
-        .next()
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    if !valid_checksum(&checksum) {
-        return Err("GitHub release does not contain a valid SHA-256 checksum".into());
-    }
-    Ok(checksum)
-}
-
-fn valid_checksum(checksum: &str) -> bool {
-    checksum.len() == 64 && checksum.bytes().all(|byte| byte.is_ascii_hexdigit())
 }

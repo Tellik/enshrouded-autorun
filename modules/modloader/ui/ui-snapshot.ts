@@ -43,6 +43,11 @@ export type Snapshot = {
   newsTemplates?: Record<string, { title: string; message: string }>
   readNoticeIds: string[]
   release: Release
+  releaseAnnouncement?: {
+    updateAvailable: boolean
+    latestVersion?: string
+    releaseUrl?: string | null
+  }
   updateQueue?: UpdateQueue
   backupManagement?: {
     target: string
@@ -109,6 +114,7 @@ export const empty: Snapshot = {
     state: 'idle',
     staged: false,
   },
+  releaseAnnouncement: { updateAvailable: false },
   updateQueue: { items: [] },
   backupManagement: {
     target: 'client',

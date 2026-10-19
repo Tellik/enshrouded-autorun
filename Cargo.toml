@@ -14,6 +14,7 @@ members = [
     "modules/modloader",
     "modules/modloader/ui",
     "modules/updater",
+    "modules/updater/release-feed",
     "modules/runtime-diagnostics",
     "modules/transport",
     "modules/world-editor",
@@ -42,5 +43,6 @@ shroudforge-game-assets = { path = "modules/game-files" }
 shroudforge-news = { path = "modules/notifications" }
 shroudforge-ui-resources = { path = "modules/ui-resources" }
 shroudforge-updater = { path = "modules/updater" }
+shroudforge-release-feed = { path = "modules/updater/release-feed" }
 shroudforge-player-name = { path = "modules/player-name" }
 shroudforge-window-management = { path = "modules/window-management" }

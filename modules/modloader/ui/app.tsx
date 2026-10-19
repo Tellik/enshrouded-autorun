@@ -41,6 +41,10 @@ export function App() {
     document.body.classList.toggle('reduced-motion', settings.reducedMotion)
   }, [settings.compactMode, settings.reducedMotion])
 
+  const newsSource = {
+    ...data,
+    updatesEnabled: data.settings.modulePreferences?.updates?.enabled === true,
+  }
   const {
     news,
     unread,
@@ -48,7 +52,7 @@ export function App() {
     chirperTitle,
     chirperItems,
     markRead,
-  } = useNotifications(data, settings, read, setRead)
+  } = useNotifications(newsSource, settings, read, setRead)
   const activeMod = data.mods.find((mod) => mod.id === selectedMod)
   const navigate = (next: PageId) => {
     setSelectedMod(null)
@@ -68,6 +72,7 @@ export function App() {
         visible: true,
       })
     else if (action.kind === 'check-updates') postRequest('check-updates')
+    else if (action.kind === 'open-updates') navigate('updates')
     else if (action.kind === 'queue-system-update')
       postRequest('queue-system-update')
   }

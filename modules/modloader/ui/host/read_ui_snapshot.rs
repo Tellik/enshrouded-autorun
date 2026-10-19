@@ -1,6 +1,7 @@
 use super::read_activity_log::read_activity;
 use super::read_game_version::read_game_version;
 use super::read_host_arguments::Arguments;
+use super::read_missing_updater_announcement;
 use super::read_release_status::read_release_status;
 use super::read_runtime_profiles::active_runtime_profile;
 use super::read_runtime_profiles::runtime_profile_ids;
@@ -21,6 +22,7 @@ pub(crate) fn read_ui_snapshot(
     arguments: &Arguments,
     provider: &serde_json::Value,
     release: &Arc<Mutex<serde_json::Value>>,
+    release_announcement: &Arc<Mutex<serde_json::Value>>,
     catalog: &Arc<Mutex<serde_json::Value>>,
     central: serde_json::Value,
     mods: Vec<ModInfo>,
@@ -98,6 +100,10 @@ pub(crate) fn read_ui_snapshot(
             .unwrap_or_else(|| serde_json::json!({})),
         read_notice_ids: shroudforge_news::read_news_state(&arguments.root),
         release: release_snapshot,
+        release_announcement: release_announcement
+            .lock()
+            .map(|value| value.clone())
+            .unwrap_or_else(|_| read_missing_updater_announcement::read_cached(&arguments.root)),
         update_queue: read_update_queue(&arguments.root),
         backup_management: shroudforge_game_assets::originals::management_status(
             &arguments.root,

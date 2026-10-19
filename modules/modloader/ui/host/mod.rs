@@ -27,6 +27,7 @@ mod read_configuration_status;
 mod read_game_version;
 mod read_host_arguments;
 mod read_installed_mods;
+mod read_missing_updater_announcement;
 mod read_mod_icons;
 mod read_release_status;
 mod read_runtime_profiles;

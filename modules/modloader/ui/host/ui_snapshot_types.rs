@@ -74,6 +74,7 @@ pub(crate) struct Snapshot {
     pub(crate) news_templates: serde_json::Value,
     pub(crate) read_notice_ids: Vec<String>,
     pub(crate) release: serde_json::Value,
+    pub(crate) release_announcement: serde_json::Value,
     pub(crate) update_queue: serde_json::Value,
     pub(crate) backup_management: serde_json::Value,
     pub(crate) settings: SnapshotSettings,

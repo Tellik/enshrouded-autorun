@@ -21,7 +21,16 @@ export function buildNewsItems(
       text.replace(/\{(\w+)\}/g, (match, key) => values[key] ?? match)
     return { title: render(template.title), message: render(template.message) }
   }
-  if (data.release.updateAvailable)
+  const updaterAvailable = data.release.updaterAvailable === true
+  const updatesEnabled = data.updatesEnabled === true
+  const standardUpdateAvailable =
+    updaterAvailable && updatesEnabled && data.release.updateAvailable
+  const missingUpdaterUpdateAvailable =
+    !updaterAvailable &&
+    !updatesEnabled &&
+    (data.releaseAnnouncement?.updateAvailable === true ||
+      data.release.updateAvailable)
+  if (standardUpdateAvailable)
     items.push({
       id: `system-${data.release.latestVersion}`,
       level: 'info',
@@ -33,7 +42,19 @@ export function buildNewsItems(
       actions: [{ id: 'queue-system-update', kind: 'queue-system-update' }],
       updatedAt: 0,
     })
-  if (data.release.staged)
+  else if (missingUpdaterUpdateAvailable) {
+    const version =
+      data.releaseAnnouncement?.latestVersion || data.release.latestVersion || ''
+    items.push({
+      id: `system-${version}`,
+      level: 'warn',
+      title: t('news.system.updaterMissing.title', { version }),
+      message: t('news.system.updaterMissing.message', { version }),
+      actions: [{ id: 'open-updates', kind: 'open-updates' }],
+      updatedAt: 0,
+    })
+  }
+  if (standardUpdateAvailable && data.release.staged)
     items.push({
       id: `system-staged-${data.release.latestVersion}`,
       level: 'info',
@@ -42,6 +63,7 @@ export function buildNewsItems(
       updatedAt: 0,
     })
   for (const item of items) {
+    if (item.actions?.some((action) => action.kind === 'open-updates')) continue
     const kind = item.id.startsWith('system-staged-')
       ? 'system.staged'
       : 'system.update'

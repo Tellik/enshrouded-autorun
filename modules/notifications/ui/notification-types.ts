@@ -62,7 +62,14 @@ export type NewsDisplaySource = {
   notices: Notice[]
   newsTemplates?: Record<string, { title: string; message: string }>
   mods: Array<{ id: string; ecosystem: 'EML' | 'SF' }>
+  updatesEnabled: boolean
+  releaseAnnouncement?: {
+    updateAvailable: boolean
+    latestVersion?: string
+    releaseUrl?: string | null
+  }
   release: {
+    updaterAvailable?: boolean
     updateAvailable: boolean
     latestVersion?: string
     message?: string
