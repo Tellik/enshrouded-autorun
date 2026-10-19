@@ -44,4 +44,10 @@ The Defender reporting blind spot is fixed in the current workflow implementatio
 
 The reported Defender detection against the 1.7.0 `dinput8.dll` is the incident under review. The workflow change fixes the CI reporting gap, but it does not establish whether the DLL is malicious or a false positive. The exact 1.7.0 release artifact still needs to be scanned with the updated workflow, and any detection needs review alongside the DLL's hash and Defender threat details. Keep issue #15 open until that review determines the status of the reported DLL.
 
-The Python and PowerShell scripts passed syntax checks, and `git diff --check` was run. No complete GitHub Actions run of the updated workflow has been reviewed yet.
+The Python and PowerShell scripts passed syntax checks, and `git diff --check` was run.
+
+### Latest GitHub Actions attempt
+
+The latest run failed during submodule checkout, before the build and security scans started. ShroudForge referenced `kfc-parser` commit `3c6565b0ce96a9d6ab8cf141ef3351a917bfa615`, but that commit was not available from the submodule remote. GitHub Actions reported `upload-pack: not our ref`. This run produced no Defender, ClamAV, Trivy, or SARIF result. It is a checkout failure, not a clean scan or a malware finding.
+
+The submodule pin is now set to `742b1cb796238ebdec143842545a5a8f5fc79459`, the reachable ShroudForge-compatible revision on `kfc4_compatibility`. It includes the current upstream `main` commit `618bd0eb56dbd9c6a38842965bcf9665b9a5bab6` as an ancestor while retaining the parser integration APIs used by ShroudForge. A new GitHub Actions run is needed to confirm checkout and produce scan results.
