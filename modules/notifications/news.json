@@ -4,12 +4,13 @@
     {
       "id": "shroudforge-localization-beta-1",
       "kind": "notice.localization",
-      "title": "🇫🇷 French and 🇪🇸 Spanish are here — beta translations",
-      "message": "ShroudForge now includes French and Spanish translations in beta. We are still polishing them, so if you notice a mistranslation, awkward wording, or text that does not fit, please use the GitHub bug report form and mention the language and screen. Crowdin is our localization platform, where contributors can suggest and review translations together. Want to help? Use the Crowdin project link below to suggest or review translations.",
+      "title": "Welcome! 🌍",
+      "message": "French and Spanish are now available in beta. We now have a Crowdin project where the community can translate and review ShroudForge together. I’d be glad for your help improving these translations or starting another language. Is your language missing? Suggest it with the link below and I’ll add it to the Crowdin project. If you spot a translation issue, please include the language, screen, and affected text in the GitHub form.",
       "level": "info",
       "links": [
         { "labelKey": "news.localization.reportIssue", "url": "https://github.com/bonsaibauer/shroudforge/issues/new?template=translation_issue.yml" },
-        { "labelKey": "news.localization.contribute", "url": "https://crowdin.com/project/shroudforge" }
+        { "labelKey": "news.localization.contribute", "url": "https://crowdin.com/project/shroudforge" },
+        { "labelKey": "news.localization.requestLanguage", "url": "https://github.com/bonsaibauer/shroudforge/issues/new/choose" }
       ]
     },
     {
