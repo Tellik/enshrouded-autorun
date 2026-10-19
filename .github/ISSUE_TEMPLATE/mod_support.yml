@@ -1,0 +1,62 @@
+name: "Report mod compatibility"
+description: "Quickly share which mods work with ShroudForge."
+title: "[Mod compatibility]: "
+labels:
+  - mod-compatibility
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing mods with ShroudForge. A quick Yes, No, or Problem report helps. Please include the mod name.
+
+  - type: dropdown
+    id: ecosystem
+    attributes:
+      label: Which mod system is this for?
+      options:
+        - "ST — Shroudtopia"
+        - "EML — Enshrouded Mod Loader"
+        - "SF — ShroudForge"
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: mod
+    attributes:
+      label: Which mod did you test?
+      description: Add the mod version if you know it.
+      placeholder: Mod name and version
+    validations:
+      required: true
+
+  - type: dropdown
+    id: result
+    attributes:
+      label: How did it go?
+      options:
+        - "Yes — it works"
+        - "No — it does not work"
+        - "Problem — something went wrong"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: problem_type
+    attributes:
+      label: What kind of problem did you see?
+      description: Optional. Choose this if you selected Problem.
+      options:
+        - Mod does not install or update
+        - Mod does not appear or load
+        - Game or ShroudForge crashes
+        - Updater or download problem
+        - Other
+        - Not sure
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Anything else?
+      description: Optional. A short note about what worked or what happened is enough.
+      placeholder: What did you try, and what happened?

@@ -81,14 +81,13 @@
       ]
     },
     {
-      "id": "shroudforge-feedback-2",
+      "id": "shroudforge-mod-support-1",
       "kind": "notice.feedback",
-      "title": "Report issues and help improve ShroudForge",
-      "message": "Found a bug, a confusing message, or a rough edge? I would love to hear about it. A useful report includes your Enshrouded and ShroudForge versions, which mods were enabled, what you expected to happen, what actually happened, and the steps that reproduce it. A short log excerpt can help too. Please remove personal information before posting logs, and report a mod's own behavior to its author when appropriate.",
+      "title": "Which mods work with your setup?",
+      "message": "I am sorry if the updater has caused problems for you. It is still less polished and reliable than I want it to be. I am doing my best to make it smoother, step by step. I work on ShroudForge in my spare time, and your feedback helps me improve it.\n\nIf you have a moment, please share which mods work for you. Choose ST (Shroudtopia), EML (Enshrouded Mod Loader), SF (ShroudForge), or Other, then select Yes, No, or Problem. If something went wrong, you can choose a short problem category and add a sentence. Even a quick \"Mod X works\" helps a lot.\n\nThank you for testing and helping out. I really appreciate it. 💚",
       "level": "info",
       "links": [
-        { "labelKey": "news.link.reportIssue", "url": "https://github.com/bonsaibauer/shroudforge/issues/new/choose" },
-        { "labelKey": "news.link.loggingGuide", "url": "https://bonsaibauer.github.io/shroudforge/{locale}/#doc-api-logging" }
+        { "labelKey": "news.link.modCompatibility", "url": "https://github.com/bonsaibauer/shroudforge/issues/new?template=mod_support.yml" }
       ]
     },
     {
