@@ -2,6 +2,7 @@
 // All objects belong to this test process. No game, patch or engine call is used.
 #include <windows.h>
 #include <cstdlib>
+#include "voxels/voxel_request.h"
 namespace {
 unsigned page_query_count{};
 unsigned mutate_on_page_query{};
@@ -97,6 +98,7 @@ struct Entity {
     std::uint32_t row{};
 };
 unsigned tracker_calls{};
+unsigned expected_tracker_index{};
 bool tracker_contract{};
 LONG* tracker_scene_gate{};
 std::uint32_t tracker_before{};
@@ -105,7 +107,7 @@ bool tracker_fault_applied{};
 void __fastcall fixture_track_change(std::uintptr_t manager, std::uintptr_t context,
                                     std::uintptr_t entry, std::uint16_t index, std::uint8_t queue) {
     ++tracker_calls;
-    tracker_contract = context == manager + sizeof(Execution::manager) && index == 0 && queue == 0 &&
+    tracker_contract = context == manager + sizeof(Execution::manager) && index == expected_tracker_index && queue == 0 &&
         thread_registry_gate > 0 && tracker_scene_gate && *tracker_scene_gate == static_cast<LONG>(0x80000000u);
     const auto* entity = reinterpret_cast<const Entity*>(entry);
     tracker_before = reinterpret_cast<const Component*>(entity->storage)->first;
@@ -120,6 +122,10 @@ OwnerObject root_object;
 std::uintptr_t root_virtuals[1]{}, client_virtuals[1]{}, controller_virtuals[1]{};
 alignas(8) unsigned char descriptor[0x90]{};
 const char component_name[] = "keen::ecs::FixtureComponent";
+alignas(8) unsigned char editor_descriptors[3][0x90]{};
+const char input_component_name[] = "keen::ecs::ClientPlayerInput";
+const char used_item_component_name[] = "keen::ecs::UsedItem";
+const char transform_component_name[] = "keen::ecs::CurrentTransform";
 }
 
 int main() {
@@ -364,13 +370,25 @@ int main() {
     membership_layout.keys_address = reinterpret_cast<std::uintptr_t>(&keys_pointer);
     EntityView member{};
     check(entity_view(reinterpret_cast<std::uintptr_t>(&entity), membership_layout, member));
+    check(entity_membership(member,membership_layout)==EntityMembership::Present);
+    EntityView by_id{};
+    std::size_t by_id_slot{SIZE_MAX};
+    check(entity_for_id(entity.id,membership_layout,by_id,by_id_slot)==EntityMembership::Present &&
+        by_id==member && by_id_slot==3);
+    const auto unchanged_id=by_id;
     occupied = 0;
+    check(entity_for_id(entity.id,membership_layout,by_id,by_id_slot)==EntityMembership::Absent &&
+        by_id==unchanged_id && by_id_slot==3);
+    check(entity_membership(member,membership_layout)==EntityMembership::Absent);
     check(!entity_view(reinterpret_cast<std::uintptr_t>(&entity), membership_layout, member));
     occupied = 8;
     keys[3] = entity.id + 1;
     check(!entity_view(reinterpret_cast<std::uintptr_t>(&entity), membership_layout, member));
     keys[3] = entity.id;
     membership_table[3] = 0;
+    check(entity_for_id(entity.id,membership_layout,by_id,by_id_slot)==EntityMembership::Unresolved &&
+        by_id==unchanged_id && by_id_slot==3);
+    check(entity_membership(member,membership_layout)==EntityMembership::Unresolved);
     check(!entity_view(reinterpret_cast<std::uintptr_t>(&entity), membership_layout, member));
     // Linear collision handling follows the original open-addressing lookup.
     keys[3] = 99;
@@ -378,9 +396,31 @@ int main() {
     occupied = 9;
     membership_table[0] = reinterpret_cast<std::uintptr_t>(&entity);
     check(entity_view(reinterpret_cast<std::uintptr_t>(&entity), membership_layout, member));
+    check(entity_for_id(entity.id,membership_layout,by_id,by_id_slot)==EntityMembership::Present && by_id_slot==0);
+    ++entity.generation;
+    check(entity_membership(by_id,membership_layout)==EntityMembership::Absent);
+    check(entity_for_id(entity.id,membership_layout,member,by_id_slot)==EntityMembership::Present &&
+        member.generation==entity.generation);
+    --entity.generation;
     membership_count = 3;
     check(!entity_view(reinterpret_cast<std::uintptr_t>(&entity), membership_layout, member));
+    check(entity_for_id(entity.id,membership_layout,by_id,by_id_slot)==EntityMembership::Unresolved);
     membership_count = 4;
+    {
+        // An occupied chain exceeding the bounded probe budget is unresolved,
+        // even though no matching ID was found. It must never imply deletion.
+        std::vector<std::uint64_t> long_bits(256,UINT64_MAX);
+        std::vector<std::uint32_t> long_keys(16384,99);
+        std::vector<std::uintptr_t> long_table(16384);
+        const auto saved_occupancy=occupied_pointer, saved_keys=keys_pointer, saved_table=membership_pointer;
+        occupied_pointer=reinterpret_cast<std::uintptr_t>(long_bits.data());
+        keys_pointer=reinterpret_cast<std::uintptr_t>(long_keys.data());
+        membership_pointer=reinterpret_cast<std::uintptr_t>(long_table.data());
+        membership_count=long_table.size();
+        check(entity_for_id(entity.id,membership_layout,by_id,by_id_slot)==EntityMembership::Unresolved);
+        occupied_pointer=saved_occupancy; keys_pointer=saved_keys; membership_pointer=saved_table;
+        membership_count=4;
+    }
     occupied = 1;
     // A stale source bucket can alias the pointer of a different active bucket.
     // Filter source occupancy before resolving pointers by their current ID.
@@ -736,6 +776,175 @@ int main() {
     EcsRuntime::Tick();
     check(KfcRuntimeWorldSessionId()!=fault_session && KfcRuntimeEcsCanWrite());
     check(nlohmann::json::parse(EcsRuntime::Diagnostics())["writeFault"]==false);
+
+    // Editor reads use the original owner binding even without a dispatcher.
+    // Client input deliberately belongs to a different manager and entity.
+    struct EditorLayout {
+        std::uint64_t bits{7};
+        std::uint16_t offsets[3]{}, strides[3]{4,64,56};
+    } editor_layout;
+    struct EditorTransform {
+        std::int64_t position[3]{1ll<<32,2ll<<32,3ll<<32};
+        float rotation[4]{0,0,0,1}, scale[3]{1,1,1};
+        std::uint32_t padding{};
+    };
+    struct EditorStorage { std::uint32_t item{42}; std::uint8_t input[64]{}; EditorTransform transform; } editor_storage, input_storage;
+    std::fill(std::begin(editor_storage.input), std::end(editor_storage.input), std::uint8_t{0x6b});
+    std::fill(std::begin(input_storage.input), std::end(input_storage.input), std::uint8_t{0x2a});
+    editor_layout.offsets[0] = offsetof(EditorStorage,item);
+    editor_layout.offsets[1] = offsetof(EditorStorage,input);
+    editor_layout.offsets[2] = offsetof(EditorStorage,transform);
+    entity.layout = reinterpret_cast<std::uintptr_t>(&editor_layout);
+    entity.storage = reinterpret_cast<std::uintptr_t>(&editor_storage);
+    Entity input_entity = entity;
+    input_entity.id = 23;
+    input_entity.storage = reinterpret_cast<std::uintptr_t>(&input_storage);
+    std::uintptr_t client_table[4]{reinterpret_cast<std::uintptr_t>(&input_entity)};
+    put(execution.manager,392,reinterpret_cast<std::uintptr_t>(client_table));
+    const char* editor_names[]{used_item_component_name,input_component_name,transform_component_name};
+    std::uint32_t editor_sizes[]{4,64,56};
+    unsigned char editor_registration[3 * 256]{};
+    std::uint16_t editor_storage_sizes[]{4,64,56};
+    std::uintptr_t editor_types[3]{};
+    std::uint64_t editor_callbacks[15]{};
+    for (std::size_t index = 0; index < 3; ++index) {
+        const auto descriptor_address = reinterpret_cast<std::uintptr_t>(editor_descriptors[index]);
+        const auto name_address = reinterpret_cast<std::uintptr_t>(editor_names[index]);
+        const auto name_size = std::strlen(editor_names[index]);
+        const auto name_hash = ComponentRegistry::hash_name(editor_names[index]);
+        put(editor_descriptors[index],0x20,name_address);
+        put(editor_descriptors[index],0x28,static_cast<std::uint64_t>(name_size));
+        put(editor_descriptors[index],0x40,editor_sizes[index]);
+        put(editor_descriptors[index],0x50,name_hash);
+        auto* record = editor_registration + index * 256;
+        put(record,16,name_address);
+        put(record,24,static_cast<std::uint64_t>(name_size + 1));
+        put(record,32,name_hash);
+        put(record,40,descriptor_address);
+        put(record,56,editor_sizes[index]);
+        editor_types[index] = descriptor_address;
+    }
+    for (auto* owner_registry : {execution.registry,authority_execution.registry}) {
+        put(owner_registry,8,reinterpret_cast<std::uintptr_t>(editor_registration));
+        put(owner_registry,16,std::uint64_t{3}); put(owner_registry,24,std::uint64_t{3});
+        put(owner_registry,232,reinterpret_cast<std::uintptr_t>(editor_storage_sizes)); put(owner_registry,240,std::uint64_t{3});
+        put(owner_registry,256,reinterpret_cast<std::uintptr_t>(editor_types)); put(owner_registry,264,std::uint64_t{3});
+        put(owner_registry,280,reinterpret_cast<std::uintptr_t>(editor_callbacks)); put(owner_registry,288,std::uint64_t{3});
+        put(owner_registry,400,std::uint64_t{0}); put(owner_registry,560,std::uint64_t{0});
+    }
+    profile["ecsReadLayout"]["componentBits"] = offsetof(EditorLayout,bits);
+    profile["ecsReadLayout"]["componentOffsets"] = offsetof(EditorLayout,offsets);
+    profile["ecsReadLayout"]["componentStrides"] = offsetof(EditorLayout,strides);
+    check(EngineContext::Configure(profile,error));
+    check(KfcRuntimeEcsConfigure(editor_names,editor_sizes,3));
+    EcsRuntime::Tick();
+    check(read_only_binding && !GameThreadDispatcher::Ready() && KfcRuntimeEcsPropQueryReady());
+    KfcRuntimePropRecipe recipe{42,{-.5f,-.5f,-.5f,.5f,.5f,.5f},7};
+    check(KfcRuntimeWorldEntityRegisterPropRecipes(&recipe,1));
+    double editor_bounds[]{0,0,0,10,10,10};
+    KfcRuntimePropRecord editor_prop{};
+    check(KfcRuntimeWorldEntityQueryPropsInBounds(editor_bounds,nullptr,0)==1);
+    check(KfcRuntimeWorldEntityQueryPropsInBounds(editor_bounds,&editor_prop,1)==1 && editor_prop.item_id==42);
+    KfcRuntimeCompatibility::EnshroudedClient::definition_uuid = 64; // Must use owner-profile UUID offset instead.
+    KfcRuntimePropRecord editor_observed{};
+    check(KfcRuntimeWorldEntityGetTransform(editor_prop.entity_handle,&editor_observed));
+    check(std::memcmp(editor_observed.template_uuid,template_uuid.data(),template_uuid.size())==0);
+    const auto status_session=KfcRuntimeWorldSessionId();
+    // Exercise the optional session status with the fixture's original ID
+    // hash chain. Keep unreadable data separate from a proven empty bucket.
+    occupied=9; keys[3]=99; keys[0]=entity.id;
+    live_layout.occupancy_address=reinterpret_cast<std::uintptr_t>(&occupied_pointer);
+    live_layout.keys_address=reinterpret_cast<std::uintptr_t>(&keys_pointer);
+    KfcRuntimePropRecord status_prop{};
+    check(KfcRuntimeWorldEntityReadTransformForSession(editor_prop.entity_handle,status_session,&status_prop)==1);
+    const auto status_before=status_prop;
+    check(KfcRuntimeWorldEntityReadTransformForSession(editor_prop.entity_handle,status_session+1,&status_prop)==4);
+    occupied=8;
+    check(KfcRuntimeWorldEntityReadTransformForSession(editor_prop.entity_handle,status_session,&status_prop)==6);
+    check(std::memcmp(&status_prop,&status_before,sizeof(status_prop))==0);
+    occupied=9;
+    const auto status_entity=table[0]; table[0]=1;
+    check(KfcRuntimeWorldEntityReadTransformForSession(editor_prop.entity_handle,status_session,&status_prop)==5);
+    check(std::memcmp(&status_prop,&status_before,sizeof(status_prop))==0);
+    table[0]=status_entity;
+    ++entity.generation;
+    check(KfcRuntimeWorldEntityReadTransformForSession(editor_prop.entity_handle,status_session,&status_prop)==6);
+    --entity.generation;
+    live_layout.occupancy_address=live_layout.keys_address=0;
+    const auto editor_before = editor_storage;
+    const double requested_scale[]{2,3,4};
+    const auto previous_tracker_calls = tracker_calls;
+    expected_tracker_index = 2;
+    check(KfcRuntimeWorldEntitySetScale(editor_prop.entity_handle,requested_scale));
+    check(tracker_calls==previous_tracker_calls+1 && tracker_contract && thread_registry_gate==0 && scene_owner.gate==0);
+    check(editor_storage.transform.scale[0]==2 && editor_storage.transform.scale[1]==3 && editor_storage.transform.scale[2]==4);
+    check(std::memcmp(editor_storage.transform.position,editor_before.transform.position,sizeof(editor_before.transform.position))==0 &&
+        std::memcmp(editor_storage.transform.rotation,editor_before.transform.rotation,sizeof(editor_before.transform.rotation))==0);
+    put(authority_execution.registry,400,std::uint64_t{1}<<2);
+    check(!KfcRuntimeWorldEntitySetScale(editor_prop.entity_handle,requested_scale) && tracker_calls==previous_tracker_calls+1);
+    put(authority_execution.registry,400,std::uint64_t{0});
+    const auto editor_session = KfcRuntimeWorldSessionId();
+    std::array<std::uint8_t,64> input_bytes{};
+    std::uint64_t input_sequence{};
+    std::uint32_t input_status{};
+    for (unsigned attempt=0; attempt<20; ++attempt) {
+        input_status=KfcRuntimeWorldCursorReadInput(input_bytes.size(),editor_session,input_bytes.data(),input_bytes.size(),&input_sequence);
+        if (input_status!=5) break;
+    }
+    check(input_status==1 && input_sequence>0 && std::all_of(input_bytes.begin(),input_bytes.end(),[](auto byte) { return byte==0x2a; }));
+    check(WorldRuntime::OperationAvailable("runtime.world.cursor.get"));
+    std::array<std::uint8_t,0xa0> legacy_cursor{};
+    check(!KfcRuntimeWorldCursorRead(legacy_cursor.data(),legacy_cursor.size(),&input_sequence));
+    const auto untouched_input=input_bytes;
+    const auto untouched_sequence=input_sequence;
+    check(KfcRuntimeWorldCursorReadInput(input_bytes.size(),editor_session+1,input_bytes.data(),input_bytes.size(),&input_sequence)==4);
+    check(input_bytes==untouched_input && input_sequence==untouched_sequence);
+    check(KfcRuntimeWorldCursorReadInput(input_bytes.size(),editor_session,input_bytes.data(),0,&input_sequence)==2);
+    check(KfcRuntimeWorldCursorReadInput(input_bytes.size()-1,editor_session,input_bytes.data(),input_bytes.size()-1,&input_sequence)==3);
+    table[0]=0;
+    check(!KfcRuntimeWorldEntityGetTransform(editor_prop.entity_handle,&editor_observed));
+    table[0]=reinterpret_cast<std::uintptr_t>(&entity);
+    ++entity.generation;
+    check(!KfcRuntimeWorldEntityGetTransform(editor_prop.entity_handle,&editor_observed));
+    Entity second_input = input_entity;
+    second_input.id = 24;
+    client_table[1]=reinterpret_cast<std::uintptr_t>(&second_input);
+    std::uintptr_t next_authority_table[4]{reinterpret_cast<std::uintptr_t>(&entity)};
+    put(authority_execution.manager,392,reinterpret_cast<std::uintptr_t>(next_authority_table));
+    EcsRuntime::Tick();
+    const auto ambiguous_session=KfcRuntimeWorldSessionId();
+    check(ambiguous_session && ambiguous_session!=editor_session);
+    check(KfcRuntimeWorldCursorReadInput(input_bytes.size(),ambiguous_session,input_bytes.data(),input_bytes.size(),&input_sequence)==6);
+    check(input_bytes==untouched_input && input_sequence==untouched_sequence);
+    // An unreadable occupied candidate cannot be treated as an absent type.
+    client_table[1]=1;
+    put(authority_execution.manager,392,table_pointer);
+    EcsRuntime::Tick();
+    const auto unreadable_session=KfcRuntimeWorldSessionId();
+    check(KfcRuntimeWorldCursorReadInput(input_bytes.size(),unreadable_session,input_bytes.data(),input_bytes.size(),&input_sequence)==5);
+    check(input_bytes==untouched_input && input_sequence==untouched_sequence);
+    client_table[1]=0;
+    check(KfcRuntimeWorldCursorReadInput(input_bytes.size(),unreadable_session,input_bytes.data(),input_bytes.size(),&input_sequence)==1);
+    client_table[0]=0;
+    const auto stale_input_sequence=input_sequence;
+    check(KfcRuntimeWorldCursorReadInput(input_bytes.size(),unreadable_session,input_bytes.data(),input_bytes.size(),&input_sequence)==5);
+    check(input_bytes==untouched_input && input_sequence==stale_input_sequence);
+    using WorldRuntime::Implementation::WriteRegion;
+    using WorldRuntime::Implementation::plan_write_region;
+    WriteRegion region;
+    std::int32_t partial_origin[]{7,-1,8}; std::uint32_t partial_size[]{2,1,1};
+    check(plan_write_region(partial_origin,partial_size,region));
+    check((region.origin==std::array<std::int32_t,3>{0,-8,8}));
+    check((region.dimensions==std::array<std::uint32_t,3>{16,8,8}));
+    check((region.offset==std::array<std::size_t,3>{7,7,0}) && region.count==1024);
+    std::int32_t full_origin[]{0,0,0}; std::uint32_t full_size[]{32,32,64};
+    check(plan_write_region(full_origin,full_size,region) && region.count==65536);
+    const auto unchanged_region=region;
+    full_origin[0]=1;
+    check(!plan_write_region(full_origin,full_size,region));
+    check(region.origin==unchanged_region.origin && region.count==unchanged_region.count);
+    full_origin[0]=INT32_MAX;
+    check(!plan_write_region(full_origin,full_size,region));
     EngineContext::Shutdown();
     std::printf("%u ECS checks passed, including private original-gate writes and CAS\n", checks);
 }

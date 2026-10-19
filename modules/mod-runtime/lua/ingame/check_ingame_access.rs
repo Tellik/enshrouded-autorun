@@ -65,13 +65,13 @@ pub(crate) fn available(state: &AppState, r#mod: &Mod, feature: &str) -> bool {
                 && runtime_provider::world_operation_available(feature)
                 && runtime_provider::world_context_active()
         }
-        "runtime.world.cursor.get" | "runtime.world.building.input" => {
+        "runtime.world.cursor.get" | "runtime.world.building.input" | "runtime.world.voxel.read" => {
             state.phase() == RuntimePhase::Ingame
                 && state.api().has_runtime(feature)
                 && has_capability(r#mod, Capability::Runtime)
                 && runtime_provider::world_operation_available(feature)
         }
-        "runtime.world.voxel.read" | "runtime.world.voxel.write" => {
+        "runtime.world.voxel.write" => {
             state.phase() == RuntimePhase::Ingame
                 && state.api().has_runtime(feature)
                 && has_capability(r#mod, Capability::Runtime)
@@ -84,12 +84,18 @@ pub(crate) fn available(state: &AppState, r#mod: &Mod, feature: &str) -> bool {
                 && has_capability(r#mod, Capability::Runtime)
                 && runtime_provider::world_operation_available("runtime.world.voxel.read")
         }
+        "runtime.world.entity.set_scale" => {
+            state.phase() == RuntimePhase::Ingame
+                && state.api().has_runtime(feature)
+                && has_capability(r#mod, Capability::Runtime)
+                && runtime_provider::world_entity_query_props_ready()
+                && runtime_provider::can_write_component("keen::ecs::CurrentTransform")
+        }
         "runtime.world.entity.spawn"
         | "runtime.world.entity.query_props"
         | "runtime.world.entity.query_props_in_bounds"
         | "runtime.world.entity.register_prop_recipes"
         | "runtime.world.entity.get_transform"
-        | "runtime.world.entity.set_scale"
         | "runtime.world.entity.place"
         | "runtime.world.entity.destroy"
         | "runtime.world.entity.finish_building" => {
@@ -100,7 +106,6 @@ pub(crate) fn available(state: &AppState, r#mod: &Mod, feature: &str) -> bool {
                     || feature == "runtime.world.entity.query_props_in_bounds"
                     || feature == "runtime.world.entity.register_prop_recipes"
                     || feature == "runtime.world.entity.get_transform"
-                    || feature == "runtime.world.entity.set_scale"
                 {
                     runtime_provider::world_entity_query_props_ready()
                 } else {
@@ -214,15 +219,18 @@ pub(super) fn operation_status(
         );
     }
     let world_ready =
-        if feature == "runtime.world.cursor.get" || feature == "runtime.world.building.input" {
+        if feature == "runtime.world.cursor.get" || feature == "runtime.world.building.input"
+            || feature == "runtime.world.voxel.read" {
             runtime_provider::world_operation_available(&feature)
         } else if feature == "runtime.world.voxel.grid_spec" {
             runtime_provider::world_operation_available("runtime.world.voxel.read")
+        } else if feature == "runtime.world.entity.set_scale" {
+            runtime_provider::world_entity_query_props_ready()
+                && runtime_provider::can_write_component("keen::ecs::CurrentTransform")
         } else if feature == "runtime.world.entity.query_props"
             || feature == "runtime.world.entity.query_props_in_bounds"
             || feature == "runtime.world.entity.register_prop_recipes"
             || feature == "runtime.world.entity.get_transform"
-            || feature == "runtime.world.entity.set_scale"
         {
             runtime_provider::world_entity_query_props_ready()
         } else if feature.starts_with("runtime.world.entity.") {

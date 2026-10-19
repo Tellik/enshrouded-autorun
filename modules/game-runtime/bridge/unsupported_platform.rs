@@ -1,5 +1,9 @@
 pub use crate::runtime_records::{Component, GridSpecResult, PropRecipe, PropRecord};
 
+pub fn impact_compare_entity_ids(_: u64, _: u32, _: u32) -> Result<bool, String> {
+    Err("original registered Impact operations are available on Windows only".into())
+}
+
 pub fn service_read(_: &str, _: u32, _: u32, _: u64) -> Result<Vec<u8>, String> {
     Err("live engine service access is available on Windows only".into())
 }
@@ -88,8 +92,11 @@ pub fn world_entity_context_ready() -> bool {
 pub fn world_cursor_read() -> Option<(Vec<u8>, u64)> {
     None
 }
-pub fn world_voxel_read(_: [i32; 3], _: [u32; 3], _: usize) -> Option<Vec<u16>> {
-    None
+pub fn world_cursor_read_input(_: usize) -> Result<(Vec<u8>, u64), String> {
+    Err("native local cursor access is available on Windows only".into())
+}
+pub fn world_voxel_read(_: [i32; 3], _: [u32; 3], _: usize) -> Result<Vec<u16>, String> {
+    Err("native voxel access is available on Windows only".into())
 }
 pub fn world_voxel_write(_: [i32; 3], _: [u32; 3], _: &[u16]) -> Result<(), String> {
     Err("native world runtime is available on Windows only".into())
@@ -125,14 +132,17 @@ pub fn world_entity_query_props_in_bounds(_: [f64; 6]) -> Result<Vec<PropRecord>
 pub fn world_entity_get_transform(_: u32) -> Option<PropRecord> {
     None
 }
+pub fn world_entity_read_transform(_: u32) -> Result<Option<PropRecord>, String> {
+    Err("native prop inspection is available on Windows only".into())
+}
 pub fn world_entity_identity(_: u32) -> Option<u32> {
     None
 }
 pub fn world_entity_set_scale(_: u32, _: [f64; 3]) -> Result<(), String> {
     Err("native world runtime is available on Windows only".into())
 }
-pub fn world_grid_get_spec(_: &str) -> Option<GridSpecResult> {
-    None
+pub fn world_grid_get_spec(_: &str) -> Result<GridSpecResult, String> {
+    Err("native voxel grid access is available on Windows only".into())
 }
 pub fn world_entity_destroy_handle(_: u32) -> Result<(), String> {
     Err("native world runtime is available on Windows only".into())

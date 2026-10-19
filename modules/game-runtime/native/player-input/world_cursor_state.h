@@ -15,4 +15,6 @@ struct CursorMailbox {
 extern CursorMailbox cursor_mailbox;
 
 bool copy_cursor_safely(const void* source, std::uint8_t* output);
+
+bool LocalCursorInputAvailable();
 }

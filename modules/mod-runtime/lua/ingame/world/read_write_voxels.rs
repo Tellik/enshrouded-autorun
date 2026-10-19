@@ -16,7 +16,7 @@ pub(super) fn lua_world_grid_get_spec(
     }
     let id = args.get::<String>(0)?;
     match runtime_provider::world_grid_get_spec(&id) {
-        Some(spec) => {
+        Ok(spec) => {
             let result = lua.create_table()?;
             result.raw_set("id", spec.id)?;
             for (field, values) in [("origin", spec.origin), ("cellSize", spec.cell_size)] {
@@ -35,10 +35,7 @@ pub(super) fn lua_world_grid_get_spec(
             result.raw_set("maximum", maximum)?;
             Ok((LuaValue::Table(result), None))
         }
-        None => Ok((
-            LuaValue::Nil,
-            Some("Grid is unavailable. This backend currently exposes 'voxel'".into()),
-        )),
+        Err(reason) => Ok((LuaValue::Nil, Some(reason))),
     }
 }
 
@@ -75,11 +72,9 @@ pub(super) fn lua_world_voxel_read(
             Some("voxel read must contain between 1 and 65,536 cells".into()),
         ));
     };
-    let Some(values) = runtime_provider::world_voxel_read(origin, dimensions, count) else {
-        return Ok((
-            LuaValue::Nil,
-            Some("voxel read failed, timed out, or active world context is unavailable".into()),
-        ));
+    let values = match runtime_provider::world_voxel_read(origin, dimensions, count) {
+        Ok(values) => values,
+        Err(reason) => return Ok((LuaValue::Nil, Some(reason))),
     };
     let result = lua.create_table_with_capacity(values.len(), 0)?;
     for (index, value) in values.into_iter().enumerate() {

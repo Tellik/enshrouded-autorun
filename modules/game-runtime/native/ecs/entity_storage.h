@@ -127,6 +127,18 @@ bool layout_snapshot(ResolvedLayout& result);
 
 bool entity_pointers(const ResolvedLayout& layout, std::vector<EntityPointer>& pointers);
 
+enum class EntityMembership { Unresolved, Present, Absent };
+
+// Bounded original ID lookup. Outputs are published only for two stable live
+// identity/header observations and unchanged manager arrays. Probe exhaustion
+// and unreadable occupied buckets are Unresolved, never Absent.
+EntityMembership entity_for_id(std::uint32_t id, const ResolvedLayout& layout,
+                               EntityView& entity, std::size_t& table_index);
+
+// Absent is published only by two matching original hash-table lookups. A
+// missing layout, unreadable bucket or moving allocation is Unresolved.
+EntityMembership entity_membership(const EntityView& entity, const ResolvedLayout& layout);
+
 bool entity_registered(const EntityView& entity, const ResolvedLayout& layout);
 
 bool entity_view(std::uintptr_t pointer, const ResolvedLayout& layout, EntityView& entity);
@@ -149,6 +161,15 @@ std::uint32_t handle_for(const EntityView& entity, std::size_t table_index = SIZ
 bool SnapshotEntityIds(std::vector<std::uint32_t>& ids);
 
 bool ResolvePropEntityId(std::uint32_t entity_id, KfcRuntimePropRecord* prop);
+
+// Shared, stable component snapshot for world-editor queries and handle reads.
+// Template UUIDs use the current owner layout on the original-owner path.
+bool read_prop_payload(const EntityView& entity, const ResolvedLayout& layout,
+                       const ComponentType& transform_component, const ComponentType& item_component,
+                       KfcRuntimePropRecord& prop, bool include_template_uuid);
+
+bool read_prop_template_uuid(const EntityView& entity, const ResolvedLayout& layout,
+                             KfcRuntimePropRecord& prop);
 
 bool entity_for_handle(std::uint32_t handle, const ResolvedLayout& layout, EntityView& entity);
 

@@ -51,6 +51,7 @@ pub(super) type ResourceResolveItem =
 pub(super) type EntityTemplateUuid = unsafe extern "C" fn(u32, *mut u8) -> bool;
 pub(super) type ServiceRead =
     unsafe extern "C" fn(*const c_char, u32, u32, u64, *mut u8, usize) -> bool;
+pub(super) type ImpactCompareEntityIds = unsafe extern "C" fn(u64, u32, u32, *mut u8) -> u32;
 pub(super) type ServiceCompareExchange = unsafe extern "C" fn(
     *const c_char,
     u32,
@@ -105,6 +106,8 @@ pub(super) type WorldEntityQueryPropsInBounds =
 pub(super) type WorldEntityRegisterPropRecipes =
     unsafe extern "C" fn(*const PropRecipe, usize) -> bool;
 pub(super) type WorldEntityGetTransform = unsafe extern "C" fn(u32, *mut PropRecord) -> bool;
+pub(super) type WorldEntityReadTransformForSession =
+    unsafe extern "C" fn(u32, u64, *mut PropRecord) -> u32;
 pub(super) type WorldEntityIdentity = unsafe extern "C" fn(u32, *mut u32) -> bool;
 pub(super) type WorldEntitySetScale = unsafe extern "C" fn(u32, *const f64) -> bool;
 #[repr(C)]
@@ -115,10 +118,13 @@ pub struct GridSpec {
     pub(super) cell_size: [f64; 3],
     pub(super) maximum: [u64; 3],
 }
-pub(super) type WorldGridGetSpec = unsafe extern "C" fn(*const c_char, *mut GridSpec) -> bool;
+pub(super) type WorldGridGetSpecForSession =
+    unsafe extern "C" fn(u64, *const c_char, *mut GridSpec) -> u32;
 pub(super) type WorldCursorRead = unsafe extern "C" fn(*mut u8, usize, *mut u64) -> bool;
-pub(super) type WorldVoxelRead =
-    unsafe extern "C" fn(*const i32, *const u32, *mut u16, usize, *mut usize) -> bool;
+pub(super) type WorldCursorReadInput =
+    unsafe extern "C" fn(usize, u64, *mut u8, usize, *mut u64) -> u32;
+pub(super) type WorldVoxelReadForSession =
+    unsafe extern "C" fn(u64, *const i32, *const u32, *mut u16, usize, *mut usize) -> u32;
 pub(super) type WorldVoxelWrite =
     unsafe extern "C" fn(*const i32, *const u32, *const u16, usize, *mut u32) -> bool;
 pub(super) type WorldEntitySpawn =
@@ -142,6 +148,7 @@ pub(super) struct Provider {
     pub(super) functions: Option<Registry>,
     pub(super) function_code: Option<FunctionCode>,
     pub(super) service_read: Option<ServiceRead>,
+    pub(super) impact_compare_entity_ids: Option<ImpactCompareEntityIds>,
     pub(super) service_compare_exchange: Option<ServiceCompareExchange>,
     pub(super) resources_by_type: Option<ResourcesByType>,
     pub(super) resource_read: Option<ResourceRead>,
@@ -168,12 +175,14 @@ pub(super) struct Provider {
     pub(super) world_entity_query_props_in_bounds: WorldEntityQueryPropsInBounds,
     pub(super) world_entity_register_prop_recipes: WorldEntityRegisterPropRecipes,
     pub(super) world_entity_get_transform: WorldEntityGetTransform,
+    pub(super) world_entity_read_transform_for_session: Option<WorldEntityReadTransformForSession>,
     pub(super) world_entity_identity: WorldEntityIdentity,
     pub(super) world_entity_set_scale: WorldEntitySetScale,
     pub(super) world_cursor_read: Option<WorldCursorRead>,
-    pub(super) world_voxel_read: WorldVoxelRead,
+    pub(super) world_cursor_read_input: Option<WorldCursorReadInput>,
+    pub(super) world_voxel_read_for_session: Option<WorldVoxelReadForSession>,
     pub(super) world_voxel_write: WorldVoxelWrite,
-    pub(super) world_grid_get_spec: WorldGridGetSpec,
+    pub(super) world_grid_get_spec_for_session: Option<WorldGridGetSpecForSession>,
     pub(super) world_entity_spawn: WorldEntitySpawn,
     pub(super) world_entity_place: WorldEntityPlacement,
     pub(super) world_entity_destroy: WorldEntityPlacement,

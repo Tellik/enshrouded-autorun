@@ -63,6 +63,10 @@ pub(in crate::windows) fn provider() -> Option<&'static Provider> {
                         functions: optional_symbol!("KfcRuntimeFunctions", Registry),
                         function_code: optional_symbol!("KfcRuntimeFunctionCode", FunctionCode),
                         service_read: optional_symbol!("KfcRuntimeServiceRead", ServiceRead),
+                        impact_compare_entity_ids: optional_symbol!(
+                            "KfcRuntimeImpactCompareEntityIds",
+                            ImpactCompareEntityIds
+                        ),
                         service_compare_exchange: optional_symbol!(
                             "KfcRuntimeServiceCompareExchange",
                             ServiceCompareExchange
@@ -136,6 +140,10 @@ pub(in crate::windows) fn provider() -> Option<&'static Provider> {
                             "KfcRuntimeWorldEntityGetTransform",
                             WorldEntityGetTransform
                         ),
+                        world_entity_read_transform_for_session: optional_symbol!(
+                            "KfcRuntimeWorldEntityReadTransformForSession",
+                            WorldEntityReadTransformForSession
+                        ),
                         world_entity_identity: symbol!(
                             "KfcRuntimeEcsEntityIdentity",
                             WorldEntityIdentity
@@ -148,11 +156,18 @@ pub(in crate::windows) fn provider() -> Option<&'static Provider> {
                             "KfcRuntimeWorldCursorRead",
                             WorldCursorRead
                         ),
-                        world_voxel_read: symbol!("KfcRuntimeWorldVoxelRead", WorldVoxelRead),
+                        world_cursor_read_input: optional_symbol!(
+                            "KfcRuntimeWorldCursorReadInput",
+                            WorldCursorReadInput
+                        ),
+                        world_voxel_read_for_session: optional_symbol!(
+                            "KfcRuntimeWorldVoxelReadForSession",
+                            WorldVoxelReadForSession
+                        ),
                         world_voxel_write: symbol!("KfcRuntimeWorldVoxelWrite", WorldVoxelWrite),
-                        world_grid_get_spec: symbol!(
-                            "KfcRuntimeWorldGridGetSpec",
-                            WorldGridGetSpec
+                        world_grid_get_spec_for_session: optional_symbol!(
+                            "KfcRuntimeWorldGridGetSpecForSession",
+                            WorldGridGetSpecForSession
                         ),
                         world_entity_spawn: symbol!("KfcRuntimeWorldEntitySpawn", WorldEntitySpawn),
                         world_entity_place: symbol!(

@@ -15,11 +15,10 @@ pub(super) fn lua_world_entity_get_transform(
         ));
     }
     let handle = args.get::<u32>(0)?;
-    let Some(prop) = runtime_provider::world_entity_get_transform(handle) else {
-        return Ok((
-            LuaValue::Nil,
-            Some("entity handle is stale or not a live prop".into()),
-        ));
+    let prop = match runtime_provider::world_entity_read_transform(handle) {
+        Ok(Some(prop)) => prop,
+        Ok(None) => return Ok((LuaValue::Nil, Some("entity-absent".into()))),
+        Err(reason) => return Ok((LuaValue::Nil, Some(reason))),
     };
     let item = super::prop_to_lua(lua, &prop)?;
     Ok((LuaValue::Table(item), None))
@@ -37,6 +36,15 @@ pub(super) fn lua_world_entity_set_scale(
     if args.len() != 2 {
         return Err(LuaError::generic(
             "runtime.world.entity.set_scale expects an entity handle and scale[3]",
+        ));
+    }
+    if let Some(reason) = state.runtime_write_fault() {
+        return Ok((false, Some(reason)));
+    }
+    if !runtime_provider::can_write_component("keen::ecs::CurrentTransform") {
+        return Ok((
+            false,
+            Some("CurrentTransform has no supported native component write phase".into()),
         ));
     }
     let handle = args.get::<u32>(0)?;

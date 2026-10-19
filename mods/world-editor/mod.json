@@ -1,0 +1,17 @@
+{
+  "$schema": "../../modules/modloader/manifest/manifest.schema.json",
+  "id": "world-editor",
+  "name": "World Editor",
+  "version": "0.3.0",
+  "description": "Copy, rotate, save, and paste parts of the world.",
+  "authors": [
+    "bonsaibauer"
+  ],
+  "license": null,
+  "icon": "icon.svg",
+  "dependencies": [],
+  "capabilities": [
+    "runtime",
+    "export"
+  ]
+}

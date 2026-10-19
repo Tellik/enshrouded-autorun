@@ -15,14 +15,20 @@
 #include "ecs/registry/refresh_component_registry.cpp"
 #include "ecs/registry/sample_component_layouts.cpp"
 #include "ecs/describe_ecs_runtime.cpp"
+#include "named-services/named_service_contract.h"
+#include "voxels/read_registered_voxel_grid.h"
+#include "engine-context/engine_context_state.h"
 #include <cstdio>
 #include <cstdlib>
+#include <source_location>
 
 namespace {
 unsigned checks{};
-void check(bool ok) {
+void check(bool ok, std::source_location location = std::source_location::current()) {
     ++checks;
-    if (!ok) { std::fprintf(stderr, "service check %u failed\n", checks); std::exit(1); }
+    if (std::getenv("SHROUDFORGE_NATIVE_TEST_TRACE"))
+        std::fprintf(stderr,"service check %u at line %u: %s\n",checks,location.line(),ok ? "passed" : "failed");
+    if (!ok) { std::fprintf(stderr, "service check %u failed at line %u\n", checks, location.line()); std::exit(1); }
 }
 template<class T> void put(void* target, std::size_t offset, const T& value) {
     std::memcpy(static_cast<unsigned char*>(target) + offset, &value, sizeof(value));
@@ -73,9 +79,106 @@ void fixture_mutable_system() {}
 void fixture_unused_tracker() {}
 constexpr std::uint32_t type_hash = 0x11223344;
 constexpr std::size_t record_stride = 0xe8, system_stride = 0x450, systems_offset = 0x300;
+unsigned comparison_calls{}, comparison_mode{};
+bool comparison_gates_free{};
+Scene* comparison_scene{};
+unsigned voxel_origin_calls{}, voxel_ready_calls{}, voxel_cell_calls{}, voxel_mode{};
+unsigned char* voxel_fixture_world{};
+unsigned char* voxel_fixture_grid{};
+std::uint32_t* voxel_fixture_handles{};
+
+void check_voxel_gates() {
+    LONG world_lock{};
+    std::memcpy(&world_lock,voxel_fixture_world+0x174,sizeof(world_lock));
+    check(comparison_scene && comparison_scene->gate==static_cast<LONG>(0x80000000u) &&
+        thread_gate==1 && world_lock==0);
+}
+void* __fastcall fixture_voxel_origin(void* result, const void* wrapper) {
+    ++voxel_origin_calls;
+    check_voxel_gates();
+    std::uintptr_t world{};
+    std::memcpy(&world,static_cast<const unsigned char*>(wrapper)+8,sizeof(world));
+    check(world==reinterpret_cast<std::uintptr_t>(voxel_fixture_world));
+    std::memcpy(result,voxel_fixture_world+0x30,16);
+    return voxel_mode==6 ? nullptr : result;
+}
+bool __fastcall fixture_voxel_ready(const void*, const void* position) {
+    ++voxel_ready_calls;
+    check_voxel_gates();
+    std::array<float,4> point{};
+    std::memcpy(point.data(),position,sizeof(point));
+    check((point[0]==10.25f || point[0]==14.25f) && point[1]==20 &&
+        (point[2]==30.25f || point[2]==34.25f));
+    if (voxel_mode==4) voxel_fixture_handles[0]=0;
+    return voxel_mode!=1;
+}
+bool __fastcall fixture_voxel_cells(void* request, const void*) {
+    ++voxel_cell_calls;
+    check_voxel_gates();
+    std::uint16_t* cells{};
+    std::uint64_t count{};
+    std::uint32_t mode{};
+    std::memcpy(&cells,request,sizeof(cells));
+    std::memcpy(&count,static_cast<unsigned char*>(request)+8,sizeof(count));
+    std::memcpy(&mode,static_cast<unsigned char*>(request)+28,sizeof(mode));
+    check(mode==6 && count==8);
+    for (std::size_t i=0;i<count;++i) cells[i]=static_cast<std::uint16_t>(0x3412+i);
+    if (voxel_mode==5) put(voxel_fixture_grid,48,std::uintptr_t{});
+    return voxel_mode!=2;
 }
 
-int main() {
+void* __fastcall fixture_is_same_entity(void* result, const void* argument_view, const void* vm_context) {
+    ++comparison_calls;
+    {
+        std::unique_lock state(state_mutex,std::try_to_lock);
+        std::unique_lock services(NamedServiceImplementation::operation_mutex,std::try_to_lock);
+        std::unique_lock owners(EngineContextImplementation::context_mutex,std::try_to_lock);
+        comparison_gates_free = state.owns_lock() && services.owns_lock() && owners.owns_lock() &&
+            thread_gate==0 && comparison_scene && comparison_scene->gate==0;
+    }
+    check(comparison_gates_free);
+    if (comparison_mode==1) RaiseException(0xe0000042,0,0,nullptr);
+    std::uintptr_t indices{}, variables{}, data{}, execution_context{};
+    std::uint64_t argument_count{}, variable_count{}, data_extent{};
+    std::array<std::uintptr_t,2> reserved{};
+    std::memcpy(&indices,argument_view,sizeof(indices));
+    std::memcpy(&argument_count,static_cast<const unsigned char*>(argument_view)+8,sizeof(argument_count));
+    std::memcpy(&variables,vm_context,sizeof(variables));
+    std::memcpy(&variable_count,static_cast<const unsigned char*>(vm_context)+8,sizeof(variable_count));
+    std::memcpy(&data,static_cast<const unsigned char*>(vm_context)+16,sizeof(data));
+    std::memcpy(&data_extent,static_cast<const unsigned char*>(vm_context)+24,sizeof(data_extent));
+    std::memcpy(reserved.data(),static_cast<const unsigned char*>(vm_context)+32,sizeof(reserved));
+    std::memcpy(&execution_context,static_cast<const unsigned char*>(vm_context)+48,sizeof(execution_context));
+    check(variable_count==3 && data_extent==8 && reserved==std::array<std::uintptr_t,2>{} && !execution_context);
+    std::uint32_t index_a{}, index_b{}, left{}, right{};
+    std::memcpy(&index_a,reinterpret_cast<const void*>(indices),4);
+    std::memcpy(&index_b,reinterpret_cast<const void*>(indices+4),4);
+    check(argument_count==2 && index_a==1 && index_b==2);
+    std::uint16_t offset_a{}, offset_b{}, size_a{}, size_b{};
+    std::memcpy(&size_a,reinterpret_cast<const void*>(variables+24+12),2);
+    std::memcpy(&size_b,reinterpret_cast<const void*>(variables+48+12),2);
+    std::memcpy(&offset_a,reinterpret_cast<const void*>(variables+24+14),2);
+    std::memcpy(&offset_b,reinterpret_cast<const void*>(variables+48+14),2);
+    check(size_a==4 && size_b==4 && offset_a==0 && offset_b==4);
+    std::memcpy(&left,reinterpret_cast<const void*>(data+offset_a),4);
+    std::memcpy(&right,reinterpret_cast<const void*>(data+offset_b),4);
+    put(result,0,std::uint8_t{0}); put(result,4,std::uint32_t{0});
+    put(result,8,static_cast<std::uint8_t>(left==right));
+    if (comparison_mode==2) return nullptr;
+    if (comparison_mode==3) put(result,0,std::uint8_t{1});
+    if (comparison_mode==4) put(result,4,std::uint32_t{1});
+    if (comparison_mode==5) put(result,8,std::uint8_t{2});
+    if (comparison_mode==6) put(result,12,std::uint8_t{0});
+    if (comparison_mode==7) put(reinterpret_cast<void*>(data),0,left^1);
+    if (comparison_mode==8) ++layout_epoch;
+    if (comparison_mode==9) put(const_cast<void*>(vm_context),8,std::uint64_t{4});
+    if (comparison_mode==10) put(const_cast<void*>(vm_context),32,std::uintptr_t{1});
+    if (comparison_mode==11) put(const_cast<void*>(vm_context),48,std::uintptr_t{1});
+    return result;
+}
+}
+
+int main(int argc, char** argv) {
     const auto base = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
     const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
     const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
@@ -252,6 +355,371 @@ int main() {
     check(KfcRuntimeServiceCompareExchange(service_name,type_hash,sizeof(snapshot),session,
         reinterpret_cast<void*>(1),mask.data(),&desired)==0);
     check(load() && *payload==baseline); unchanged();
+
+    // Internal DI lookup admits an original opaque service name without a
+    // reflected plain-data contract. The public snapshot/CAS admission remains
+    // separate and must not expose or mutate this borrowed object.
+    const char opaque_name[]{"impact::ImpactSystem"};
+    const char opaque_collision_name[]{"impact::ImpactSysteM"};
+    const auto saved_records = std::to_array(records);
+    std::array<unsigned char,80> opaque_a{}, opaque_b{};
+    const auto opaque_hash = NamedServiceImplementation::hash_name(opaque_name);
+    const auto opaque_slot = opaque_hash & 3;
+    put(records,0,reinterpret_cast<std::uintptr_t>(opaque_name));
+    put(records,8,std::uint64_t{sizeof(opaque_name)-1}); put(records,0xa0,opaque_hash);
+    put(records,0xa8,reinterpret_cast<std::uintptr_t>(opaque_a.data()));
+    put(records,0xb0,reinterpret_cast<std::uintptr_t>(opaque_a.data()));
+    std::fill(std::begin(keys),std::end(keys),0);
+    keys[opaque_slot] = opaque_hash;
+    occupancy = std::uint64_t{1} << opaque_slot;
+    auto internal_profile = profile;
+    internal_profile["serviceLayout"].erase("contracts");
+    check(EngineContext::Configure(internal_profile,error));
+    const auto opaque = NamedServiceImplementation::binding_contract(opaque_name);
+    auto resolve_opaque = [&](std::uintptr_t& output) {
+        std::scoped_lock operation(NamedServiceImplementation::operation_mutex);
+        EcsRuntime::SessionGuard held_session;
+        if (!held_session.TryAcquire(session)) return false;
+        EngineContext::EcsWriteGuard held_scene;
+        return held_scene.TryAcquire(held_session.View()) && held_scene.Validate() &&
+            NamedServiceImplementation::resolve_binding(opaque,held_session.View(),output) && held_scene.Validate();
+    };
+    std::uintptr_t borrowed{};
+    check(resolve_opaque(borrowed) && borrowed==reinterpret_cast<std::uintptr_t>(opaque_a.data())); unchanged();
+    const auto public_snapshot = snapshot;
+    check(!KfcRuntimeServiceRead(opaque_name,0,sizeof(snapshot),session,
+        reinterpret_cast<unsigned char*>(&snapshot),sizeof(snapshot)) && snapshot==public_snapshot);
+    check(KfcRuntimeServiceCompareExchange(opaque_name,0,sizeof(snapshot),session,
+        &baseline,mask.data(),&desired)==0 && opaque_a==std::array<unsigned char,80>{}); unchanged();
+    auto rejected_opaque = [&] {
+        borrowed = UINTPTR_MAX;
+        const auto rejected = !resolve_opaque(borrowed);
+        check(rejected && borrowed==UINTPTR_MAX);
+        unchanged();
+    };
+    // A matching map hash never substitutes for the complete original name.
+    put(records,0,reinterpret_cast<std::uintptr_t>(opaque_collision_name)); rejected_opaque();
+    put(records,0,reinterpret_cast<std::uintptr_t>(opaque_name));
+    keys[opaque_slot]^=1; rejected_opaque(); keys[opaque_slot]^=1;
+    occupancy = 0; rejected_opaque(); occupancy = std::uint64_t{1} << opaque_slot;
+    values[opaque_slot] = 1; rejected_opaque(); values[opaque_slot] = 0;
+    std::memcpy(records+record_stride,records,record_stride);
+    put(execution.registry,648,std::uint64_t{2}); rejected_opaque(); put(execution.registry,648,std::uint64_t{1});
+    put(records,0xb0,reinterpret_cast<std::uintptr_t>(opaque_b.data())); rejected_opaque();
+    put(records,0xb0,reinterpret_cast<std::uintptr_t>(opaque_a.data()));
+
+    // Resolve records and payloads afresh after relocation. A prepared contract
+    // retains layout/name identity only, never a cached game pointer.
+    auto relocated_records = std::to_array(records);
+    put(execution.registry,640,reinterpret_cast<std::uintptr_t>(relocated_records.data()));
+    put(records,0xa8,std::uintptr_t{1}); put(records,0xb0,std::uintptr_t{1});
+    check(resolve_opaque(borrowed) && borrowed==reinterpret_cast<std::uintptr_t>(opaque_a.data())); unchanged();
+    put(relocated_records.data(),0xa8,reinterpret_cast<std::uintptr_t>(opaque_b.data()));
+    put(relocated_records.data(),0xb0,reinterpret_cast<std::uintptr_t>(opaque_b.data()));
+    check(resolve_opaque(borrowed) && borrowed==reinterpret_cast<std::uintptr_t>(opaque_b.data())); unchanged();
+    put(execution.registry,640,UINTPTR_MAX-16); rejected_opaque();
+    put(execution.registry,640,reinterpret_cast<std::uintptr_t>(relocated_records.data()));
+    put(execution.registry,672,UINTPTR_MAX-2); rejected_opaque();
+    put(execution.registry,672,reinterpret_cast<std::uintptr_t>(keys));
+    std::memcpy(records,saved_records.data(),sizeof(records));
+    put(execution.registry,640,reinterpret_cast<std::uintptr_t>(records));
+    std::fill(std::begin(keys),std::end(keys),0);
+    keys[slot] = name_hash; occupancy = std::uint64_t{1} << slot;
+    check(EngineContext::Configure(profile,error) && load() && snapshot==baseline); unchanged();
+
+    // A real registered callback pointer is selected by its complete operation
+    // name. Its fixture verifies the native-owned ABI and every gate released.
+    std::array<unsigned char,0x78> impact_system{};
+    std::uint64_t operation_bits{1};
+    std::uint32_t operation_keys[4]{};
+    std::array<unsigned char,4*80> operation_records{};
+    auto* operation_record = operation_records.data();
+    const char operation_name[]{"isSameEntity"};
+    auto set_operation = [&](unsigned char* record) {
+        std::fill(record,record+80,0);
+        put(record,0,reinterpret_cast<std::uintptr_t>(fixture_is_same_entity));
+        put(record,8,reinterpret_cast<std::uintptr_t>(record+40));
+        put(record,16,std::uint64_t{sizeof(operation_name)-1}); put(record,24,std::uint64_t{32});
+        std::memcpy(record+40,operation_name,sizeof(operation_name)); put(record,72,std::uint8_t{2});
+        std::fill(record+73,record+80,0x6a); // only the original byte at72 is arity
+    };
+    set_operation(operation_record);
+    put(impact_system.data(),0x28,reinterpret_cast<std::uintptr_t>(&operation_bits));
+    put(impact_system.data(),0x30,std::uint64_t{4});
+    put(impact_system.data(),0x48,reinterpret_cast<std::uintptr_t>(operation_keys));
+    put(impact_system.data(),0x60,reinterpret_cast<std::uintptr_t>(operation_records.data()));
+    put(impact_system.data(),0x74,std::uint32_t{1});
+    put(records,0,reinterpret_cast<std::uintptr_t>(opaque_name));
+    put(records,8,std::uint64_t{sizeof(opaque_name)-1}); put(records,0xa0,opaque_hash);
+    put(records,0xa8,reinterpret_cast<std::uintptr_t>(impact_system.data()));
+    put(records,0xb0,reinterpret_cast<std::uintptr_t>(impact_system.data()));
+    std::fill(std::begin(keys),std::end(keys),0);
+    keys[opaque_slot] = opaque_hash; occupancy = std::uint64_t{1} << opaque_slot;
+    comparison_scene = &scene;
+    std::uint8_t equal = 0x77;
+    auto compare = [&](std::uint32_t left, std::uint32_t right) {
+        return KfcRuntimeImpactCompareEntityIds(session,left,right,&equal);
+    };
+    check(compare(0x12345678,0x12345678)==1 && equal==1 && comparison_calls==1); unchanged();
+    check(compare(0x12345678,0x87654321)==1 && equal==0 && comparison_calls==2); unchanged();
+    check(compare(0,0)==1 && equal==1); check(compare(0,UINT32_MAX)==1 && equal==0);
+    check(compare(UINT32_MAX,UINT32_MAX)==1 && equal==1);
+    const auto calls_before_rejection = comparison_calls;
+    check(KfcRuntimeImpactCompareEntityIds(0,1,1,&equal)==2);
+    check(KfcRuntimeImpactCompareEntityIds(session,1,1,nullptr)==2);
+    check(KfcRuntimeImpactCompareEntityIds(session,1,1,reinterpret_cast<std::uint8_t*>(1))==2);
+    check(KfcRuntimeImpactCompareEntityIds(session-1,1,1,&equal)==4 && comparison_calls==calls_before_rejection);
+    auto reject_comparison = [&](std::uint32_t expected_status) {
+        equal = 0x77;
+        const auto calls = comparison_calls;
+        check(compare(1,1)==expected_status && equal==0x77 && comparison_calls==calls);
+        unchanged();
+    };
+    put(records,0,reinterpret_cast<std::uintptr_t>(opaque_collision_name)); reject_comparison(3);
+    put(records,0,reinterpret_cast<std::uintptr_t>(opaque_name));
+    operation_record[40]='I'; reject_comparison(3); operation_record[40]='i';
+    put(operation_record,72,std::uint8_t{3}); reject_comparison(5); put(operation_record,72,std::uint8_t{2});
+    put(operation_record,0,std::uintptr_t{1}); reject_comparison(5);
+    put(operation_record,0,reinterpret_cast<std::uintptr_t>(fixture_is_same_entity));
+    put(operation_record,8,std::uintptr_t{1}); reject_comparison(5);
+    put(operation_record,8,reinterpret_cast<std::uintptr_t>(operation_record+40));
+    operation_keys[0]=1; reject_comparison(5); operation_keys[0]=0;
+    set_operation(operation_records.data()+80); operation_bits=3;
+    operation_keys[1]=1; put(impact_system.data(),0x74,std::uint32_t{2}); reject_comparison(5);
+    operation_bits=1; put(impact_system.data(),0x74,std::uint32_t{1});
+    put(impact_system.data(),0x30,std::uint64_t{3}); reject_comparison(5);
+    put(impact_system.data(),0x30,std::uint64_t{4});
+    put(impact_system.data(),0x74,std::uint32_t{2}); reject_comparison(5);
+    put(impact_system.data(),0x74,std::uint32_t{1});
+    put(impact_system.data(),0x60,UINTPTR_MAX-16); reject_comparison(5);
+    put(impact_system.data(),0x60,reinterpret_cast<std::uintptr_t>(operation_records.data()));
+    for (comparison_mode=1;comparison_mode<=7;++comparison_mode) {
+        equal = 0x77;
+        check(compare(7,7)==(comparison_mode==1 ? 6u : 7u) && equal==0x77); unchanged();
+    }
+    comparison_mode=8; equal=0x77;
+    check(compare(7,7)==4 && equal==0x77); --layout_epoch; unchanged();
+    for (comparison_mode=9;comparison_mode<=11;++comparison_mode) {
+        equal = 0x77;
+        check(compare(7,7)==7 && equal==0x77); unchanged();
+    }
+    comparison_mode=0;
+    check(compare(9,9)==1 && equal==1 && comparison_gates_free); unchanged();
+    // Only the host output is read-only here. The owned callback can complete,
+    // but a failed final publication cannot claim a confirmed exported result.
+    check(VirtualProtect(payload,4096,PAGE_READONLY,&old)!=FALSE);
+    check(KfcRuntimeImpactCompareEntityIds(session,3,3,reinterpret_cast<std::uint8_t*>(payload))==2);
+    check(VirtualProtect(payload,4096,old,&old)!=FALSE && *payload==baseline); unchanged();
+    std::memcpy(records,saved_records.data(),sizeof(records));
+    std::fill(std::begin(keys),std::end(keys),0);
+    keys[slot]=name_hash; occupancy=std::uint64_t{1}<<slot;
+    check(load() && snapshot==baseline); unchanged();
+
+    // The registered voxel reader is exercised only against private DI and
+    // task-pool objects. Every original role is a fixture callback in this EXE.
+    // Public exports use this same named-service contract without requiring a
+    // legacy execution profile or the hook-driven GameThreadDispatcher.
+    namespace Voxel=WorldRuntime::RegisteredVoxelGrid;
+    const char voxel_grid_name[]{"ecs::VoxelGrid"}, voxel_world_name[]{"VoxelWorld"};
+    std::array<unsigned char,96> voxel_grid{};
+    std::array<std::uintptr_t,2> voxel_wrapper{};
+    auto* voxel_world=static_cast<unsigned char*>(VirtualAlloc(nullptr,0x2000,
+        MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));
+    check(voxel_world!=nullptr);
+    voxel_fixture_world=voxel_world; voxel_fixture_grid=voxel_grid.data();
+    std::array<unsigned char,0x300> voxel_resources{}, voxel_storage{};
+    std::array<unsigned char,64> voxel_groups{};
+    std::array<unsigned char,80*5> voxel_tasks{};
+    std::array<std::uint32_t,4> voxel_handles{0x01000001,0x01000002,0x01000003,0x01000004};
+    voxel_fixture_handles=voxel_handles.data();
+    voxel_wrapper[1]=reinterpret_cast<std::uintptr_t>(voxel_world);
+    put(voxel_grid.data(),16,std::uint32_t{3});
+    put(voxel_grid.data(),20,std::uint32_t{16}); put(voxel_grid.data(),24,std::uint32_t{16});
+    put(voxel_grid.data(),28,std::uint32_t{4}); put(voxel_grid.data(),32,std::uint32_t{4});
+    put(voxel_grid.data(),40,reinterpret_cast<std::uintptr_t>(voxel_wrapper.data()));
+    for (std::size_t i=0;i<6;++i)
+        put(voxel_grid.data(),48+i*8,reinterpret_cast<std::uintptr_t>(fixture_voxel_ready));
+    put(voxel_grid.data(),48,reinterpret_cast<std::uintptr_t>(fixture_voxel_cells));
+    put(voxel_grid.data(),56,reinterpret_cast<std::uintptr_t>(fixture_voxel_origin));
+    put(voxel_world,0x14,std::uint32_t{1});
+    const std::array<float,3> voxel_origin{10,20,30};
+    std::memcpy(voxel_world+0x30,voxel_origin.data(),sizeof(voxel_origin));
+    put(voxel_world,0x3c,std::uint32_t{512});
+    constexpr std::size_t mode6=0x40+6*40;
+    put(voxel_world,mode6,std::uint32_t{8}); put(voxel_world,mode6+4,std::uint32_t{8});
+    put(voxel_world,mode6+8,std::uint32_t{2}); put(voxel_world,mode6+12,std::uint32_t{2});
+    put(voxel_world,mode6+24,reinterpret_cast<std::uintptr_t>(voxel_handles.data()));
+    put(voxel_world,mode6+32,std::uint64_t{4});
+    put(voxel_world,0x160,reinterpret_cast<std::uintptr_t>(voxel_resources.data()));
+    put(voxel_world,0x1220,reinterpret_cast<std::uintptr_t>(voxel_storage.data()));
+    put(voxel_resources.data(),0x190,reinterpret_cast<std::uintptr_t>(voxel_groups.data()));
+    put(voxel_resources.data(),0x198,std::uint64_t{1});
+    put(voxel_resources.data(),0x1b8,std::uint64_t{3}); put(voxel_resources.data(),0x1c8,std::uint64_t{7});
+    put(voxel_groups.data(),8,reinterpret_cast<std::uintptr_t>(voxel_tasks.data()));
+    put(voxel_groups.data(),16,std::uint64_t{5});
+    for (std::size_t i=1;i<5;++i) {
+        put(voxel_tasks.data(),i*80,std::uint32_t{1});
+        put(voxel_tasks.data(),i*80+0x48,std::uint32_t{2});
+    }
+    std::fill(std::begin(records),std::end(records),0);
+    std::fill(std::begin(keys),std::end(keys),0); occupancy=0;
+    const std::array<const char*,2> voxel_names{voxel_grid_name,voxel_world_name};
+    const std::array<std::uintptr_t,2> voxel_payloads{
+        reinterpret_cast<std::uintptr_t>(voxel_grid.data()),reinterpret_cast<std::uintptr_t>(voxel_wrapper.data())};
+    for (std::size_t i=0;i<2;++i) {
+        const auto hash=NamedServiceImplementation::hash_name(voxel_names[i]);
+        auto bucket=static_cast<std::size_t>(hash&3);
+        while (occupancy & (std::uint64_t{1}<<bucket)) bucket=(bucket+1)&3;
+        occupancy|=std::uint64_t{1}<<bucket; keys[bucket]=hash; values[bucket]=static_cast<std::uint16_t>(i);
+        auto* record=records+i*record_stride;
+        put(record,0,reinterpret_cast<std::uintptr_t>(voxel_names[i]));
+        put(record,8,static_cast<std::uint64_t>(std::strlen(voxel_names[i]))); put(record,0xa0,hash);
+        put(record,0xa8,voxel_payloads[i]); put(record,0xb0,voxel_payloads[i]);
+    }
+    put(execution.registry,648,std::uint64_t{2}); put(execution.registry,688,std::uint32_t{2});
+    check(EngineContext::Configure(internal_profile,error));
+    KfcRuntimeGridSpec voxel_spec{};
+    check(Voxel::Available() && Voxel::GetSpec("voxel",&voxel_spec)==Voxel::Result::Success);
+    check(std::strcmp(voxel_spec.id,"voxel")==0 && voxel_spec.origin[0]==10 && voxel_spec.origin[1]==20 &&
+        voxel_spec.origin[2]==30 && voxel_spec.cell_size[0]==0.5 && voxel_spec.cell_size[1]==0.5 &&
+        voxel_spec.maximum[0]==16 && voxel_spec.maximum[2]==16 && voxel_spec.maximum[1]==INT32_MAX-7);
+    check(KfcRuntimeWorldOperationAvailable("runtime.world.voxel.read") &&
+        KfcRuntimeWorldOperationAvailable("runtime.world.voxel.grid_spec"));
+    check(KfcRuntimeWorldContextActive() && KfcRuntimeWorldContextKind()==1 &&
+        !KfcRuntimeWorldOperationAvailable("runtime.world.voxel.write"));
+    try {
+        const auto status=EcsRuntime::Status();
+        check(status.find("voxel_context=ready")!=std::string::npos &&
+            status.find("source=ecs-local-authority")!=std::string::npos);
+    } catch (const std::exception& exception) {
+        std::fprintf(stderr,"native status exception: %s\n",exception.what());
+        return 1;
+    }
+    check(nlohmann::json::parse(EcsRuntime::Diagnostics())["worldContext"]["source"]=="ecs-local-authority");
+    KfcRuntimeGridSpec exported_spec{};
+    check(KfcRuntimeWorldGridGetSpecForSession(session,"voxel",&exported_spec)==1 &&
+        std::memcmp(&exported_spec,&voxel_spec,sizeof(voxel_spec))==0);
+    auto reject_grid=[&](std::uint64_t expected_session,const char* id,std::uint32_t expected_status) {
+        std::memset(&exported_spec,0x77,sizeof(exported_spec));
+        const auto before=exported_spec;
+        check(KfcRuntimeWorldGridGetSpecForSession(expected_session,id,&exported_spec)==expected_status &&
+            std::memcmp(&exported_spec,&before,sizeof(before))==0);
+    };
+    reject_grid(session-1,"voxel",4);
+    reject_grid(session,"unknown-grid",3);
+    scene.gate=1;
+    reject_grid(session,"voxel",2);
+    check(scene.gate==1 && thread_gate==0);
+    scene.gate=0;
+    check(KfcRuntimeWorldGridGetSpecForSession(session,"voxel",&exported_spec)==1);
+    unchanged();
+    std::array<std::int32_t,3> voxel_from{7,0,7};
+    std::array<std::uint32_t,3> voxel_size{2,2,2};
+    std::array<std::uint16_t,8> voxel_cells{};
+    std::size_t voxel_actual{99};
+    auto voxel_read=[&] { return Voxel::Read(voxel_from.data(),voxel_size.data(),
+        voxel_cells.data(),voxel_cells.size(),&voxel_actual); };
+    check(voxel_read()==Voxel::Result::Success && voxel_actual==8 && voxel_ready_calls==4 && voxel_cell_calls==1);
+    for (std::size_t i=0;i<voxel_cells.size();++i) check(voxel_cells[i]==0x3412+i);
+    std::array<std::uint16_t,8> session_cells{};
+    std::size_t session_actual{};
+    check(Voxel::ReadForSession(session,voxel_from.data(),voxel_size.data(),session_cells.data(),
+        session_cells.size(),&session_actual)==Voxel::Result::Success && session_actual==session_cells.size());
+    for (std::size_t i=0;i<session_cells.size();++i) check(session_cells[i]==0x3412+i);
+    session_cells.fill(0x77); session_actual=99;
+    check(Voxel::ReadForSession(session-1,voxel_from.data(),voxel_size.data(),session_cells.data(),
+        session_cells.size(),&session_actual)==Voxel::Result::StaleSession && session_actual==99 &&
+        std::all_of(session_cells.begin(),session_cells.end(),[](auto value){return value==0x77;}));
+    voxel_mode=2; session_cells.fill(0x77); session_actual=99;
+    check(Voxel::ReadForSession(session,voxel_from.data(),voxel_size.data(),session_cells.data(),
+        session_cells.size(),&session_actual)==Voxel::Result::Pending && session_actual==99 &&
+        std::all_of(session_cells.begin(),session_cells.end(),[](auto value){return value==0x77;}));
+    voxel_mode=0;
+    session_cells.fill(0); session_actual=99;
+    check(KfcRuntimeWorldVoxelReadForSession(session,voxel_from.data(),voxel_size.data(),session_cells.data(),
+        session_cells.size(),&session_actual)==1 && session_actual==session_cells.size());
+    for (std::size_t i=0;i<session_cells.size();++i) check(session_cells[i]==0x3412+i);
+    session_cells.fill(0x77); session_actual=99;
+    check(KfcRuntimeWorldVoxelReadForSession(session-1,voxel_from.data(),voxel_size.data(),session_cells.data(),
+        session_cells.size(),&session_actual)==4 && session_actual==99 &&
+        std::all_of(session_cells.begin(),session_cells.end(),[](auto value){return value==0x77;}));
+    voxel_mode=2;
+    session_cells.fill(0x77); session_actual=99;
+    check(KfcRuntimeWorldVoxelReadForSession(session,voxel_from.data(),voxel_size.data(),session_cells.data(),
+        session_cells.size(),&session_actual)==2 && session_actual==99 &&
+        std::all_of(session_cells.begin(),session_cells.end(),[](auto value){return value==0x77;}));
+    voxel_mode=0;
+    voxel_from[0]=-1;
+    session_cells.fill(0x77); session_actual=99;
+    check(KfcRuntimeWorldVoxelReadForSession(session,voxel_from.data(),voxel_size.data(),session_cells.data(),
+        session_cells.size(),&session_actual)==3 && session_actual==99 &&
+        std::all_of(session_cells.begin(),session_cells.end(),[](auto value){return value==0x77;}));
+    voxel_from[0]=7;
+    auto reject_voxel=[&](bool native_read=false) {
+        const auto reads=voxel_cell_calls;
+        voxel_cells.fill(0x77); voxel_actual=99;
+        const auto result=voxel_read();
+        const bool untouched=voxel_actual==99 &&
+            voxel_cells==std::array<std::uint16_t,8>{0x77,0x77,0x77,0x77,0x77,0x77,0x77,0x77};
+        if (result==Voxel::Result::Success || !untouched)
+            std::fprintf(stderr,"voxel reject mode=%u result=%u actual=%zu cell0=%u\n",voxel_mode,
+                static_cast<unsigned>(result),voxel_actual,voxel_cells[0]);
+        check(result!=Voxel::Result::Success && untouched);
+        check(voxel_cell_calls==reads+(native_read?1u:0u)); unchanged();
+    };
+    voxel_mode=1; reject_voxel(); voxel_mode=2; reject_voxel(true); voxel_mode=0;
+    put(voxel_tasks.data(),80+0x48,std::uint32_t{1}); reject_voxel();
+    put(voxel_tasks.data(),80+0x48,std::uint32_t{2});
+    voxel_handles[0]=0; reject_voxel(); voxel_handles[0]=0x01000001;
+    voxel_handles[0]=0x02000001; reject_voxel(); voxel_handles[0]=0x01000001;
+    put(voxel_resources.data(),0x1c8,std::uint64_t{6}); reject_voxel();
+    put(voxel_resources.data(),0x1c8,std::uint64_t{7});
+    put(voxel_world,0x1a34,std::uint32_t{0x01000009}); reject_voxel();
+    put(voxel_world,0x1a34,std::uint32_t{0x01000004}); check(voxel_read()==Voxel::Result::Success);
+    put(voxel_world,0x1a34,std::uint32_t{});
+    put(voxel_world,mode6+32,std::uint64_t{3}); reject_voxel();
+    put(voxel_world,mode6+32,std::uint64_t{4});
+    put(voxel_world,mode6,std::uint32_t{0}); reject_voxel();
+    put(voxel_world,mode6,std::uint32_t{8});
+    put(voxel_world,0x174,std::uint32_t{0x10000}); reject_voxel();
+    put(voxel_world,0x174,std::uint32_t{});
+    voxel_from[0]=-1; reject_voxel(); voxel_from[0]=15; reject_voxel(); voxel_from[0]=7;
+    voxel_from[1]=-1; reject_voxel(); voxel_from[1]=INT32_MAX-7; reject_voxel(); voxel_from[1]=0;
+    voxel_size[1]=65536; reject_voxel(); voxel_size[1]=2;
+    voxel_mode=4; reject_voxel(); voxel_handles[0]=0x01000001; voxel_mode=0;
+    voxel_mode=5; reject_voxel(true);
+    put(voxel_grid.data(),48,reinterpret_cast<std::uintptr_t>(fixture_voxel_cells)); voxel_mode=0;
+    check(voxel_read()==Voxel::Result::Success && Voxel::Healthy());
+    if (argc>1 && std::strcmp(argv[1],"--voxel-session-read")==0) {
+        check(VirtualFree(voxel_world,0,MEM_RELEASE)!=FALSE);
+        check(VirtualFree(payload,0,MEM_RELEASE)!=FALSE);
+        std::printf("service runtime: %u checks passed\n",checks);
+        return 0;
+    }
+    // Fault cases run in separate invocations because the process latch has no
+    // reset. No new callback or metadata gate is attempted after its first fault.
+    if (argc>1 && std::strcmp(argv[1],"--voxel-origin-pointer")==0) {
+        voxel_mode=6;
+        check(Voxel::GetSpec("voxel",&voxel_spec)==Voxel::Result::Fault && !Voxel::Healthy());
+    } else if (argc>1 && std::strcmp(argv[1],"--voxel-metadata-seh")==0) {
+        check(VirtualProtect(voxel_world,4096,PAGE_READONLY,&old)!=FALSE);
+        voxel_cells.fill(0x77); voxel_actual=99;
+        check(voxel_read()==Voxel::Result::Success && voxel_actual==8 && voxel_cells[0]==0x3412);
+        check(VirtualProtect(voxel_world,4096,old,&old)!=FALSE);
+    } else {
+        voxel_mode=2; reject_voxel(true); check(Voxel::Healthy());
+    }
+    const auto calls_after_fault=voxel_origin_calls+voxel_ready_calls+voxel_cell_calls;
+    if (!Voxel::Healthy()) {
+        check(!Voxel::Available() && Voxel::GetSpec("voxel",&voxel_spec)==Voxel::Result::Fault);
+        reject_voxel();
+        check(voxel_origin_calls+voxel_ready_calls+voxel_cell_calls==calls_after_fault);
+    } else {
+        check(Voxel::Available() && Voxel::GetSpec("voxel",&voxel_spec)==Voxel::Result::Success);
+        voxel_mode=2; reject_voxel(true); voxel_mode=0;
+        check(voxel_origin_calls+voxel_ready_calls+voxel_cell_calls>calls_after_fault);
+    }
+    check(VirtualFree(voxel_world,0,MEM_RELEASE)!=FALSE);
     check(VirtualFree(payload,0,MEM_RELEASE)!=FALSE);
     std::printf("service runtime: %u checks passed\n",checks);
 }

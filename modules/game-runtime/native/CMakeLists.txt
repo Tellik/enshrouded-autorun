@@ -114,7 +114,9 @@ add_library(kfc-runtime SHARED
     loaded-resources/compare_exchange_resource_scalar.cpp
     engine-context/track_world_context.cpp
     player-input/sample_world_cursor.cpp
+    player-input/read_local_cursor_input.cpp
     voxels/read_and_write_voxels.cpp
+    voxels/read_registered_voxel_grid.cpp
     building/remove_building_prop.cpp
     building/place_building_prop.cpp
     building/run_building_requests.cpp
@@ -123,6 +125,8 @@ add_library(kfc-runtime SHARED
     voxels/read_voxel_grid.cpp
     named-services/resolve_named_service.cpp
     named-services/read_and_update_named_service.cpp
+    impact/resolve_registered_operation.cpp
+    impact/compare_entity_ids.cpp
     host/manage_runtime_lifecycle.cpp
     code-inventory/export_function_inspection.cpp
     host/describe_runtime.cpp

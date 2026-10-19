@@ -2,6 +2,8 @@
 #include "player-input/apply_building_input.h"
 #include "engine-context/observe_entity_manager.h"
 #include "engine-context/world_context_state.h"
+#include "engine-context/engine_owners.h"
+#include "voxels/read_registered_voxel_grid.h"
 
 using namespace WorldRuntime::Implementation;
 
@@ -148,6 +150,17 @@ std::uintptr_t image_base(){ return reinterpret_cast<std::uintptr_t>(GetModuleHa
 }
 
 namespace WorldRuntime {
+namespace {
+std::uint32_t ecs_context_kind() {
+    // Status/Diagnostics also call this while holding ECS state_mutex. Resolve
+    // ownership directly, without recursively querying the session registry.
+    EngineContext::EcsView view, again;
+    if (!EngineContext::ResolveEcs(view) || !EngineContext::ResolveEcs(again) || again != view) return 0;
+    // Ownership classifies the target. Each mutation still needs its own
+    // operation contract and execution gate before it may change that target.
+    return view.role == EngineContext::EcsRole::LocalAuthority ? 1u : 2u;
+}
+}
 void ResetContext() {
     BuildingInput::Reset();
     observed_actor_world_ms.store(0, std::memory_order_release);
@@ -163,10 +176,15 @@ void ResetContext() {
 }
 
 bool OperationAvailable(const char* name) {
+    if (name && (std::strcmp(name, "runtime.world.voxel.read") == 0 ||
+                 std::strcmp(name, "runtime.world.voxel.grid_spec") == 0))
+        return RegisteredVoxelGrid::Available();
+    if (name && std::strcmp(name, "runtime.world.context.active") == 0)
+        return ActiveContextAvailable();
     if (name && std::strcmp(name, "runtime.world.building.input") == 0)
         return BuildingInput::Available();
     if (name && std::strcmp(name, "runtime.world.cursor.get") == 0)
-        return InterlockedCompareExchange(&cursor_mailbox.hook_ready, 0, 0) != 0;
+        return InterlockedCompareExchange(&cursor_mailbox.hook_ready, 0, 0) != 0 || LocalCursorInputAvailable();
     if (name && std::strcmp(name, "runtime.world.voxel.write") == 0) {
         std::uintptr_t world{};
         const auto* operation = find_operation(name);
@@ -186,6 +204,7 @@ bool EntityContextReady() {
 }
 
 bool ActiveContextAvailable() {
+    if (ecs_context_kind()) return true;
     std::uintptr_t world{};
     return GameThreadDispatcher::Ready() && (resolve_voxel_world(world) || resolve_client_read_world(world));
 }
@@ -197,6 +216,7 @@ std::uint32_t ContextKind() {
     // validated remote cursor-world from an unknown context during a brief
     // game-thread stall. Actual world operations retain their own readiness
     // and permission checks.
+    if (const auto kind = ecs_context_kind()) return kind;
     std::uintptr_t world{};
     if (resolve_voxel_world(world)) return 1;
     if (resolve_client_read_world(world)) return 2;
@@ -208,7 +228,8 @@ std::string ContextDiagnostics() {
     std::uintptr_t world{}, singleton{}, context{}, candidate{};
     const bool direct = resolve_voxel_world(world);
     const bool client_read = !direct && resolve_client_read_world(world);
-    const bool resolved = direct || client_read;
+    const auto ecs_kind = ecs_context_kind();
+    const bool resolved = ecs_kind || direct || client_read;
     const char* global_reason = "profile-unavailable";
     if (profile && profile->available) {
         global_reason = "not-configured";
@@ -243,7 +264,8 @@ std::string ContextDiagnostics() {
     case ActorProbe::Valid: actor_reason = "validated-at-observation"; break;
     default: break;
     }
-    const char* source = !resolved ? "none" : client_read ? "client-cursor-read" : world == preferred ? "pinned-world" :
+    const char* source = ecs_kind == 1 ? "ecs-local-authority" : ecs_kind == 2 ? "ecs-client-replica" :
+        !resolved ? "none" : client_read ? "client-cursor-read" : world == preferred ? "pinned-world" :
         world == actor ? "actor-frame" : "client-singleton";
     return nlohmann::json({{"revision", "world-context-session-20261009-a2"}, {"resolved", resolved}, {"source", source},
         {"directWorldAvailable", direct}, {"clientReadWorld", client_read_world.load()},

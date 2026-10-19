@@ -29,6 +29,7 @@ struct PropQueryResultCache {
     std::array<double, 6> bounds{};
     std::uint64_t epoch{};
     std::vector<KfcRuntimePropRecord> props;
+    std::size_t validation_cursor{};
     bool ready{};
 };
 
@@ -44,8 +45,10 @@ struct PropQueryOperation {
     std::unordered_set<std::uint64_t> seen;
     std::unordered_map<std::uint32_t, RegisteredPropRecipe> recipes;
     std::size_t cursor{};
+    std::size_t validation_cursor{};
     std::uint64_t epoch{}, started_ms{}, touched_ms{}, progressed_ms{};
     bool initialized{};
+    bool validating_cached{};
 };
 
 extern std::shared_ptr<PropQueryOperation> pending_prop_query;

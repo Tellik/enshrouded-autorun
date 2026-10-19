@@ -1,9 +1,35 @@
 #include "voxels/voxel_request.h"
 #include "engine-context/world_context_state.h"
+#include "voxels/read_registered_voxel_grid.h"
+#include "named-services/named_service_contract.h"
 
 using namespace WorldRuntime::Implementation;
 
 namespace WorldRuntime::Implementation {
+bool plan_write_region(const std::int32_t* origin, const std::uint32_t* dimensions, WriteRegion& output) {
+    std::size_t requested{};
+    if (!origin || !cell_count(dimensions,requested)) return false;
+    WriteRegion plan;
+    plan.count=1;
+    for (int axis=0; axis<3; ++axis) {
+        const auto low=static_cast<std::int64_t>(origin[axis]);
+        const auto high=low+dimensions[axis];
+        auto chunk_low=low/8, chunk_high=high/8;
+        if (low<0 && low%8) --chunk_low;
+        if (high>0 && high%8) ++chunk_high;
+        const auto aligned_low=chunk_low*8, aligned_high=chunk_high*8;
+        if (aligned_low<INT32_MIN || aligned_low>INT32_MAX || aligned_high>INT32_MAX ||
+            aligned_high<=aligned_low || static_cast<std::uint64_t>(aligned_high-aligned_low)>MaximumCells/plan.count)
+            return false;
+        plan.origin[axis]=static_cast<std::int32_t>(aligned_low);
+        plan.dimensions[axis]=static_cast<std::uint32_t>(aligned_high-aligned_low);
+        plan.offset[axis]=static_cast<std::size_t>(low-aligned_low);
+        plan.count*=plan.dimensions[axis];
+    }
+    output=plan;
+    return true;
+}
+
 bool safe_read(NativeRead function, CellSpan* span, const std::uint32_t* dimensions,
                const void* world, std::uint32_t mode, const std::int32_t* origin){
     __try { return function(span, dimensions, world, mode, origin); }
@@ -38,26 +64,12 @@ void execute(void* opaque){
     }
     if (!write_profile || !write_profile->available) return;
     auto write_fn = reinterpret_cast<NativeWrite>(base + write_profile->function_rva);
-    std::array<std::int32_t, 3> expanded_origin{};
-    std::array<std::uint32_t, 3> expanded_dimensions{};
-    std::size_t expanded_count = 1;
-    std::array<std::size_t, 3> offset{};
-    for (int axis = 0; axis < 3; ++axis) {
-        const auto low = static_cast<std::int64_t>(op.origin[axis]);
-        const auto high = low + op.dimensions[axis];
-        auto chunk_low = low / 8;
-        if (low < 0 && low % 8) --chunk_low;
-        auto chunk_high = high / 8;
-        if (high > 0 && high % 8) ++chunk_high;
-        const auto aligned_low = chunk_low * 8;
-        const auto aligned_high = chunk_high * 8;
-        if (aligned_low < INT32_MIN || aligned_low > INT32_MAX || aligned_high <= aligned_low ||
-            static_cast<std::uint64_t>(aligned_high - aligned_low) > MaximumCells / expanded_count) return;
-        expanded_origin[axis] = static_cast<std::int32_t>(aligned_low);
-        expanded_dimensions[axis] = static_cast<std::uint32_t>(aligned_high - aligned_low);
-        offset[axis] = static_cast<std::size_t>(low - aligned_low);
-        expanded_count *= expanded_dimensions[axis];
-    }
+    WriteRegion region;
+    if (!plan_write_region(op.origin.data(),op.dimensions.data(),region)) return;
+    const auto& expanded_origin=region.origin;
+    const auto& expanded_dimensions=region.dimensions;
+    const auto& offset=region.offset;
+    const auto expanded_count=region.count;
     std::vector<Cell> expanded(expanded_count);
     CellSpan expanded_span{expanded.data(), expanded.size()};
     if (!safe_read(read_fn, &expanded_span, expanded_dimensions.data(), reinterpret_cast<void*>(world), read_profile->mode, expanded_origin.data())) return;
@@ -158,6 +170,15 @@ extern "C" {
 bool __cdecl KfcRuntimeWorldVoxelRead(const std::int32_t* origin, const std::uint32_t* dimensions,
     std::uint16_t* values, std::size_t capacity, std::size_t* actual) {
     return WorldRuntime::ReadVoxels(origin, dimensions, values, capacity, actual);
+}
+
+std::uint32_t __cdecl KfcRuntimeWorldVoxelReadForSession(std::uint64_t expected_session,
+    const std::int32_t* origin, const std::uint32_t* dimensions,
+    std::uint16_t* values, std::size_t capacity, std::size_t* actual) {
+    using WorldRuntime::RegisteredVoxelGrid::Result;
+    const auto registered = WorldRuntime::RegisteredVoxelGrid::ReadForSession(
+        expected_session, origin, dimensions, values, capacity, actual);
+    return static_cast<std::uint32_t>(registered);
 }
 
 bool __cdecl KfcRuntimeWorldVoxelWrite(const std::int32_t* origin, const std::uint32_t* dimensions,

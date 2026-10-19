@@ -50,7 +50,7 @@ void OnCursorUpdate(void* cursor, void* execution_view, void* cursor_frame) {
 
 bool ReadCursorSnapshot(std::uint8_t* bytes, std::size_t capacity, std::uint64_t* sequence) {
     if (!bytes || capacity < NativeCursorSize || !sequence ||
-        !OperationAvailable("runtime.world.cursor.get")) return false;
+        InterlockedCompareExchange(&cursor_mailbox.hook_ready, 0, 0) == 0) return false;
     if (InterlockedCompareExchange(&cursor_mailbox.lock, 1, 0) != 0) return false;
     const auto current_sequence = cursor_mailbox.sequence;
     const auto sample = cursor_mailbox.bytes;

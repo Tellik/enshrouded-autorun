@@ -26,6 +26,7 @@ pub(crate) use check_ingame_access::{available, runtime_denial_reason};
 pub(crate) mod access_named_service;
 pub(crate) mod ecs;
 pub(crate) mod functions;
+mod impact;
 pub(crate) mod overrides;
 pub(crate) mod player_input;
 pub(crate) mod prove_buffer_transform;
@@ -56,6 +57,7 @@ pub fn create(lua: &mlua::Lua, r#mod: Mod) -> mlua::Result<mlua::Table> {
     add_function_with_mod(lua, &table, "report_effect", &r#mod, lua_report_effect)?;
 
     table.raw_set("ecs", create_ecs(lua, &r#mod)?)?;
+    table.raw_set("impact", impact::create(lua, &r#mod)?)?;
     table.raw_set(
         "services",
         crate::env::runtime_services::create(lua, &r#mod)?,

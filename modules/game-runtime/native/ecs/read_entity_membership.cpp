@@ -92,46 +92,90 @@ bool entity_pointers(const ResolvedLayout& layout, std::vector<EntityPointer>& p
     return true;
 }
 
-// The original table contains non-null pointers in erased buckets. Match the
-// original ID hash lookup instead of treating these stale allocations as live
-// entities. Profiles without this independently validated table layout retain
-// their existing dispatcher-backed lookup contract.
-bool entity_registered(const EntityView& entity, const ResolvedLayout& layout){
-    if (!layout.occupancy_address && !layout.keys_address) return true;
+namespace {
+struct OriginalEntityTable {
     std::uint64_t count{};
     std::uintptr_t table{}, occupancy{}, keys{};
+    bool operator==(const OriginalEntityTable&) const = default;
+};
+bool original_entity_table(const ResolvedLayout& layout, OriginalEntityTable& output) {
+    OriginalEntityTable table;
     if (!layout.occupancy_address || !layout.keys_address ||
-        !read(layout.count_address, count) || !count || count > (1u << 20) || (count & (count - 1)) ||
-        !read(layout.table_address, table) || !table ||
-        !read(layout.occupancy_address, occupancy) || !occupancy ||
-        !read(layout.keys_address, keys) || !keys) return false;
-    auto hash = entity.id;
+        !read(layout.count_address, table.count) || !table.count || table.count > (1u << 20) ||
+        (table.count & (table.count - 1)) || !read(layout.table_address, table.table) || !table.table ||
+        !read(layout.occupancy_address, table.occupancy) || !table.occupancy ||
+        !read(layout.keys_address, table.keys) || !table.keys ||
+        table.table > UINTPTR_MAX - table.count * sizeof(std::uintptr_t) ||
+        table.keys > UINTPTR_MAX - table.count * sizeof(std::uint32_t) ||
+        table.occupancy > UINTPTR_MAX - ((table.count + 63) / 64) * 8) return false;
+    output = table;
+    return true;
+}
+struct IdObservation {
+    EntityMembership membership{EntityMembership::Unresolved};
+    std::size_t slot{};
+    std::uintptr_t pointer{};
+    std::uint32_t generation{};
+    bool operator==(const IdObservation&) const = default;
+};
+IdObservation observe_original_id(std::uint32_t id, const ResolvedLayout& layout, const OriginalEntityTable& table) {
+    auto hash = id;
     hash = ((hash >> 16) ^ hash) * 0x45d9f3bu;
     hash = ((hash >> 16) ^ hash) * 0x45d9f3bu;
     hash = (hash >> 16) ^ hash;
-    auto slot = static_cast<std::size_t>(hash & (count - 1));
-    for (std::size_t visited = 0; visited < count; ++visited, slot = (slot + 1) & (count - 1)) {
+    auto slot = static_cast<std::size_t>(hash & (table.count - 1));
+    for (std::size_t visited = 0; visited < (std::min)(table.count, std::uint64_t{8192});
+         ++visited, slot = (slot + 1) & (table.count - 1)) {
         std::uint64_t bits{};
         std::uint32_t key{};
-        if (!read(occupancy + (slot / 64) * 8, bits) || !(bits & (std::uint64_t{1} << (slot % 64)))) return false;
-        if (!read(keys + slot * sizeof(key), key)) return false;
-        if (key != entity.id) continue;
+        if (!read(table.occupancy + (slot / 64) * 8, bits)) return {};
+        if (!(bits & (std::uint64_t{1} << (slot % 64)))) return {EntityMembership::Absent, slot};
+        if (!read(table.keys + slot * sizeof(key), key)) return {};
+        if (key != id) continue;
         std::uintptr_t current{};
-        std::uint64_t again{};
-        std::uint64_t count_again{};
-        std::uintptr_t table_again{}, occupancy_again{}, keys_again{};
-        std::uint32_t key_again{}, id_again{}, generation_again{};
-        return read(table + slot * sizeof(current), current) && current == entity.pointer &&
-            read(occupancy + (slot / 64) * 8, again) && (again & (std::uint64_t{1} << (slot % 64))) &&
-            read(keys + slot * sizeof(key_again), key_again) && key_again == entity.id &&
-            read(entity.pointer + layout.entity_id, id_again) && id_again == entity.id &&
-            read(entity.pointer + layout.entity_generation, generation_again) && generation_again == entity.generation &&
-            read(layout.count_address, count_again) && count_again == count &&
-            read(layout.table_address, table_again) && table_again == table &&
-            read(layout.occupancy_address, occupancy_again) && occupancy_again == occupancy &&
-            read(layout.keys_address, keys_again) && keys_again == keys;
+        std::uint32_t observed_id{}, generation{};
+        if (!read(table.table + slot * sizeof(current), current) || !current ||
+            !read(current + layout.entity_id, observed_id) || observed_id != id ||
+            !read(current + layout.entity_generation, generation)) return {};
+        return {EntityMembership::Present, slot, current, generation};
     }
-    return false;
+    return {};
+}
+IdObservation stable_original_id(std::uint32_t id, const ResolvedLayout& layout) {
+    OriginalEntityTable table, again;
+    if (!id || !original_entity_table(layout, table)) return {};
+    const auto before = observe_original_id(id, layout, table);
+    const auto after = observe_original_id(id, layout, table);
+    return before == after && original_entity_table(layout, again) && again == table ? before : IdObservation{};
+}
+}
+
+// Erased buckets may retain plausible objects. Both handle membership and
+// native queued-ID verification share the same original occupied ID lookup.
+EntityMembership entity_membership(const EntityView& entity, const ResolvedLayout& layout){
+    const auto current = stable_original_id(entity.id, layout);
+    if (current.membership != EntityMembership::Present) return current.membership;
+    if (current.generation != entity.generation) return EntityMembership::Absent;
+    return current.pointer == entity.pointer ? EntityMembership::Present : EntityMembership::Unresolved;
+}
+
+EntityMembership entity_for_id(std::uint32_t id, const ResolvedLayout& layout,
+                               EntityView& output, std::size_t& table_index) {
+    const auto before = stable_original_id(id, layout);
+    if (before.membership != EntityMembership::Present) return before.membership;
+    EntityView entity, again;
+    if (!entity_view(before.pointer, layout, entity) || entity.id != id || entity.generation != before.generation ||
+        !entity_view(before.pointer, layout, again) || again != entity) return EntityMembership::Unresolved;
+    const auto after = stable_original_id(id, layout);
+    if (after != before) return EntityMembership::Unresolved;
+    output = entity;
+    table_index = before.slot;
+    return EntityMembership::Present;
+}
+
+bool entity_registered(const EntityView& entity, const ResolvedLayout& layout){
+    if (!layout.occupancy_address && !layout.keys_address) return true;
+    return entity_membership(entity, layout) == EntityMembership::Present;
 }
 
 bool entity_view(std::uintptr_t pointer, const ResolvedLayout& layout, EntityView& entity){

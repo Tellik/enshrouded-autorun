@@ -10,6 +10,7 @@
 --- @field is_server boolean True when this mod runs in a Dedicated Server process.
 --- @field network RuntimeNetworkApi Steam Networking Messages P2P channel on the current client or dedicated-server process.
 --- @field services RuntimeServicesApi Reflected views of original named engine DI services with independently validated plain-data storage contracts.
+--- @field impact RuntimeImpactApi Checked semantic calls to original named Impact operations.
 --- @field overrides RuntimeOverridesApi Typed reversible changes with shared storage claims and automatic mod-scope cleanup.
 --- @field report_effect fun(state:'waiting'|'no-target'|'no-change'|'write-confirmed'|'write-failed', detail:string?):boolean,string? Report an observed ECS action state. A confirmed write means typed memory was written, not that the gameplay effect was independently verified.
 
@@ -163,6 +164,25 @@ function RuntimeService:read_fields(paths) end
 ---@return boolean ok
 ---@return string? reason
 function RuntimeService:write_field(path, value, expected, expected_fields) end
+
+---@class RuntimeImpactApi
+runtime.impact = {}
+---Invoke an independently validated original operation by its reflected type.
+---Currently supports only keen::impact_nodes::IsSameEntity. The provider resolves
+---the actual isSameEntity registration in the original ImpactSystem name table.
+---The original callback receives owned VM buffers after all Scene/session gates
+---are released. No executable patch, function-address search or per-build operation
+---profile is used. Original service-owner discovery still uses the existing native
+---provider contract. Requires an active ingame mod with runtime.ecs.read.
+---Inputs are {entityAId={id=uint32},entityBId={id=uint32}} using raw engine IDs.
+---They are not opaque runtime.ecs handles. This compares IDs without resolving
+---entities. branch is the direct comparison, before graph negate/control routing.
+---Other operations return nil,reason until their own invocation contract exists.
+---@param type TypeSelector Original reflected operation type or its Type object.
+---@param inputs table Exact named values for the validated operation.
+---@return {branch:boolean}? result
+---@return string? reason
+function runtime.impact.call(type, inputs) end
 
 ---@class RuntimeNetworkApi
 runtime.network = {}
@@ -683,8 +703,13 @@ function runtime.ecs.write(entity, component, value) end
 runtime.world = {}
 --- @class RuntimeWorldCursorApi
 runtime.world.cursor = {}
---- Read the most recent live building cursor captured by the current build's verified native hook.
---- The hook copies the ClientCursor layout before returning to the game and the snapshot is served without an ECS scan.
+--- Read the local building cursor. The original-owner backend resolves the unique
+--- ClientPlayerInput in the main-client ECS manager and decodes data.cursorInput
+--- using the active reflection, without hooks or engine calls. Its bounded initial
+--- discovery can return nil,reason while scanning. Retry on a later update.
+--- sequence counts successful samples, not simulation ticks. Position keeps Q32.32
+--- integers and flags retain their reflected width. Legacy execution profiles keep
+--- their verified hook snapshot. A cursor read never grants voxel write authority.
 --- @return table? snapshot with `sequence` and reflected-layout `value.primaryTransform` fields.
 --- @return string? reason
 function runtime.world.cursor.get() end
@@ -725,12 +750,20 @@ function runtime.world.building.cancel(request_id) end
 runtime.world.voxel = {}
 
 --- Return metadata for a native world grid. The active backend currently exposes the `voxel` grid.
+--- The registered reader returns nil,'voxel-grid-pending' while its Scene gate
+--- or original metadata is temporarily unavailable. Retry on a later update.
+--- A changed world session returns nil,'world-session-changed'.
 --- @param grid_id string Grid identifier, currently "voxel".
 --- @return table? spec {id, origin, cellSize, maximum}
 --- @return string? reason
 function runtime.world.voxel.get_grid_spec(grid_id) end
 
 --- Read a bounded, x-fastest voxel region. Each number packs material in the low byte and density in the high byte.
+--- Availability depends on the installed backend. A reader does not establish
+--- voxel.write, collision, replication or persistence support.
+--- A session-bound provider returns nil,'voxel-read-pending' while
+--- an original cache request or the Scene gate is pending. Retry on a later update.
+--- Failed or partial reads never return a successful cell array.
 --- @param x integer
 --- @param y integer
 --- @param z integer
@@ -753,7 +786,7 @@ function runtime.world.voxel.read(x, y, z, size_x, size_y, size_z) end
 --- @return string? reason
 function runtime.world.voxel.write(x, y, z, size_x, size_y, size_z, cells) end
 
---- Report whether the current build profile resolves this named world operation.
+--- Report whether the native provider currently supports this named world operation.
 --- @param operation string
 --- @return boolean available
 function runtime.world.operation_available(operation) end
@@ -763,8 +796,9 @@ function runtime.world.operation_available(operation) end
 --- @return string? reason
 function runtime.world.context_active() end
 --- Return the validated native target for automatic editor routing.
---- direct means this process can write the active world; client-read-only means
---- this client has only the cursor-derived world replica and must use the host.
+--- direct identifies a local authority ECS owner. Individual write operations
+--- still require their own availability and permission checks. client-read-only
+--- identifies a remote world replica whose mutations must use the host.
 --- unknown means no context has been validated yet.
 --- @return 'direct'|'client-read-only'|'unknown' kind
 function runtime.world.context_kind() end
@@ -776,8 +810,9 @@ function runtime.world.session_id() end
 --- @class RuntimeWorldEntityApi
 runtime.world.entity = {}
 
---- Query placeable props using the native, build-profiled ECS layout. Returns
---- transforms, item IDs, and the native entity template UUID directly, without requiring Lua reflection reads.
+--- Query placeable props using the validated ECS owner and dynamically registered
+--- CurrentTransform/UsedItem storage. Returns transforms and item IDs without Lua
+--- reflection reads. The original-owner read path does not install game-code hooks.
 --- @param bounds number[] World-space min xyz followed by max xyz.
 --- @param padding number Conservative pivot margin, scaled by each prop's maximum absolute scale.
 --- @return table[]? props
@@ -793,19 +828,27 @@ function runtime.world.entity.register_prop_recipes(recipes) end
 --- Query props whose native, rotated and scaled ItemInfo placement AABBs intersect bounds.
 --- Each result includes entityId and templateUuidHighHex/templateUuidLowHex from the live native entity definition.
 --- Requires placement recipes registered with register_prop_recipes.
+--- Native scans and cached-result validation are incremental. Retry nil,reason
+--- containing "still scanning" from a later update. No partial result is published.
 --- @param bounds number[] World-space min xyz followed by max xyz.
 --- @return table[]? props
 --- @return string? reason
 function runtime.world.entity.query_props_in_bounds(bounds) end
 
 --- Resolve the current transform, ECS entity ID, item ID, and native template UUID for an opaque live prop handle.
+--- A nil prop with reason "entity-absent" confirms that the issued handle's
+--- identity is absent in the same live session, using two original membership
+--- lookups. Other nil results include stale sessions and unreadable/changing
+--- data and do not prove deletion. Older bool-only providers cannot confirm absence.
 --- @param entity_handle integer Handle returned by query_props or spawn.
 --- @return table? prop
 --- @return string? reason
 function runtime.world.entity.get_transform(entity_handle) end
 
---- Update a live prop's three scale values through the build-profiled native API.
---- The guarded write is read back and verified. A failed write is restored when possible.
+--- Update a live prop's three scale values through the canonical full-component
+--- ECS snapshot/CAS writer. Original ownership, Scene gates and tracking policy
+--- apply. Tracked components without a supported native phase remain unavailable.
+--- Readback verifies data only, not collision, replication or save persistence.
 --- @param entity_handle integer Handle returned by query_props or spawn.
 --- @param scale number[] Three finite scale values for x, y, and z.
 --- @return boolean ok

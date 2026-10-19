@@ -10,6 +10,8 @@ mod ecs;
 pub use ecs::*;
 mod functions;
 pub use functions::*;
+mod impact;
+pub use impact::*;
 mod named_services;
 pub use named_services::*;
 mod patches;

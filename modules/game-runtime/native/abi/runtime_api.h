@@ -153,6 +153,18 @@ KFC_RUNTIME_API uint32_t KFC_RUNTIME_CALL KfcRuntimeServiceCompareExchange(
     const char* key, uint32_t type_hash, uint32_t size, uint64_t expected_session,
     const void* expected, const void* mask, const void* desired);
 
+/* Optional ABI-12 typed original Impact operation. Resolves isSameEntity by its
+   complete registered name. Own VM/input/result buffers compare two uint32 IDs,
+   without checking entity existence or reading/changing the game world. All
+   original Scene/session gates are released before the callback. DI ownership
+   still uses the existing profile-backed owner/lifetime infrastructure.
+   equal is unchanged on failure and contains 0/1 only for result 1.
+   Results: 1 confirmed, 2 invalid arguments, 3 registry unavailable,
+   4 session changed, 5 unsupported contract, 6 native exception,
+   7 invalid native result. No generic engine invocation is exposed. */
+KFC_RUNTIME_API uint32_t KFC_RUNTIME_CALL KfcRuntimeImpactCompareEntityIds(
+    uint64_t expected_session, uint32_t left, uint32_t right, uint8_t* equal);
+
 /* ECS values are opaque byte layouts described by the active game profile. */
 KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeEcsConfigure(
     const char* const* qualified_names, const uint32_t* sizes, size_t count);
@@ -218,6 +230,15 @@ KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeWorldEntityGetPropRecipe(
     uint32_t item_id, KfcRuntimePropRecipe* recipe);
 KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeWorldEntityGetTransform(
     uint32_t entity_handle, KfcRuntimePropRecord* prop);
+/* Optional ABI-12 session-bound prop read. Only original occupancy/key layouts
+   can distinguish absence. The handle must have been issued in this session.
+   Two matching hash lookups confirm absence or a changed entity generation.
+   Unreadable/moving data never means absent. Output is unchanged unless result
+   is 1. Results: 1 present, 2 invalid arguments, 3 unsupported contract,
+   4 stale session/handle, 5 incomplete/changed (retry), 6 confirmed absent,
+   7 session write outcome uncertain. The bool export retains its old contract. */
+KFC_RUNTIME_API uint32_t KFC_RUNTIME_CALL KfcRuntimeWorldEntityReadTransformForSession(
+    uint32_t entity_handle, uint64_t expected_session, KfcRuntimePropRecord* prop);
 KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeWorldEntitySetScale(
     uint32_t entity_handle, const double* scale);
 KFC_RUNTIME_API uint32_t KFC_RUNTIME_CALL KfcRuntimeEcsResolve(uint32_t entity_id);
@@ -250,6 +271,18 @@ KFC_RUNTIME_API uint64_t KFC_RUNTIME_CALL KfcRuntimeWorldSessionId(void);
 KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeWorldEntityContextReady(void);
 KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeWorldCursorRead(
     uint8_t* cursor, size_t capacity, uint64_t* sequence);
+/* Optional ABI-12 patch-free local cursor source. Copies the complete original
+   ClientPlayerInput component from the validated main-client ECS manager.
+   component_size comes from the active reflection and must match the original
+   runtime registration. capacity must equal component_size (at most 64 KiB).
+   expected_session must be the current nonzero ECS world session. No pointers,
+   engine calls or code changes are exposed. sequence counts successful samples,
+   not engine ticks. Output is valid only for result 1. Results: 1 success,
+   2 invalid arguments, 3 unsupported contract, 4 stale world/session,
+   5 incomplete/changed/busy (retry next update), 6 ambiguous local input. */
+KFC_RUNTIME_API uint32_t KFC_RUNTIME_CALL KfcRuntimeWorldCursorReadInput(
+    size_t component_size, uint64_t expected_session, uint8_t* buffer,
+    size_t capacity, uint64_t* sequence);
 /* Optional ABI-12 client input extension. Exact build only. Dispatch is not a
    replicated-world acknowledgement. kind: select=0, place=1, remove=2, undo=3.
    Status: unknown=0, queued=1, pressed=2, dispatched=3, timeout=4, cancelled=5. */
@@ -261,11 +294,23 @@ KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeWorldBuildingInputCancel(uint32_
 KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeWorldVoxelRead(
     const int32_t* origin, const uint32_t* dimensions, uint16_t* values,
     size_t capacity, size_t* actual);
+/* Optional ABI-12 session-bound voxel reader. A pending original request is
+   retried on a later update. No partial cell buffer is a successful result.
+   Results: 1 complete, 2 pending/busy, 3 rejected input, 4 stale session,
+   5 unavailable contract, 6 native reader fault. Only result1 publishes cells. */
+KFC_RUNTIME_API uint32_t KFC_RUNTIME_CALL KfcRuntimeWorldVoxelReadForSession(
+    uint64_t expected_session, const int32_t* origin, const uint32_t* dimensions,
+    uint16_t* values, size_t capacity, size_t* actual);
 KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeWorldVoxelWrite(
     const int32_t* origin, const uint32_t* dimensions, const uint16_t* values,
     size_t count, uint32_t* outcome);
 KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeWorldGridGetSpec(
     const char* grid_id, KfcRuntimeGridSpec* spec);
+/* Optional ABI-12 registered grid metadata, bound to the caller's world.
+   Same result codes as KfcRuntimeWorldVoxelReadForSession. Only success
+   publishes metadata. Pending must be retried on a later update. */
+KFC_RUNTIME_API uint32_t KFC_RUNTIME_CALL KfcRuntimeWorldGridGetSpecForSession(
+    uint64_t expected_session, const char* grid_id, KfcRuntimeGridSpec* spec);
 KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeWorldEntitySpawn(
     const uint64_t* template_uuid, const double* position, const double* rotation,
     uint32_t tracking, uint32_t flags, uint32_t* queue_token, uint32_t* outcome);

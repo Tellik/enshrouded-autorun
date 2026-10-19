@@ -42,6 +42,9 @@ nlohmann::json ServiceLayout();
 void Shutdown();
 bool ResolveOwners(Owners& owners, std::string* reason = nullptr);
 bool ResolveEcs(EcsView& view, std::string* reason = nullptr);
+// The local input owner remains the client's main world while ResolveEcs may
+// select the separately hosted authority scene. This does not grant writes.
+bool ResolveClientEcs(EcsView& view, std::string* reason = nullptr);
 bool EcsWriteConfigured();
 bool ResourceWriteConfigured();
 }

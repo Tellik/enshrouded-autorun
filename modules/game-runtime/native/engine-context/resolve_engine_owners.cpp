@@ -159,6 +159,13 @@ bool ResolveEcs(EcsView& output, std::string* reason) {
     return resolve_ecs(layout, output, reason);
 }
 
+bool ResolveClientEcs(EcsView& output, std::string* reason) {
+    Layout layout;
+    { std::scoped_lock lock(context_mutex); if (!configured || !active_layout.ecs) { if (reason) *reason = "ecs-read-owner-profile-unavailable"; return false; } layout = active_layout; }
+    layout.authority = false;
+    return resolve_ecs(layout, output, reason);
+}
+
 bool EcsWriteConfigured() {
     std::scoped_lock lock(context_mutex);
     return configured && active_layout.write.enabled;

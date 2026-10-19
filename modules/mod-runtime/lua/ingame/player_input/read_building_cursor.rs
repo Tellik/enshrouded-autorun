@@ -15,10 +15,10 @@ pub(crate) fn lua_world_cursor_get(
         ));
     }
     let Some((bytes, sequence)) = runtime_provider::world_cursor_read() else {
-        return Ok((
-            LuaValue::Nil,
-            Some("native cursor hook has not published a live sample yet".into()),
-        ));
+        return match reflected_local_cursor(lua, &state) {
+            Ok(snapshot) => Ok((LuaValue::Table(snapshot), None)),
+            Err(reason) => Ok((LuaValue::Nil, Some(reason))),
+        };
     };
     if bytes.len() != 0xa0 || bytes[0x98] > 1 {
         return Ok((
@@ -88,4 +88,167 @@ pub(crate) fn lua_world_cursor_get(
     result.raw_set("sequence", sequence)?;
     result.raw_set("value", value)?;
     Ok((LuaValue::Table(result), None))
+}
+
+// The 1.0 ClientCursorInput has different flag widths and field offsets. Read
+// its original reflected fields from one owned local ClientPlayerInput snapshot
+// rather than reinterpreting the legacy hook's 160-byte layout.
+fn reflected_local_cursor(lua: &mlua::Lua, state: &AppState) -> Result<mlua::Table, String> {
+    let metadata = state
+        .type_registry()
+        .get_by_name(kfc::reflection::LookupKey::Qualified(
+            "keen::ecs::ClientPlayerInput",
+        ))
+        .ok_or("local ClientPlayerInput reflection is unavailable")?;
+    let (bytes, sequence) = runtime_provider::world_cursor_read_input(metadata.size as usize)?;
+    let field = |path: &str| -> Result<LuaValue, String> {
+        state
+            .inline_field(metadata.index, &format!("data.cursorInput.{path}"))?
+            .read(lua, &bytes)
+    };
+    let integer = |path: &str| -> Result<i64, String> {
+        match field(path)? {
+            LuaValue::Integer(value) => Ok(value),
+            _ => Err(format!("local cursor field is not an integer: {path}")),
+        }
+    };
+    let unsigned = |path: &str| -> Result<u64, String> {
+        reflected_cursor_unsigned(state, metadata.index, &bytes, path)
+    };
+    let number = |path: &str| -> Result<f64, String> {
+        match field(path)? {
+            LuaValue::Number(value) if value.is_finite() => Ok(value),
+            _ => Err(format!("local cursor field is not a finite float: {path}")),
+        }
+    };
+    let transform = |name: &str| -> Result<mlua::Table, String> {
+        let output = lua.create_table().map_err(|error| error.to_string())?;
+        let position = lua.create_table().map_err(|error| error.to_string())?;
+        let rotation = lua.create_table().map_err(|error| error.to_string())?;
+        let scale = lua.create_table().map_err(|error| error.to_string())?;
+        for (index, axis) in ["x", "y", "z"].iter().enumerate() {
+            position
+                .raw_set(*axis, integer(&format!("{name}.position.{axis}"))?)
+                .map_err(|error| error.to_string())?;
+            scale
+                .raw_set(index + 1, number(&format!("{name}.scale.{axis}"))?)
+                .map_err(|error| error.to_string())?;
+        }
+        for (index, axis) in ["x", "y", "z", "w"].iter().enumerate() {
+            rotation
+                .raw_set(index + 1, number(&format!("{name}.orientation.{axis}"))?)
+                .map_err(|error| error.to_string())?;
+        }
+        output
+            .raw_set("position", position)
+            .map_err(|error| error.to_string())?;
+        output
+            .raw_set("rotation", rotation)
+            .map_err(|error| error.to_string())?;
+        output
+            .raw_set("scale", scale)
+            .map_err(|error| error.to_string())?;
+        Ok(output)
+    };
+    let value = lua.create_table().map_err(|error| error.to_string())?;
+    value
+        .raw_set("primaryTransform", transform("primaryTransform")?)
+        .map_err(|error| error.to_string())?;
+    value
+        .raw_set("secondaryTransform", transform("secondaryTransform")?)
+        .map_err(|error| error.to_string())?;
+    for (public, reflected) in [
+        ("primaryFlags", "primaryFlags"),
+        ("secondaryFlags", "secondaryFlags"),
+        ("material", "hoveredVoxelMaterialId"),
+    ] {
+        value
+            .raw_set(public, unsigned(reflected)?)
+            .map_err(|error| error.to_string())?;
+    }
+    value
+        .raw_set(
+            "selectionVersion",
+            unsigned("selectObjectAction.versionData.version")?.to_string(),
+        )
+        .map_err(|error| error.to_string())?;
+    let selected = lua.create_table().map_err(|error| error.to_string())?;
+    selected
+        .raw_set(
+            "value",
+            format!(
+                "{:016x}",
+                unsigned("selectObjectAction.selectedObjectId.value")?
+            ),
+        )
+        .map_err(|error| error.to_string())?;
+    selected
+        .raw_set(
+            "type",
+            unsigned("selectObjectAction.selectedObjectId.type")?,
+        )
+        .map_err(|error| error.to_string())?;
+    value
+        .raw_set("selectedObject", selected)
+        .map_err(|error| error.to_string())?;
+    let LuaValue::Boolean(attached) = field("isCursorAttachedToProp")? else {
+        return Err("local cursor attachment field is not boolean".into());
+    };
+    value
+        .raw_set("attachedToProp", attached)
+        .map_err(|error| error.to_string())?;
+    let result = lua.create_table().map_err(|error| error.to_string())?;
+    result
+        .raw_set("sequence", sequence)
+        .map_err(|error| error.to_string())?;
+    result
+        .raw_set("value", value)
+        .map_err(|error| error.to_string())?;
+    Ok(result)
+}
+
+// Cursor snapshots expose numeric flags/enums for compatibility. The general
+// value codec instead exposes named bitmask values. Follow the reflected
+// storage type and width here, preserving all 32 flag bits in the 1.0 layout.
+fn reflected_cursor_unsigned(
+    state: &AppState,
+    root: kfc::reflection::TypeIndex,
+    bytes: &[u8],
+    path: &str,
+) -> Result<u64, String> {
+    let field = state.inline_field(root, &format!("data.cursorInput.{path}"))?;
+    let mut ty = state
+        .type_registry()
+        .get(field.type_index())
+        .ok_or("local cursor scalar type is unresolved")?;
+    for _ in 0..64 {
+        if !matches!(
+            ty.primitive_type,
+            PrimitiveType::Typedef | PrimitiveType::Enum
+        ) {
+            break;
+        }
+        ty = ty
+            .inner_type
+            .and_then(|index| state.type_registry().get(index))
+            .ok_or("local cursor scalar storage is unresolved")?;
+    }
+    let width = match ty.primitive_type {
+        PrimitiveType::UInt8 | PrimitiveType::Bitmask8 => 1,
+        PrimitiveType::UInt16 | PrimitiveType::Bitmask16 => 2,
+        PrimitiveType::UInt32 | PrimitiveType::Bitmask32 => 4,
+        PrimitiveType::UInt64 | PrimitiveType::Bitmask64 => 8,
+        _ => {
+            return Err(format!(
+                "local cursor field is not an unsigned scalar: {path}"
+            ));
+        }
+    };
+    let source = bytes
+        .get(field.byte_range())
+        .filter(|source| source.len() == width)
+        .ok_or("local cursor scalar exceeds its reflected snapshot")?;
+    let mut output = [0u8; 8];
+    output[..width].copy_from_slice(source);
+    Ok(u64::from_le_bytes(output))
 }

@@ -48,8 +48,49 @@ bool recipe_bounds_intersect(const KfcRuntimePropRecord& prop,
     return true;
 }
 
+void validate_prop_query(PropQueryOperation& operation, const ResolvedLayout& layout,
+                         const ComponentType& transform, const ComponentType& item){
+    std::uintptr_t table{};
+    std::uint64_t count{};
+    if (!read(layout.count_address, count) || !count || count > (1u << 20) ||
+        !read(layout.table_address, table) || !table || table > UINTPTR_MAX - count * sizeof(std::uintptr_t)) return;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2);
+    std::size_t visited{};
+    while (operation.validation_cursor < operation.output.size()) {
+        if (visited >= 8192 || (visited && std::chrono::steady_clock::now() >= deadline)) {
+            operation.result = SIZE_MAX - 1;
+            return;
+        }
+        const auto& prop = operation.output[operation.validation_cursor++];
+        ++visited;
+        HandleRecord record{};
+        {
+            std::scoped_lock lock(state_mutex);
+            const auto found = handles.find(prop.entity_handle);
+            if (found == handles.end() || found->second.epoch != layout_epoch) return;
+            record = found->second;
+        }
+        std::uintptr_t pointer{};
+        EntityView entity{};
+        KfcRuntimePropRecord current{};
+        // A changed count/retrieval snapshot is retried by the caller. Do not
+        // rediscover an erased handle through entity_for_handle's full-table
+        // fallback inside this bounded validation slice.
+        if (record.table_slot < table || record.table_slot >= table + count * sizeof(pointer) ||
+            (record.table_slot - table) % sizeof(pointer) || !read(record.table_slot, pointer) || pointer != record.pointer ||
+            !entity_view(pointer, layout, entity) || entity.id != record.id || entity.generation != record.generation ||
+            !read_prop_payload(entity, layout, transform, item, current, operation.exact_recipe_bounds)) return;
+        if (current.item_id != prop.item_id || current.entity_id != prop.entity_id ||
+            std::memcmp(current.position, prop.position, sizeof(prop.position)) ||
+            std::memcmp(current.orientation, prop.orientation, sizeof(prop.orientation)) ||
+            std::memcmp(current.scale, prop.scale, sizeof(prop.scale)) ||
+            std::memcmp(current.template_uuid, prop.template_uuid, sizeof(prop.template_uuid))) return;
+    }
+    operation.result = operation.output.size();
+}
+
 void query_props_native(PropQueryOperation& operation){
-    using namespace KfcRuntimeCompatibility::EnshroudedClient;
+    std::scoped_lock operation_lock(operation_mutex);
     ComponentType transform_component{}, item_component{};
     if (!resolve_component("keen::ecs::CurrentTransform", transform_component) || transform_component.size != 0x38 ||
         !resolve_component("keen::ecs::UsedItem", item_component) || item_component.size != 4) return;
@@ -77,36 +118,23 @@ void query_props_native(PropQueryOperation& operation){
         ++visited;
         EntityView entity{};
         if (!entity_view(pointer.pointer, layout, entity) || !operation.seen.insert(identity_key(entity.id, entity.generation)).second) continue;
-        std::uintptr_t transform_address{}, item_address{};
-        if (!component_address(entity, layout, transform_component, transform_address, false) ||
-            !component_address(entity, layout, item_component, item_address, false)) continue;
-        struct NativeTransform { std::int64_t position[3]; float rotation[4]; float scale[3]; std::uint32_t padding; } transform{};
-        static_assert(sizeof(NativeTransform) == 0x38);
-        std::uint32_t item_id{};
-        if (!read_bytes(transform_address, &transform, sizeof(transform)) ||
-            !read_bytes(item_address, &item_id, sizeof(item_id)) || !item_id) continue;
         KfcRuntimePropRecord prop{};
-        prop.item_id = item_id;
-        std::copy_n(transform.position, 3, prop.position);
-        std::copy_n(transform.rotation, 4, prop.orientation);
-        std::copy_n(transform.scale, 3, prop.scale);
+        if (!read_prop_payload(entity, layout, transform_component, item_component, prop, false)) continue;
         if (operation.exact_recipe_bounds) {
-            const auto recipe = operation.recipes.find(item_id);
+            const auto recipe = operation.recipes.find(prop.item_id);
             if (recipe == operation.recipes.end() || !recipe_bounds_intersect(prop, recipe->second.bounds, operation.bounds)) continue;
             // UUIDs are needed by the editor only for props inside the selected
             // region. Reading them before the spatial test made every capture
             // touch the template definition of every UsedItem in the world.
-            if (!entity.definition || !read_bytes(entity.definition + definition_uuid,
-                    prop.template_uuid, sizeof(prop.template_uuid)) ||
-                !(prop.template_uuid[0] || prop.template_uuid[1])) continue;
+            if (!read_prop_template_uuid(entity, layout, prop)) continue;
         } else {
-            const double scale = (std::max)({std::abs(static_cast<double>(transform.scale[0])),
-                std::abs(static_cast<double>(transform.scale[1])), std::abs(static_cast<double>(transform.scale[2]))});
+            const double scale = (std::max)({std::abs(static_cast<double>(prop.scale[0])),
+                std::abs(static_cast<double>(prop.scale[1])), std::abs(static_cast<double>(prop.scale[2]))});
             if (!std::isfinite(scale)) continue;
             const auto margin = operation.padding * scale;
             bool inside = true;
             for (int axis = 0; axis < 3; ++axis) {
-                const auto position = static_cast<double>(transform.position[axis]) / 4294967296.0;
+                const auto position = static_cast<double>(prop.position[axis]) / 4294967296.0;
                 if (!std::isfinite(position) || position < operation.bounds[axis] - margin ||
                     position >= operation.bounds[axis + 3] + margin) { inside = false; break; }
             }
@@ -118,12 +146,37 @@ void query_props_native(PropQueryOperation& operation){
     }
     operation.result = operation.output.size();
 }
+
+namespace {
+void query_prop_operation(void* opaque){ query_props_native(*static_cast<PropQueryOperation*>(opaque)); }
+
+void validate_cached_props(void* opaque){
+    std::scoped_lock operation_lock(operation_mutex);
+    auto& operation = *static_cast<PropQueryOperation*>(opaque);
+    ComponentType transform{}, item{};
+    ResolvedLayout layout{};
+    if (layout_snapshot(layout) && resolve_component("keen::ecs::CurrentTransform", transform) &&
+        resolve_component("keen::ecs::UsedItem", item)) validate_prop_query(operation, layout, transform, item);
+}
+
+bool invoke_prop_query(const std::shared_ptr<PropQueryOperation>& operation, bool cached = false){
+    std::scoped_lock operation_lock(operation_mutex);
+    bool direct{};
+    { std::scoped_lock lock(state_mutex); direct = read_only_binding; }
+    if (direct) return invoke_read_operation(cached ? validate_cached_props : query_prop_operation, operation, 500);
+    if (!cached) query_props_native(*operation);
+    else operation->result = operation->output.size();
+    return true;
+}
+}
 }
 
 extern "C" bool __cdecl KfcRuntimeEcsPropQueryReady() {
-    { std::scoped_lock lock(state_mutex); if (read_only_binding) return false; }
     ResolvedLayout layout{};
     if (!layout_snapshot(layout)) return false;
+    bool direct{};
+    { std::scoped_lock lock(state_mutex); direct = read_only_binding; }
+    if (direct && (!layout.entity_definition_uuid_validated || !KfcRuntimeEcsReady())) return false;
     ComponentType transform{}, item{};
     return resolve_component("keen::ecs::CurrentTransform", transform) && transform.size == 0x38 &&
         resolve_component("keen::ecs::UsedItem", item) && item.size == 4;
@@ -131,7 +184,6 @@ extern "C" bool __cdecl KfcRuntimeEcsPropQueryReady() {
 
 extern "C" std::size_t __cdecl KfcRuntimeWorldEntityQueryProps(const double* bounds, double padding,
                                                                   KfcRuntimePropRecord* props, std::size_t capacity) {
-    { std::scoped_lock lock(state_mutex); if (read_only_binding) return SIZE_MAX; }
     if (!bounds || !std::isfinite(padding) || padding < 0 || capacity > (1u << 20) || (!props && capacity)) return SIZE_MAX;
     auto operation = std::make_shared<PropQueryOperation>();
     operation->padding = padding;
@@ -140,7 +192,7 @@ extern "C" std::size_t __cdecl KfcRuntimeWorldEntityQueryProps(const double* bou
         operation->bounds[axis] = bounds[axis];
         operation->bounds[axis + 3] = bounds[axis + 3];
     }
-    query_props_native(*operation);
+    if (!invoke_prop_query(operation)) return SIZE_MAX;
     if (operation->result == SIZE_MAX) return SIZE_MAX;
     if (props) std::copy_n(operation->output.begin(), (std::min)(capacity, operation->output.size()), props);
     return operation->result;
@@ -148,7 +200,6 @@ extern "C" std::size_t __cdecl KfcRuntimeWorldEntityQueryProps(const double* bou
 
 extern "C" std::size_t __cdecl KfcRuntimeWorldEntityQueryPropsInBounds(
     const double* bounds, KfcRuntimePropRecord* props, std::size_t capacity) {
-    { std::scoped_lock lock(state_mutex); if (read_only_binding) return SIZE_MAX; }
     if (!bounds || capacity > (1u << 20) || (!props && capacity)) return SIZE_MAX;
     std::unique_lock query_lock(prop_query_call_mutex, std::try_to_lock);
     if (!query_lock.owns_lock()) return SIZE_MAX - 1;
@@ -161,19 +212,21 @@ extern "C" std::size_t __cdecl KfcRuntimeWorldEntityQueryPropsInBounds(
         operation->bounds[axis + 3] = bounds[axis + 3];
     }
     const auto epoch = current_epoch();
+    const auto now = GetTickCount64();
     const auto same_bounds = [&] {
         for (int axis = 0; axis < 6; ++axis)
             if (prop_query_result_cache.bounds[axis] != operation->bounds[axis]) return false;
         return true;
     };
     if (props && prop_query_result_cache.ready && prop_query_result_cache.epoch == epoch && same_bounds()) {
-        const auto count = prop_query_result_cache.props.size();
-        std::copy_n(prop_query_result_cache.props.begin(), (std::min)(capacity, count), props);
+        operation->output = std::move(prop_query_result_cache.props);
+        operation->validation_cursor = prop_query_result_cache.validation_cursor;
+        operation->validating_cached = true;
+        operation->epoch = epoch;
+        operation->started_ms = operation->progressed_ms = now;
+        pending_prop_query = operation;
         prop_query_result_cache.ready = false;
-        std::vector<KfcRuntimePropRecord>().swap(prop_query_result_cache.props);
-        return count;
     }
-    const auto now = GetTickCount64();
     if (pending_prop_query) {
         const bool same = std::equal(std::begin(operation->bounds), std::end(operation->bounds),
             std::begin(pending_prop_query->bounds));
@@ -195,8 +248,13 @@ extern "C" std::size_t __cdecl KfcRuntimeWorldEntityQueryPropsInBounds(
     operation->touched_ms = now;
     operation->result = SIZE_MAX;
     const auto previous_cursor = operation->cursor;
-    query_props_native(*operation);
-    if (operation->cursor > previous_cursor) operation->progressed_ms = GetTickCount64();
+    const auto previous_validation_cursor = operation->validation_cursor;
+    if (!invoke_prop_query(operation, operation->validating_cached)) {
+        pending_prop_query.reset();
+        return SIZE_MAX;
+    }
+    if (operation->cursor > previous_cursor || operation->validation_cursor > previous_validation_cursor)
+        operation->progressed_ms = GetTickCount64();
     if (current_epoch() != epoch) {
         pending_prop_query.reset();
         return SIZE_MAX;
@@ -207,6 +265,7 @@ extern "C" std::size_t __cdecl KfcRuntimeWorldEntityQueryPropsInBounds(
     if (!props && capacity == 0 && !operation->output.empty()) {
         prop_query_result_cache.ready = true;
         prop_query_result_cache.epoch = epoch;
+        prop_query_result_cache.validation_cursor = operation->validating_cached ? operation->validation_cursor : 0;
         std::copy_n(operation->bounds, 6, prop_query_result_cache.bounds.begin());
         prop_query_result_cache.props = std::move(operation->output);
     } else {
