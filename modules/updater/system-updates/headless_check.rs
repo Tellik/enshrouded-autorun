@@ -28,9 +28,17 @@ pub(crate) fn headless_check_system_updates(
         .pointer("/modules/updates/system/includePrereleases")
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false);
-    let current = std::fs::read(shroudforge_loader_config::paths::version_file(root))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+    let version_path = shroudforge_loader_config::paths::version_file(root);
+    let current = match std::fs::read(&version_path) {
+        Ok(bytes) => serde_json::from_slice::<serde_json::Value>(&bytes).ok(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => {
+            return Err(format!(
+                "could not read installed version manifest {}: {error}",
+                version_path.display()
+            ));
+        }
+    };
     let current_version = current
         .as_ref()
         .and_then(|value| value["version"].as_str())

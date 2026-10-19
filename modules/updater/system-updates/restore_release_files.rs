@@ -7,9 +7,12 @@ pub(crate) fn restore(backup: &Path, target: &Path, paths: &[String]) -> Result<
     for relative in paths {
         let saved = backup.join(relative);
         let current = installed_path(target, relative);
-        remove_entry(&current)?;
+        remove_entry(&current)
+            .map_err(|error| format!("could not remove {relative} during rollback: {error}"))?;
         if saved.exists() {
-            copy_entry(&saved, &current)?;
+            copy_entry(&saved, &current).map_err(|error| {
+                format!("could not restore {relative} during rollback: {error}")
+            })?;
         }
     }
     Ok(())

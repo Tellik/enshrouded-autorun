@@ -48,9 +48,25 @@ fn copy_file_atomically(source: &Path, target: &Path) -> Result<(), String> {
             target.display()
         )
     })?;
-    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    let source_metadata = fs::metadata(source).map_err(|error| error.to_string())?;
-    let mut source_file = File::open(source).map_err(|error| error.to_string())?;
+    fs::create_dir_all(parent).map_err(|error| {
+        format!(
+            "could not create parent directory {} for version manifest {}: {error}",
+            parent.display(),
+            target.display()
+        )
+    })?;
+    let source_metadata = fs::metadata(source).map_err(|error| {
+        format!(
+            "could not inspect staged version manifest {}: {error}",
+            source.display()
+        )
+    })?;
+    let mut source_file = File::open(source).map_err(|error| {
+        format!(
+            "could not read staged version manifest {}: {error}",
+            source.display()
+        )
+    })?;
     let file_name = target
         .file_name()
         .ok_or_else(|| format!("version manifest has no file name: {}", target.display()))?;
@@ -84,15 +100,29 @@ fn copy_file_atomically(source: &Path, target: &Path) -> Result<(), String> {
         destination_file.sync_all()?;
         drop(destination_file);
         fs::set_permissions(&temporary, source_metadata.permissions())?;
-        replace_file_atomically(&temporary, target)
+        replace_file_atomically_with_retry(&temporary, target)
     })();
     if let Err(error) = result {
         let _ = fs::remove_file(&temporary);
         return Err(format!(
-            "could not publish version manifest atomically: {error}"
+            "could not publish version manifest {} atomically: {error}",
+            target.display()
         ));
     }
     Ok(())
+}
+
+fn replace_file_atomically_with_retry(source: &Path, target: &Path) -> io::Result<()> {
+    const ATTEMPTS: usize = 10;
+    for attempt in 0..ATTEMPTS {
+        match replace_file_atomically(source, target) {
+            Err(error) if retryable_file_lock(&error) && attempt + 1 < ATTEMPTS => {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+            result => return result,
+        }
+    }
+    unreachable!()
 }
 
 #[cfg(windows)]
@@ -133,18 +163,63 @@ fn replace_file_atomically(source: &Path, target: &Path) -> io::Result<()> {
 
 pub(crate) fn copy_entry(source: &Path, target: &Path) -> Result<(), String> {
     if source.is_dir() {
-        fs::create_dir_all(target).map_err(|error| error.to_string())?;
-        for entry in fs::read_dir(source).map_err(|error| error.to_string())? {
-            let entry = entry.map_err(|error| error.to_string())?;
+        fs::create_dir_all(target).map_err(|error| {
+            format!(
+                "could not create update directory {} from {}: {error}",
+                target.display(),
+                source.display()
+            )
+        })?;
+        for entry in fs::read_dir(source).map_err(|error| {
+            format!(
+                "could not read update directory {}: {error}",
+                source.display()
+            )
+        })? {
+            let entry = entry.map_err(|error| {
+                format!(
+                    "could not inspect update directory {}: {error}",
+                    source.display()
+                )
+            })?;
             copy_entry(&entry.path(), &target.join(entry.file_name()))?;
         }
     } else {
         if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+            fs::create_dir_all(parent).map_err(|error| {
+                format!(
+                    "could not create parent directory {} for update file {}: {error}",
+                    parent.display(),
+                    target.display()
+                )
+            })?;
         }
-        fs::copy(source, target).map_err(|error| error.to_string())?;
+        copy_file_with_retry(source, target).map_err(|error| {
+            format!(
+                "could not copy update file {} to {}: {error}",
+                source.display(),
+                target.display()
+            )
+        })?;
     }
     Ok(())
+}
+
+fn copy_file_with_retry(source: &Path, target: &Path) -> std::io::Result<u64> {
+    const ATTEMPTS: usize = 10;
+    for attempt in 0..ATTEMPTS {
+        match fs::copy(source, target) {
+            Err(error) if retryable_file_lock(&error) && attempt + 1 < ATTEMPTS => {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+            result => return result,
+        }
+    }
+    unreachable!()
+}
+
+fn retryable_file_lock(error: &std::io::Error) -> bool {
+    error.kind() == io::ErrorKind::WouldBlock || matches!(error.raw_os_error(), Some(5 | 32 | 33))
 }
 
 #[cfg(test)]

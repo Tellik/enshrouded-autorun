@@ -48,6 +48,7 @@ use shroudforge_window_management::WindowDefaults;
 use shroudforge_window_management::apply_window_geometry;
 use shroudforge_window_management::current_window_geometry;
 use shroudforge_window_management::save_window_geometry;
+use std::borrow::Cow;
 use std::fs;
 use std::process::Child;
 use std::sync::Arc;
@@ -71,6 +72,7 @@ use windows_sys::Win32::System::Threading::GetCurrentProcessId;
 use windows_sys::Win32::System::Threading::WaitForSingleObject;
 use wry::WebContext;
 use wry::WebViewBuilder;
+use wry::WebViewBuilderExtWindows;
 
 pub(crate) const DEFAULT_TOGGLE_KEY: u32 = 120; // F9
 
@@ -181,7 +183,28 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
         "/../../../build/ui/modloader/index.html"
     ));
     let webview = WebViewBuilder::new_with_web_context(&mut web_context)
-        .with_html(html)
+        .with_custom_protocol("shroudforge".into(), move |_webview_id, request| {
+            let (status, content_type, body) = if request.uri().path() == "/index.html" {
+                (
+                    wry::http::StatusCode::OK,
+                    "text/html; charset=utf-8",
+                    Cow::Borrowed(html.as_bytes()),
+                )
+            } else {
+                (
+                    wry::http::StatusCode::NOT_FOUND,
+                    "text/plain; charset=utf-8",
+                    Cow::Borrowed(&[][..]),
+                )
+            };
+            wry::http::Response::builder()
+                .status(status)
+                .header(wry::http::header::CONTENT_TYPE, content_type)
+                .body(body)
+                .expect("Modloader UI response is valid")
+        })
+        .with_https_scheme(true)
+        .with_url("shroudforge://localhost/index.html")
         .with_ipc_handler(handler)
         .build(&window)?;
 

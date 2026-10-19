@@ -1,14 +1,43 @@
 use std::{fs, path::Path};
 
 pub(crate) fn remove_entry(path: &Path) -> Result<(), String> {
-    if !path.exists() {
-        return Ok(());
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(format!(
+                "could not inspect update target {}: {error}",
+                path.display()
+            ));
+        }
+    };
+    retry_file_operation(|| {
+        if metadata.is_dir() {
+            fs::remove_dir_all(path)
+        } else {
+            fs::remove_file(path)
+        }
+    })
+    .map_err(|error| format!("could not remove update target {}: {error}", path.display()))
+}
+
+fn retry_file_operation<T>(
+    mut operation: impl FnMut() -> std::io::Result<T>,
+) -> std::io::Result<T> {
+    const ATTEMPTS: usize = 10;
+    for attempt in 0..ATTEMPTS {
+        match operation() {
+            Err(error)
+                if (error.kind() == std::io::ErrorKind::WouldBlock
+                    || matches!(error.raw_os_error(), Some(5 | 32 | 33)))
+                    && attempt + 1 < ATTEMPTS =>
+            {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+            result => return result,
+        }
     }
-    if path.is_dir() {
-        fs::remove_dir_all(path).map_err(|error| error.to_string())
-    } else {
-        fs::remove_file(path).map_err(|error| error.to_string())
-    }
+    unreachable!()
 }
 
 pub(crate) fn remove_empty_mod_directories(root: &Path, file: &Path) -> Result<(), String> {
