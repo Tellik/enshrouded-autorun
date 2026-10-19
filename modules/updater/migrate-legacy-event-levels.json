@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "migration.notification-event-levels",
+  "revision": 2,
+  "name": "Migrate notification event levels",
+  "description": "Converts legacy success, update, and warning levels to the current notification schema introduced in 8935696, preserving event details and all other state sections.",
+  "trigger": "after-install",
+  "repeatable": false,
+  "action": "migrate-legacy-event-levels"
+}

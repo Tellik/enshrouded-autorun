@@ -50,7 +50,8 @@ pub fn configuration(root: &Path, server: bool, api: &str) -> Value {
         Ok(events) => {
             if let Some(events) = events.as_object() {
                 for (id, value) in events {
-                    if let Err(error) = shroudforge_news::validate_event(root, value) {
+                    let normalized = shroudforge_news::normalize_legacy_event_level(value.clone());
+                    if let Err(error) = shroudforge_news::validate_event(root, &normalized) {
                         errors.push(format!("event {id}: {error}"));
                     }
                 }
@@ -440,6 +441,32 @@ pub fn configuration(root: &Path, server: bool, api: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_success_event_does_not_make_configuration_invalid() {
+        let root = tempfile::tempdir().expect("temporary installation root");
+        shroudforge_loader_config::config::write_document(
+            root.path(),
+            shroudforge_news::documents::EVENTS_STATE,
+            &json!({
+                "event-mod-install-sf-survival-1.0.0.json": {
+                    "id": "mod-install-sf-survival-1.0.0",
+                    "title": "",
+                    "message": "",
+                    "level": "success"
+                }
+            }),
+        )
+        .expect("legacy event state");
+
+        let status = configuration(root.path(), false, "1.0.0");
+        let errors = status["errors"].as_array().expect("configuration errors");
+        assert!(!errors.iter().any(|error| {
+            error.as_str().is_some_and(|error| {
+                error.starts_with("event event-mod-install-sf-survival-1.0.0.json:")
+            })
+        }));
+    }
 
     #[test]
     fn failed_asset_startup_is_not_reported_as_another_restart_request() {

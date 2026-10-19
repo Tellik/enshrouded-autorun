@@ -19,8 +19,25 @@ struct JobDefinition {
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
-enum Trigger {
+pub(crate) enum Trigger {
     BeforeUpdate,
+    AfterInstall,
+}
+
+impl Trigger {
+    pub(crate) fn from_queue(value: &serde_json::Value) -> Self {
+        match value.as_str() {
+            Some("after-install") => Self::AfterInstall,
+            _ => Self::BeforeUpdate,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::BeforeUpdate => "before-update",
+            Self::AfterInstall => "after-install",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -29,6 +46,7 @@ enum Action {
     MigrateLegacyBackups,
     MigrateLegacyUpdateFiles,
     MigrateLegacyMods,
+    MigrateLegacyEventLevels,
     PurgeExpiredRecycleBin,
 }
 
@@ -36,15 +54,19 @@ impl Action {
     fn is_migration(self) -> bool {
         matches!(
             self,
-            Self::MigrateLegacyBackups | Self::MigrateLegacyUpdateFiles | Self::MigrateLegacyMods
+            Self::MigrateLegacyBackups
+                | Self::MigrateLegacyUpdateFiles
+                | Self::MigrateLegacyMods
+                | Self::MigrateLegacyEventLevels
         )
     }
 }
 
-const REQUIRED_MIGRATIONS: [Action; 3] = [
-    Action::MigrateLegacyBackups,
-    Action::MigrateLegacyUpdateFiles,
-    Action::MigrateLegacyMods,
+const REQUIRED_MIGRATIONS: [(Trigger, Action); 4] = [
+    (Trigger::BeforeUpdate, Action::MigrateLegacyBackups),
+    (Trigger::BeforeUpdate, Action::MigrateLegacyUpdateFiles),
+    (Trigger::BeforeUpdate, Action::MigrateLegacyMods),
+    (Trigger::AfterInstall, Action::MigrateLegacyEventLevels),
 ];
 
 const CURRENT_MOD_IDS: &[&str] = &[
@@ -87,6 +109,10 @@ const DEFAULT_JOBS: &[(&str, &str)] = &[
         include_str!("migrate-legacy-mods.json"),
     ),
     (
+        "migrate-legacy-event-levels.json",
+        include_str!("migrate-legacy-event-levels.json"),
+    ),
+    (
         "purge-expired-recycle-bin.json",
         include_str!("purge-expired-recycle-bin.json"),
     ),
@@ -98,17 +124,28 @@ struct JobCatalog {
 }
 
 pub(crate) fn enqueue_before_update(root: &Path) -> Result<(), String> {
+    enqueue_for_trigger(root, Trigger::BeforeUpdate)
+}
+
+fn enqueue_for_trigger(root: &Path, trigger: Trigger) -> Result<(), String> {
     let catalog = discover(root);
     for error in catalog.errors {
         let _ = shroudforge_logging::append(root, 'W', "updater", &error);
     }
-    if REQUIRED_MIGRATIONS.iter().any(|required| {
-        !catalog
-            .jobs
-            .iter()
-            .any(|job| job.trigger == Trigger::BeforeUpdate && job.action == *required)
-    }) {
-        return Err("required updater migration jobs are missing or invalid".into());
+    if REQUIRED_MIGRATIONS
+        .iter()
+        .any(|(required_trigger, required)| {
+            *required_trigger == trigger
+                && !catalog
+                    .jobs
+                    .iter()
+                    .any(|job| job.trigger == trigger && job.action == *required)
+        })
+    {
+        return Err(format!(
+            "required updater migration jobs for {} are missing or invalid",
+            trigger.as_str()
+        ));
     }
     crate::update_queue_storage::update_update_queue(root, |queue| {
         if queue["run"]["state"] == "running" {
@@ -117,10 +154,13 @@ pub(crate) fn enqueue_before_update(root: &Path) -> Result<(), String> {
         let items = queue["items"]
             .as_array_mut()
             .ok_or("update queue has an invalid items list")?;
+        for job in &catalog.jobs {
+            supersede_obsolete_revisions(items, job);
+        }
         for job in catalog
             .jobs
             .into_iter()
-            .filter(|job| job.trigger == Trigger::BeforeUpdate)
+            .filter(|job| job.trigger == trigger)
         {
             let id = format!("maintenance:{}:{}", job.id, job.revision);
             let existing_index = items.iter().position(|item| item["id"] == id);
@@ -138,6 +178,155 @@ pub(crate) fn enqueue_before_update(root: &Path) -> Result<(), String> {
     })
 }
 
+#[cfg(windows)]
+pub(crate) fn run_after_install(root: &Path) -> Result<(), String> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let Some(receipt) = read_install_receipt(root)? else {
+        return Ok(());
+    };
+    let Some(_worker_mutex) = crate::acquire_queue_worker_mutex(root)? else {
+        return Err(
+            "post-install maintenance was deferred while the update queue worker is active".into(),
+        );
+    };
+    let queue = crate::update_queue_storage::read_update_queue_value(root);
+    if queue["lastAfterInstall"] == receipt {
+        return Ok(());
+    }
+    if queue["run"]["state"] == "running" {
+        if Trigger::from_queue(&queue["run"]["trigger"]) == Trigger::BeforeUpdate {
+            return Err(
+                "post-install maintenance was deferred until the previous update queue finishes"
+                    .into(),
+            );
+        }
+        crate::run_update_queue(root)?;
+    }
+    enqueue_for_trigger(root, Trigger::AfterInstall)?;
+    let ids = crate::update_queue_storage::read_update_queue_value(root)["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|item| {
+            item["kind"] == "maintenance"
+                && Trigger::from_queue(&item["trigger"]) == Trigger::AfterInstall
+                && item["state"] == "queued"
+        })
+        .filter_map(|item| item["id"].as_str().map(str::to_owned))
+        .collect::<Vec<_>>();
+
+    if !ids.is_empty() {
+        crate::update_queue_storage::update_update_queue(root, |queue| {
+            if queue["run"]["state"] == "running" {
+                return Err("the update queue is already running".into());
+            }
+            queue["run"] = serde_json::json!({
+                "state": "running",
+                "trigger": Trigger::AfterInstall.as_str(),
+                "waitForGame": false,
+                "waitPid": 0,
+                "showWindow": false,
+                "itemIds": ids,
+                "activeItemId": null,
+                "installing": false,
+                "startedAt": SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            });
+            Ok(())
+        })?;
+        crate::run_update_queue(root)?;
+
+        let queue = crate::update_queue_storage::read_update_queue_value(root);
+        let run_ids = queue["run"]["itemIds"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+            .collect::<Vec<_>>();
+        let failures = queue["items"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|item| {
+                run_ids.iter().any(|id| item["id"].as_str() == Some(id))
+                    && item["state"] != "complete"
+            })
+            .map(|item| {
+                format!(
+                    "{}: {}",
+                    item["title"].as_str().unwrap_or("maintenance job"),
+                    item["message"]
+                        .as_str()
+                        .unwrap_or(item["state"].as_str().unwrap_or("failed"))
+                )
+            })
+            .collect::<Vec<_>>();
+        if !failures.is_empty() {
+            return Err(failures.join(", "));
+        }
+    }
+
+    crate::update_queue_storage::update_update_queue(root, |queue| {
+        queue["lastAfterInstall"] = receipt;
+        Ok(())
+    })
+}
+
+#[cfg(windows)]
+fn read_install_receipt(root: &Path) -> Result<Option<serde_json::Value>, String> {
+    let Some(updates) = shroudforge_loader_config::config::read_state_section(root, "updates")?
+    else {
+        return Ok(None);
+    };
+    if updates["status"] != "installed" {
+        return Ok(None);
+    }
+    let Some(version) = updates["version"]
+        .as_str()
+        .filter(|value| !value.trim().is_empty())
+    else {
+        return Ok(None);
+    };
+    let build = updates["build"]
+        .as_str()
+        .map(str::to_owned)
+        .or_else(|| updates["build"].as_u64().map(|value| value.to_string()));
+    let Some(build) = build else {
+        return Ok(None);
+    };
+    let Some(installed_at) = updates["installedAt"].as_u64() else {
+        return Ok(None);
+    };
+    Ok(Some(serde_json::json!({
+        "version": version,
+        "build": build,
+        "installedAt": installed_at
+    })))
+}
+
+fn supersede_obsolete_revisions(items: &mut [serde_json::Value], job: &JobDefinition) {
+    let prefix = format!("maintenance:{}:", job.id);
+    let current_id = format!("maintenance:{}:{}", job.id, job.revision);
+    for item in items.iter_mut().filter(|item| {
+        item["kind"] == "maintenance"
+            && item["id"]
+                .as_str()
+                .is_some_and(|id| id.starts_with(&prefix) && id != current_id)
+    }) {
+        if item["state"] == "queued" || item["state"] == "error" {
+            item["state"] = serde_json::Value::String("cancelled".into());
+            item["selected"] = serde_json::Value::Bool(false);
+            item["message"] = serde_json::Value::String(format!(
+                "Superseded by maintenance job revision {}",
+                job.revision
+            ));
+        }
+    }
+}
+
 pub(crate) fn execute(root: &Path, item: &serde_json::Value) -> Result<(), String> {
     let action = action_from_item(item)?;
     match action {
@@ -149,6 +338,7 @@ pub(crate) fn execute(root: &Path, item: &serde_json::Value) -> Result<(), Strin
             migrate_legacy_update_files(root)?;
         }
         Action::MigrateLegacyMods => migrate_legacy_mods(root)?,
+        Action::MigrateLegacyEventLevels => migrate_legacy_event_levels(root)?,
         Action::PurgeExpiredRecycleBin => {
             if crate::recycle_bin::automatic_cleanup_enabled(root) {
                 crate::recycle_bin::purge_expired(root)?;
@@ -170,9 +360,14 @@ fn action_from_item(item: &serde_json::Value) -> Result<Action, String> {
         Some("MigrateLegacyBackups") => Ok(Action::MigrateLegacyBackups),
         Some("MigrateLegacyUpdateFiles") => Ok(Action::MigrateLegacyUpdateFiles),
         Some("MigrateLegacyMods") => Ok(Action::MigrateLegacyMods),
+        Some("MigrateLegacyEventLevels") => Ok(Action::MigrateLegacyEventLevels),
         Some("PurgeExpiredRecycleBin") => Ok(Action::PurgeExpiredRecycleBin),
         _ => Err(format!("unsupported maintenance job in queue item {id}")),
     }
+}
+
+fn migrate_legacy_event_levels(root: &Path) -> Result<(), String> {
+    shroudforge_news::migrate_legacy_event_levels(root).map(|_| ())
 }
 
 fn migrate_legacy_mods(root: &Path) -> Result<(), String> {
@@ -399,8 +594,9 @@ fn queue_item(id: &str, job: JobDefinition) -> serde_json::Value {
         "operation": format!("{:?}", job.action),
         "title": job.name,
         "version": job.revision,
+        "trigger": job.trigger.as_str(),
         "state": "queued",
-        "selected": true,
+        "selected": job.trigger == Trigger::BeforeUpdate,
         "required": job.action.is_migration(),
         "message": job.description
     })
@@ -422,6 +618,11 @@ fn discover(root: &Path) -> JobCatalog {
     for (name, contents) in DEFAULT_JOBS {
         let path = directory.join(name);
         if path.exists() {
+            if *name == "migrate-legacy-event-levels.json"
+                && let Err(error) = upgrade_legacy_event_job_phase(&path)
+            {
+                errors.push(error);
+            }
             continue;
         }
         if let Err(error) = fs::write(&path, contents) {
@@ -525,6 +726,31 @@ fn discover(root: &Path) -> JobCatalog {
     JobCatalog { jobs, errors }
 }
 
+fn upgrade_legacy_event_job_phase(path: &Path) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|error| format!("cannot inspect maintenance job {}: {error}", path.display()))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(format!(
+            "cannot upgrade non-regular maintenance job {}",
+            path.display()
+        ));
+    }
+    let mut job = read_json(path)?;
+    if job["id"] != "migration.notification-event-levels"
+        || job["action"] != "migrate-legacy-event-levels"
+        || job["revision"] != 1
+        || job["trigger"] != "before-update"
+    {
+        return Ok(());
+    }
+    job["revision"] = serde_json::json!(2);
+    job["trigger"] = serde_json::json!("after-install");
+    let contents = serde_json::to_vec_pretty(&job)
+        .map_err(|error| format!("cannot encode maintenance job {}: {error}", path.display()))?;
+    fs::write(path, contents)
+        .map_err(|error| format!("cannot update maintenance job {}: {error}", path.display()))
+}
+
 fn validate(job: &JobDefinition) -> Result<(), String> {
     if job.schema_version != 1 {
         return Err("schemaVersion must be 1".into());
@@ -547,4 +773,108 @@ fn validate(job: &JobDefinition) -> Result<(), String> {
         return Err("description must contain at most 500 characters".into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn legacy_event_migration_preserves_state_and_loader_settings() {
+        let root = tempfile::tempdir().unwrap();
+        let config_path = shroudforge_loader_config::paths::loader_config(root.path());
+        fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+        let config_bytes = br#"{"schemaVersion":1,"modules":{"modloaderUi":{"enabled":false}},"paths":{"state":"custom-state"}}"#;
+        fs::write(&config_path, config_bytes).unwrap();
+
+        let state_path = shroudforge_loader_config::paths::state_file(root.path());
+        assert_eq!(state_path, root.path().join("custom-state/state.json"));
+        fs::create_dir_all(state_path.parent().unwrap()).unwrap();
+        let before = json!({
+            "schemaVersion": 1,
+            "events": {
+                "success.json": {"id":"install-success","title":"Installed","message":"Done","level":"success","values":{"keep":true}},
+                "update.json": {"id":"install-update","title":"Updated","message":"Done","level":"update"},
+                "warning.json": {"id":"install-warning","title":"Warning","message":"Details","level":"warning"},
+                "modern.json": {"id":"install-info","title":"Info","message":"Details","level":"info"}
+            },
+            "windows": {"modloader": {"width": 900, "height": 700}},
+            "updates": {"lastResult": {"version": "1.2.3", "status": "complete"}}
+        });
+        fs::write(&state_path, serde_json::to_vec_pretty(&before).unwrap()).unwrap();
+
+        execute(
+            root.path(),
+            &json!({"id":"maintenance:migration.notification-event-levels:2","operation":"MigrateLegacyEventLevels"}),
+        )
+        .unwrap();
+
+        let migrated: serde_json::Value =
+            serde_json::from_slice(&fs::read(state_path).unwrap()).unwrap();
+        let mut expected = before;
+        expected["events"]["success.json"]["level"] = json!("info");
+        expected["events"]["update.json"]["level"] = json!("info");
+        expected["events"]["warning.json"]["level"] = json!("warn");
+        assert_eq!(migrated, expected);
+        assert_eq!(fs::read(config_path).unwrap(), config_bytes);
+    }
+
+    #[test]
+    fn legacy_event_migration_is_installed_as_a_required_after_install_job() {
+        let root = tempfile::tempdir().unwrap();
+        enqueue_for_trigger(root.path(), Trigger::AfterInstall).unwrap();
+
+        let queue_path = crate::update_queue_storage::update_queue_path(root.path());
+        let queue: serde_json::Value =
+            serde_json::from_slice(&fs::read(queue_path).unwrap()).unwrap();
+        let item = queue["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == "maintenance:migration.notification-event-levels:2")
+            .unwrap();
+        assert_eq!(item["operation"], "MigrateLegacyEventLevels");
+        assert_eq!(item["required"], true);
+        assert_eq!(item["state"], "queued");
+        assert_eq!(item["trigger"], "after-install");
+        assert_eq!(item["selected"], false);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn after_install_migration_runs_for_a_string_build_receipt() {
+        let root = tempfile::tempdir().unwrap();
+        let state_path = shroudforge_loader_config::paths::state_file(root.path());
+        fs::create_dir_all(state_path.parent().unwrap()).unwrap();
+        fs::write(
+            &state_path,
+            serde_json::to_vec_pretty(&json!({
+                "schemaVersion": 1,
+                "updates": {
+                    "status": "installed",
+                    "version": "1.7.3",
+                    "build": "39293575337",
+                    "installedAt": 12345
+                },
+                "events": {
+                    "event.json": {"id":"old-event","title":"Old event","message":"Done","level":"success"}
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        run_after_install(root.path()).unwrap();
+
+        let migrated: serde_json::Value =
+            serde_json::from_slice(&fs::read(state_path).unwrap()).unwrap();
+        assert_eq!(migrated["events"]["event.json"]["level"], "info");
+        let queue = crate::update_queue_storage::read_update_queue_value(root.path());
+        assert_eq!(queue["lastAfterInstall"]["build"], "39293575337");
+        assert_eq!(
+            queue["items"][0]["state"], "complete",
+            "post-install migration must complete"
+        );
+    }
 }

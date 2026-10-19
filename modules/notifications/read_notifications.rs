@@ -2,7 +2,7 @@ use crate::{ModNotification, Notice, NoticeAction, NoticeBanner, NoticeLink};
 use shroudforge_logging::LogLevel;
 use std::path::Path;
 
-fn normalize_legacy_level(mut value: serde_json::Value) -> serde_json::Value {
+pub fn normalize_legacy_event_level(mut value: serde_json::Value) -> serde_json::Value {
     let replacement = match value.get("level").and_then(|level| level.as_str()) {
         Some("warning") => Some("warn"),
         Some("success" | "update") => Some("info"),
@@ -26,7 +26,7 @@ pub fn read_notifications(root: &Path, mods: &[ModNotification<'_>]) -> Vec<Noti
         .into_iter()
         .flat_map(|values| values.values().cloned())
         .filter_map(|value| {
-            let normalized = normalize_legacy_level(value.clone());
+            let normalized = normalize_legacy_event_level(value.clone());
             (crate::validate_event(root, &normalized).is_ok()
                 || crate::validate_event(root, &value).is_ok())
             .then_some(normalized)

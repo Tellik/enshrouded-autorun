@@ -108,6 +108,15 @@ pub fn run_request(
     if !root.is_dir() {
         return Err("updater request root is not a directory".into());
     }
+    #[cfg(windows)]
+    if let Err(error) = maintenance_jobs::run_after_install(root) {
+        let _ = shroudforge_logging::append(
+            root,
+            'W',
+            "updater",
+            &format!("Post-install maintenance will be retried: {error}"),
+        );
+    }
     let command = request
         .get("command")
         .and_then(serde_json::Value::as_str)
