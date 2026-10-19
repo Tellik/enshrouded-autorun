@@ -1,5 +1,8 @@
 use shroudforge_package::{Capability, config::read_manifest_path};
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 #[test]
 fn every_mod_has_valid_lua_and_declares_its_used_capabilities() {
@@ -19,11 +22,18 @@ fn every_mod_has_valid_lua_and_declares_its_used_capabilities() {
             continue;
         }
 
-        let source = fs::read_to_string(&source_path).unwrap();
-        lua.load(&source)
-            .set_name(source_path.display().to_string())
-            .into_function()
-            .unwrap_or_else(|error| panic!("{}: {error}", source_path.display()));
+        let mut source = String::new();
+        for lua_path in lua_sources(&package_dir.join("src")) {
+            let lua_source = fs::read_to_string(&lua_path)
+                .unwrap_or_else(|error| panic!("{}: {error}", lua_path.display()));
+            lua.load(&lua_source)
+                .set_name(lua_path.display().to_string())
+                .into_function()
+                .unwrap_or_else(|error| panic!("{}: {error}", lua_path.display()));
+            source.push_str(&lua_source);
+            source.push('\n');
+            assert_no_machine_patch_primitives(&lua_path.display().to_string(), &lua_source);
+        }
 
         let manifest = read_manifest_path(root, &package_dir)
             .unwrap_or_else(|error| panic!("{}: {error}", package_dir.display()));
@@ -71,9 +81,29 @@ fn every_mod_has_valid_lua_and_declares_its_used_capabilities() {
             "{} uses the asset write API without declaring the patch capability",
             manifest.id
         );
-
-        assert_no_machine_patch_primitives(&source_path.display().to_string(), &source);
     }
+}
+
+fn lua_sources(directory: &Path) -> Vec<PathBuf> {
+    let mut sources = Vec::new();
+    for entry in fs::read_dir(directory)
+        .unwrap_or_else(|error| panic!("{}: {error}", directory.display()))
+        .flatten()
+    {
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        if file_type.is_dir() {
+            sources.extend(lua_sources(&path));
+        } else if file_type.is_file()
+            && path.extension().is_some_and(|extension| extension == "lua")
+        {
+            sources.push(path);
+        }
+    }
+    sources.sort();
+    sources
 }
 
 #[test]
