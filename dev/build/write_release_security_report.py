@@ -25,13 +25,13 @@ def write_json(path: Path, value: dict[str, Any]) -> None:
 
 def sarif_findings(path: Path) -> tuple[list[dict[str, str]], dict[str, int], str | None]:
     if not path.is_file():
-        return [], {"error": 0, "warning": 0, "note": 0, "other": 0}, "Die SARIF-Datei wurde nicht erzeugt."
+        return [], {"error": 0, "warning": 0, "note": 0, "other": 0}, "The SARIF file was not generated."
     try:
         sarif = json.loads(read_text(path))
     except json.JSONDecodeError as error:
-        return [], {"error": 0, "warning": 0, "note": 0, "other": 0}, f"Die SARIF-Datei enthält ungültiges JSON: {error}"
+        return [], {"error": 0, "warning": 0, "note": 0, "other": 0}, f"The SARIF file contains invalid JSON: {error}"
     if not isinstance(sarif, dict):
-        return [], {"error": 0, "warning": 0, "note": 0, "other": 0}, "Die SARIF-Datei muss ein JSON-Objekt enthalten."
+        return [], {"error": 0, "warning": 0, "note": 0, "other": 0}, "The SARIF file must contain a JSON object."
 
     findings: list[dict[str, str]] = []
     counts = {"error": 0, "warning": 0, "note": 0, "other": 0}
@@ -126,12 +126,12 @@ def write_clamav_report(args: argparse.Namespace) -> None:
 
     error = None
     if scan_outcome == "success" and not infected_match:
-        error = "ClamAV hat den Scan ohne Abschlussübersicht im erfassten Protokoll beendet."
+        error = "ClamAV completed the scan without a summary in the captured log."
         status = "error"
     elif scan_outcome == "failure" and not infected_count:
-        error = "Der ClamAV-Scan ist fehlgeschlagen. Siehe das angehängte Rohprotokoll."
+        error = "The ClamAV scan failed. See the attached raw log."
     if args.signature_update_outcome.lower() not in {"success", "skipped"}:
-        error = error or "Das ClamAV-Signaturupdate wurde nicht erfolgreich abgeschlossen."
+        error = error or "The ClamAV signature update did not complete successfully."
         if status == "skipped":
             status = "error"
 
@@ -165,7 +165,7 @@ def load_report(path: Path, scanner: str, target: str, job_result: str) -> dict[
                 "error": f"Report JSON is invalid: {error}",
             }
     missing_status = "skipped" if job_result.lower() == "skipped" else "error"
-    reason = "Der Scanner-Job wurde vor der Berichtserstellung übersprungen." if missing_status == "skipped" else "Der Scanner-Bericht fehlt."
+    reason = "The scanner job was skipped before the report was created." if missing_status == "skipped" else "The scanner report is missing."
     return {
         "scanner": scanner,
         "target": target,
@@ -191,41 +191,41 @@ def markdown_cell(value: Any) -> str:
 def status_label(report: dict[str, Any], is_trivy: bool = False) -> str:
     status = report.get("status", "error")
     if status == "clean":
-        return "Keine Funde"
+        return "No findings"
     if status == "findings":
-        return "Funde, Veröffentlichung nicht blockiert" if is_trivy else "Funde, Veröffentlichung blockiert"
+        return "Findings, release not blocked" if is_trivy else "Findings, release blocked"
     if status == "skipped":
-        return "Übersprungen"
+        return "Skipped"
     if status == "error":
-        return "Fehler"
+        return "Error"
     return str(status)
 
 
 def job_result_label(value: Any) -> str:
     return {
-        "success": "Erfolgreich",
-        "failure": "Fehlgeschlagen",
-        "cancelled": "Abgebrochen",
-        "skipped": "Übersprungen",
-    }.get(str(value).lower(), "Unbekannt")
+        "success": "Succeeded",
+        "failure": "Failed",
+        "cancelled": "Cancelled",
+        "skipped": "Skipped",
+    }.get(str(value).lower(), "Unknown")
 
 
 def sarif_status_label(value: Any) -> str:
     return {
-        "success": "Hochgeladen",
-        "failure": "Fehlgeschlagen",
-        "skipped": "Übersprungen",
-        "cancelled": "Abgebrochen",
-    }.get(str(value).lower(), "Unbekannt")
+        "success": "Uploaded",
+        "failure": "Failed",
+        "skipped": "Skipped",
+        "cancelled": "Cancelled",
+    }.get(str(value).lower(), "Unknown")
 
 
 def signature_status_label(value: Any) -> str:
     return {
-        "success": "aktualisiert",
-        "warning": "Warnung, vorhandene Signaturen verwendet",
-        "failure": "fehlgeschlagen",
-        "skipped": "übersprungen",
-        "not_attempted": "nicht gestartet",
+        "success": "updated",
+        "warning": "Warning, using existing signatures",
+        "failure": "failed",
+        "skipped": "skipped",
+        "not_attempted": "not started",
     }.get(str(value).lower(), str(value))
 
 
@@ -241,25 +241,25 @@ def report_notes(report: dict[str, Any]) -> str:
     if report.get("version"):
         notes.append(f"Version: {report['version']}")
     if report.get("signature_update_status"):
-        notes.append(f"Signaturupdate: {signature_status_label(report['signature_update_status'])}")
+        notes.append(f"Signature update: {signature_status_label(report['signature_update_status'])}")
     if report.get("signature_update_message"):
         notes.append(str(report["signature_update_message"]))
     metadata = report.get("metadata", {})
     if isinstance(metadata, dict):
         if metadata.get("signature_version"):
-            notes.append(f"Defender-Signatur: {metadata['signature_version']}")
+            notes.append(f"Defender signature: {metadata['signature_version']}")
         if metadata.get("signature_last_updated"):
-            notes.append(f"aktualisiert: {metadata['signature_last_updated']}")
+            notes.append(f"Updated: {metadata['signature_last_updated']}")
         if metadata.get("engine_version"):
             notes.append(f"Engine: {metadata['engine_version']}")
         if metadata.get("cloud_protection_level") is not None:
-            notes.append(f"Cloud-Schutzwert: {metadata['cloud_protection_level']}")
+            notes.append(f"Cloud protection level: {metadata['cloud_protection_level']}")
         if metadata.get("real_time_protection_enabled") is not None:
-            notes.append(f"Echtzeitschutz: {metadata['real_time_protection_enabled']}")
+            notes.append(f"Real-time protection: {metadata['real_time_protection_enabled']}")
     for warning in report.get("metadata_warnings", []) or []:
         notes.append(str(warning))
     if report.get("scanned_file_count") is not None:
-        notes.append(f"Dateien: {report['scanned_file_count']}")
+        notes.append(f"Files scanned: {report['scanned_file_count']}")
     if report.get("sarif_upload_status"):
         notes.append(f"SARIF: {sarif_status_label(report['sarif_upload_status'])}")
     if report.get("error"):
@@ -307,10 +307,10 @@ def write_aggregate(args: argparse.Namespace) -> None:
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     repository = os.environ.get("GITHUB_REPOSITORY", "")
 
-    source = load_report(report_root / "trivy-filesystem" / "trivy-filesystem.json", "Trivy", "Quellcode und Abhängigkeiten", source_job)
-    defender = load_report(report_root / "defender" / "defender-release-report.json", "Microsoft Defender Antivirus", "Release-Paket", defender_job)
-    release_trivy = load_report(report_root / "release" / "trivy-release.json", "Trivy", "Release-Paket", release_job)
-    clamav = load_report(report_root / "release" / "clamav-release.json", "ClamAV", "ZIP und entpackte Release-Dateien", release_job)
+    source = load_report(report_root / "trivy-filesystem" / "trivy-filesystem.json", "Trivy", "Source code and dependencies", source_job)
+    defender = load_report(report_root / "defender" / "defender-release-report.json", "Microsoft Defender Antivirus", "Release package", defender_job)
+    release_trivy = load_report(report_root / "release" / "trivy-release.json", "Trivy", "Release package", release_job)
+    clamav = load_report(report_root / "release" / "clamav-release.json", "ClamAV", "ZIP and extracted release files", release_job)
 
     packages_built = build_result.lower() == "success"
     if not packages_built:
@@ -350,21 +350,21 @@ def write_aggregate(args: argparse.Namespace) -> None:
     write_json(output_dir / "release-security-report.json", aggregate)
 
     overall_label = {
-        "ready": "Prüfungen abgeschlossen. Veröffentlichung ist freigegeben.",
-        "blocked": "Prüfung fehlgeschlagen oder blockierende Funde vorhanden. Veröffentlichung ist blockiert.",
-        "not_applicable": "Für dieses Ereignis wurde kein Release-Paket gebaut.",
+        "ready": "Checks completed. Release publication is approved.",
+        "blocked": "A check failed or blocking findings were detected. Release publication is blocked.",
+        "not_applicable": "No release package was built for this event.",
     }[overall]
     lines = [
-        "# Einheitlicher Release-Sicherheitsbericht",
+        "# Unified release security report",
         "",
-        f"**Run:** {run_id or 'unbekannt'}",
-        f"**Gesamtergebnis:** {overall_label}",
+        f"**Run:** {run_id or 'unknown'}",
+        f"**Overall result:** {overall_label}",
         "",
-        "## Prüfungen",
+        "## Scans",
         "",
-        "| Dienst | Umfang | Ergebnis | Total | Errors | Warnings | Notes | SARIF | Version und Signaturen |",
+        "| Service | Scope | Result | Total | Errors | Warnings | Notes | SARIF | Version and signatures |",
         "|---|---|---|---:|---:|---:|---:|---|---|",
-        f"| Build und Paketierung | Release-ZIP | {markdown_cell(job_result_label(build_result))} | — | — | — | — | — | — |",
+        f"| Build and packaging | Release ZIP | {markdown_cell(job_result_label(build_result))} | — | — | — | — | — | — |",
     ]
     for report, is_trivy in ((source, True), (defender, False), (release_trivy, True), (clamav, False)):
         notes = report_notes(report)
@@ -378,25 +378,25 @@ def write_aggregate(args: argparse.Namespace) -> None:
     lines.extend(
         [
             "",
-            "Trivy-Funde werden gezählt. Die SARIF-Datei bleibt als Workflow-Artefakt erhalten und wird bei erfolgreichem Upload in GitHub Code Scanning veröffentlicht. Trivy-Funde blockieren gemäß Workflow-Richtlinie nicht. Defender- und ClamAV-Funde blockieren die Veröffentlichung.",
+            "Trivy findings are counted. The SARIF file is retained as a workflow artifact and published to GitHub Code Scanning when the upload succeeds. Under the workflow policy, Trivy findings do not block publication. Microsoft Defender and ClamAV findings do block publication.",
             "",
-            "## Job-Ergebnisse",
+            "## Job results",
             "",
-            "| Job | Ergebnis |",
+            "| Job | Result |",
             "|---|---|",
-            f"| Build und Paketierung | {markdown_cell(job_result_label(build_result))} |",
-            f"| Trivy-Dateisystemscan | {markdown_cell(job_result_label(source_job))} |",
+            f"| Build and packaging | {markdown_cell(job_result_label(build_result))} |",
+            f"| Trivy filesystem scan | {markdown_cell(job_result_label(source_job))} |",
             f"| Microsoft Defender | {markdown_cell(job_result_label(defender_job))} |",
-            f"| Trivy-Paketscan und ClamAV | {markdown_cell(job_result_label(release_job))} |",
+            f"| Trivy package scan and ClamAV | {markdown_cell(job_result_label(release_job))} |",
         ]
     )
 
     details = collect_details(reports)
-    lines.extend(["", "## Gemeldete Funde", ""])
+    lines.extend(["", "## Reported findings", ""])
     if details:
         lines.extend(
             [
-                "| Dienst | Einstufung | Fund | Datei oder Fundstelle |",
+                "| Service | Severity | Finding | File or location |",
                 "|---|---|---|---|",
             ]
         )
@@ -407,11 +407,11 @@ def write_aggregate(args: argparse.Namespace) -> None:
                 f"{markdown_cell(item['finding'])} | {markdown_cell(location)} |"
             )
     else:
-        lines.append("Die verfügbaren Berichte führen keine einzelnen Funde auf. Übersprungene und fehlgeschlagene Prüfungen sind oben markiert.")
+        lines.append("The available reports contain no individual findings. Skipped and failed scans are marked above.")
 
-    lines.extend(["", "## Dateien", "", "Der zusammengefasste Bericht sowie SARIF- und Rohberichte liegen im Workflow-Artefakt."])
+    lines.extend(["", "## Files", "", "The consolidated report, SARIF files, and raw reports are included in the workflow artifact."])
     if artifact_url:
-        lines.append(f"[Berichte und SARIF-Artefakte öffnen]({artifact_url})")
+        lines.append(f"[Open reports and SARIF artifacts]({artifact_url})")
     markdown = "\n".join(lines) + "\n"
     (output_dir / "release-security-report.md").write_text(markdown, encoding="utf-8")
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")

@@ -61,7 +61,7 @@ jobs:
           TRIVY_SARIF_UPLOAD_OUTCOME: ${{ steps.upload_source_sarif.outcome }}
         run: |
           python3 dev/build/write_release_security_report.py trivy \
-            --target "Quellcode und Abhängigkeiten" \
+            --target "Source code and dependencies" \
             --sarif trivy-results.sarif \
             --scan-outcome "$TRIVY_SCAN_OUTCOME" \
             --sarif-upload-outcome "$TRIVY_SARIF_UPLOAD_OUTCOME" \
@@ -269,7 +269,7 @@ jobs:
           CLAMAV_SCAN_OUTCOME: ${{ steps.clamav_scan.outcome }}
         run: |
           python3 dev/build/write_release_security_report.py trivy \
-            --target "Release-Paket" \
+            --target "Release package" \
             --sarif trivy-release.sarif \
             --scan-outcome "$TRIVY_SCAN_OUTCOME" \
             --sarif-upload-outcome "$TRIVY_SARIF_UPLOAD_OUTCOME" \
