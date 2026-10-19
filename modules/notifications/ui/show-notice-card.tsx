@@ -7,12 +7,17 @@ import { EcosystemBadge } from '../../ui-resources/show-ecosystem-badge'
 import { Icon } from '../../ui-resources/show-icon'
 import { ContributorList } from './show-contributors'
 import { CrowdinProgressPanel } from './show-crowdin-progress'
+import buyMeACoffeeButton from './assets/buymeacoffee-button.png'
 export function noticeIcon(item: NewsItem) {
   if (item.level === 'error') return 'issue'
-  if (item.level === 'warning') return 'warning'
-  if (item.level === 'update') return 'updates'
-  if (item.level === 'success' && item.kind !== 'mod.remove.success')
+  if (item.level === 'warn') return 'warning'
+  if (
+    item.id.startsWith('system-staged-') ||
+    item.kind === 'mod.install.success'
+  )
     return 'check'
+  if (item.id.startsWith('system-') || item.kind === 'mod.update.success')
+    return 'updates'
   switch (item.kind) {
     case 'notice.welcome':
       return 'heart'
@@ -30,10 +35,6 @@ export function noticeIcon(item: NewsItem) {
       return 'issue'
     case 'notice.support':
       return 'coffee'
-    case 'mod.install.success':
-      return 'module'
-    case 'mod.update.success':
-      return 'updates'
     case 'mod.remove.success':
       return 'trash'
     default:
@@ -57,6 +58,14 @@ export function NoticeCard({
   const { t, locale } = useI18n()
   const actions = item.actions || []
   const links = item.links || []
+  const supportLink =
+    item.kind === 'notice.support'
+      ? links.find((link) => link.labelKey === 'news.link.buyCoffee')
+      : undefined
+  const footerLinks =
+    !compact && supportLink
+      ? links.filter((link) => link !== supportLink)
+      : links
   const title =
     item.kind === 'notice.localization'
       ? t('news.notice.localization.title')
@@ -65,12 +74,21 @@ export function NoticeCard({
     item.kind === 'notice.localization'
       ? t('news.notice.localization.message')
       : item.message
+  const tone =
+    item.level === 'warn'
+      ? 'warning'
+      : item.id.startsWith('system-staged-') ||
+          item.kind === 'mod.install.success'
+        ? 'success'
+        : item.id.startsWith('system-') || item.kind === 'mod.update.success'
+          ? 'update'
+          : item.level
   const localizedUrl = (url: string) =>
     url.replace('{locale}', locale === 'de' ? 'de' : 'en')
   return (
     <article
       data-kind={item.kind}
-      className={`notice ${item.level} ${compact ? 'compact' : ''} ${unread ? 'unread' : ''}`}
+      className={`notice ${tone} ${compact ? 'compact' : ''} ${unread ? 'unread' : ''}`}
     >
       <span className="notice-icon">
         <Icon name={noticeIcon(item)} />
@@ -78,6 +96,7 @@ export function NoticeCard({
       <div>
         <div className="notice-title">
           <h3>{title}</h3>
+          <span className="state-pill neutral">{item.level.toUpperCase()}</span>
           <EcosystemBadge ecosystem={item.ecosystem} />
           {unread && <i />}
         </div>
@@ -94,6 +113,23 @@ export function NoticeCard({
           </button>
         )}
         <p>{message}</p>
+        {!compact && supportLink && (
+          <button
+            className="notice-banner"
+            type="button"
+            aria-label={t('news.link.buyCoffee')}
+            onClick={() =>
+              postRequest('open-url', { url: localizedUrl(supportLink.url) })
+            }
+          >
+            <img
+              src={buyMeACoffeeButton}
+              alt=""
+              width={174}
+              height={41}
+            />
+          </button>
+        )}
         {!compact && item.kind === 'notice.localization' && (
           <CrowdinProgressPanel />
         )}
@@ -108,7 +144,7 @@ export function NoticeCard({
         {(!compact ||
           actions.length > 0 ||
           item.actionUrl ||
-          links.length > 0 ||
+          footerLinks.length > 0 ||
           onRead) && (
           <footer>
             {item.updatedAt > 0 && (
@@ -128,7 +164,7 @@ export function NoticeCard({
                   : t('news.more')}
               </button>
             )}
-            {links.map((link, index) => (
+            {footerLinks.map((link, index) => (
               <button
                 key={`${link.labelKey || link.label}-${index}`}
                 onClick={() =>

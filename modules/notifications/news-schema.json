@@ -27,7 +27,7 @@
           "title": { "type": "string" },
           "message": { "type": "string" },
           "modId": { "type": "string" },
-          "level": { "enum": ["info", "warning", "error", "success", "update"] },
+          "level": { "enum": ["trace", "debug", "info", "warn", "error"] },
           "updatedAt": { "type": "integer", "minimum": 0 },
           "repeatEveryDays": { "type": "integer", "minimum": 1, "maximum": 3650 },
           "actionUrl": { "type": "string", "pattern": "^https://" },

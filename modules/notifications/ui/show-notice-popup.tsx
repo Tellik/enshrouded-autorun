@@ -17,7 +17,7 @@ export function Chirper({
 }) {
   const { t } = useI18n()
   const errors = items.filter((item) => item.level === 'error').length
-  const warnings = items.filter((item) => item.level === 'warning').length
+  const warnings = items.filter((item) => item.level === 'warn').length
   return (
     <div
       className="overlay"

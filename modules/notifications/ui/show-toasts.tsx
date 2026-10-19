@@ -4,8 +4,8 @@ import { EcosystemBadge } from '../../ui-resources/show-ecosystem-badge'
 import type { CommandResult } from './notification-types'
 
 type ToastMessage = {
-  success: boolean
   message: string
+  level: CommandResult['level']
   ecosystem?: 'EML' | 'SF'
 }
 
@@ -43,8 +43,8 @@ export function useCommandToasts() {
         message = tRef.current(result.message as TranslationKey)
     }
     setMessage({
-      success: result.success,
       message,
+      level: result.level,
       ecosystem: result.ecosystem || undefined,
     })
     if (toastTimer.current !== undefined)
@@ -54,7 +54,7 @@ export function useCommandToasts() {
         setMessage(null)
         toastTimer.current = undefined
       },
-      result.success ? 4500 : 8000,
+      result.level === 'error' ? 8000 : 4500,
     )
   }
   return { message, notifyCommandResult }
@@ -73,6 +73,7 @@ export function Toasts({
       {Boolean(errors?.length) && (
         <div role="alert" className="settings-save-message persistent error">
           <strong>{t('settings.configuration.title')}</strong>
+          <span className="state-pill neutral">ERROR</span>
           {errors?.map((error, index) => (
             <p key={error || index}>{error}</p>
           ))}
@@ -80,10 +81,11 @@ export function Toasts({
       )}
       {message && (
         <div
-          role={message.success ? 'status' : 'alert'}
-          className={`settings-save-message ${message.success ? 'success' : 'error'}`}
+          role={message.level === 'error' ? 'alert' : 'status'}
+          className={`settings-save-message ${message.level === 'error' ? 'error' : 'success'}`}
         >
           <EcosystemBadge ecosystem={message.ecosystem} />
+          <span className="state-pill neutral">{message.level.toUpperCase()}</span>
           {message.message}
         </div>
       )}

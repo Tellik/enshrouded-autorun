@@ -1,3 +1,5 @@
+import type { LogLevel } from '../../logging/ui/log-entry'
+
 export type NoticeAction = { id: string; kind: string; target?: string }
 
 export type NoticeLink = { labelKey?: string; label?: string; url: string }
@@ -20,7 +22,7 @@ export type Notice = {
   ecosystem?: 'EML' | 'SF'
   title: string
   message: string
-  level: string
+  level: LogLevel
   actionUrl?: string
   actionLabelKey?: string
   links?: NoticeLink[]
@@ -36,7 +38,7 @@ export type NewsItem = {
   id: string
   modId?: string
   ecosystem?: 'EML' | 'SF'
-  level: string
+  level: LogLevel
   title: string
   message: string
   actionUrl?: string
@@ -72,6 +74,7 @@ export type CommandResult = {
   requestId: string
   success: boolean
   message: string
+  level: LogLevel
   batchKey?: string
   restoreSettings?: boolean
   ecosystem?: 'EML' | 'SF' | null

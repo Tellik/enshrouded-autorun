@@ -1,4 +1,5 @@
 use crate::{ModNotification, write_event_notice};
+use shroudforge_logging::LogLevel;
 use std::path::Path;
 
 pub fn sync_mod_events(root: &Path, mods: &[ModNotification<'_>]) {
@@ -40,7 +41,7 @@ pub fn sync_mod_events(root: &Path, mods: &[ModNotification<'_>]) {
                 &format!("mod-install-{id}-{version}"),
                 id,
                 "mod.install.success",
-                "success",
+                LogLevel::Info,
                 name,
                 version,
                 item.get("ecosystem").and_then(|value| value.as_str()),
@@ -57,7 +58,7 @@ pub fn sync_mod_events(root: &Path, mods: &[ModNotification<'_>]) {
                     &format!("mod-update-{id}-{version}"),
                     id,
                     "mod.update.success",
-                    "update",
+                    LogLevel::Info,
                     name,
                     version,
                     item.get("ecosystem").and_then(|value| value.as_str()),
@@ -83,7 +84,7 @@ pub fn sync_mod_events(root: &Path, mods: &[ModNotification<'_>]) {
                 &format!("mod-remove-{id}-{version}"),
                 id,
                 "mod.remove.success",
-                "info",
+                LogLevel::Info,
                 name,
                 version,
                 item.get("ecosystem").and_then(|value| value.as_str()),

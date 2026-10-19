@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use shroudforge_logging::LogLevel;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -9,7 +10,7 @@ pub struct Notice {
     pub ecosystem: Option<String>,
     pub title: String,
     pub message: String,
-    pub level: String,
+    pub level: LogLevel,
     pub action_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub action_label_key: Option<String>,

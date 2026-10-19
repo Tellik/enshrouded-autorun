@@ -11,9 +11,12 @@ This module owns built-in news, local mod events, read state, the news view, and
 | Validate and save an event | `validate_notification_event.rs`, `write_notification_event.rs` |
 | Record installations and version changes | `sync_mod_events.rs`, `write_mod_event.rs` |
 | Build localized news items | `ui/build-news-items.ts` |
+| Use Debug Log levels for news, sort by level and category, and pass logged levels to toasts | `ui/sort-news-items.ts`, `../logging/log_level.rs`, `../logging/write_activity.rs` |
 | Display the list, an item, and its popup | `ui/show-news.tsx`, `ui/show-notice-card.tsx`, `ui/show-notice-popup.tsx` |
 | Display action results as toasts | `ui/show-toasts.tsx` |
 
-`documents.rs` defines the module's persisted document formats. News, events, and read state keep their existing JSON fields and storage locations. Toasts remain visible for 4.5 seconds after success and 8 seconds after an error. Multiple saved-setting results are still combined into one toast within 900 milliseconds.
+`documents.rs` defines the module's persisted document formats. News and events use the Debug Log levels `trace`, `debug`, `info`, `warn`, and `error`. Existing event values `warning`, `success`, and `update` are normalized when read. Toasts receive the same level selected for the activity entry. They remain visible for 4.5 seconds after success and 8 seconds after an error. Multiple saved-setting results are still combined into one toast within 900 milliseconds.
+
+News sorts by `ERROR`, `WARN`, `INFO`, `DEBUG`, then `TRACE`. The INFO category order is defined in `ui/sort-news-items.ts`: welcome, support, localization/feedback/Discord, system and mod updates, mod installation or removal, included mods, configuration and first mod, how changes apply, then other messages. Items in the same level and category use the newest activity time first. The News view and Chirper use the same ordering. The News view opens on Unread, followed by All and Read. All sorts read and unread messages together by log level and INFO category.
 
 Shared display resources and translations come from `modules/ui-resources`. The UI sends IPC requests through `modules/transport/ui/send-host-command.ts`. The Modloader application composes the views and owns navigation.

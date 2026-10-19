@@ -1,5 +1,18 @@
 use crate::{ModNotification, Notice, NoticeAction, NoticeBanner, NoticeLink};
+use shroudforge_logging::LogLevel;
 use std::path::Path;
+
+fn normalize_legacy_level(mut value: serde_json::Value) -> serde_json::Value {
+    let replacement = match value.get("level").and_then(|level| level.as_str()) {
+        Some("warning") => Some("warn"),
+        Some("success" | "update") => Some("info"),
+        _ => None,
+    };
+    if let (Some(level), Some(object)) = (replacement, value.as_object_mut()) {
+        object.insert("level".into(), serde_json::Value::String(level.into()));
+    }
+    value
+}
 
 pub fn read_notifications(root: &Path, mods: &[ModNotification<'_>]) -> Vec<Notice> {
     let events =
@@ -8,11 +21,19 @@ pub fn read_notifications(root: &Path, mods: &[ModNotification<'_>]) -> Vec<Noti
         .ok()
         .and_then(|value| value.get("messages").and_then(|v| v.as_array()).cloned())
         .unwrap_or_default();
-    let mut notices = events
+    let event_notices = events
         .as_object()
         .into_iter()
         .flat_map(|values| values.values().cloned())
-        .filter(|value| crate::validate_event(root, value).is_ok())
+        .filter_map(|value| {
+            let normalized = normalize_legacy_level(value.clone());
+            (crate::validate_event(root, &normalized).is_ok()
+                || crate::validate_event(root, &value).is_ok())
+            .then_some(normalized)
+        })
+        .collect::<Vec<_>>();
+    let mut notices = event_notices
+        .into_iter()
         .chain(news)
         .filter_map(|value| {
             let mod_id = value.get("modId").and_then(|value| value.as_str());
@@ -39,8 +60,8 @@ pub fn read_notifications(root: &Path, mods: &[ModNotification<'_>]) -> Vec<Noti
                 level: value
                     .get("level")
                     .and_then(|value| value.as_str())
-                    .unwrap_or("info")
-                    .to_owned(),
+                    .and_then(LogLevel::parse)
+                    .unwrap_or(LogLevel::Info),
                 action_url: value
                     .get("actionUrl")
                     .and_then(|value| value.as_str())

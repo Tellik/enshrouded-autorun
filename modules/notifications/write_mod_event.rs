@@ -1,4 +1,4 @@
-use shroudforge_logging::write_activity;
+use shroudforge_logging::{write_activity, LogLevel};
 use std::{
     path::Path,
     time::{SystemTime, UNIX_EPOCH},
@@ -9,7 +9,7 @@ pub fn write_event_notice(
     id: &str,
     mod_id: &str,
     kind: &str,
-    level: &str,
+    level: LogLevel,
     name: &str,
     version: &str,
     ecosystem: Option<&str>,
@@ -27,7 +27,7 @@ pub fn write_event_notice(
         "ecosystem": ecosystem,
         "title": "",
         "message": "",
-        "level": level,
+        "level": level.as_str(),
         "kind": kind,
         "values": values,
         "changelog": changelog.cloned().unwrap_or_else(|| serde_json::json!([])),

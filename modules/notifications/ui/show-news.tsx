@@ -5,6 +5,7 @@ import { Empty } from '../../ui-resources/show-empty-state'
 import { PageHeader } from '../../ui-resources/show-page-header'
 import { Segmented } from '../../ui-resources/choose-segment'
 import { NoticeCard } from './show-notice-card'
+import { sortNewsItems } from './sort-news-items'
 export function NewsPage({
   items,
   unread,
@@ -26,6 +27,7 @@ export function NewsPage({
       : tab === 'read'
         ? items.filter((item) => read.includes(item.id))
         : items
+  const ordered = sortNewsItems(shown)
   return (
     <>
       <PageHeader
@@ -53,8 +55,8 @@ export function NewsPage({
         ]}
       />
       <div className="news-list">
-        {shown.length ? (
-          shown.map((item) => (
+        {ordered.length ? (
+          ordered.map((item) => (
             <NoticeCard
               key={item.id}
               item={item}

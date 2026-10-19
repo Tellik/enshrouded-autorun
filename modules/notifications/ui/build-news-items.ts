@@ -24,7 +24,7 @@ export function buildNewsItems(
   if (data.release.updateAvailable)
     items.push({
       id: `system-${data.release.latestVersion}`,
-      level: 'update',
+      level: 'info',
       title: t('news.system.update.title', {
         version: data.release.latestVersion || '',
       }),
@@ -36,7 +36,7 @@ export function buildNewsItems(
   if (data.release.staged)
     items.push({
       id: `system-staged-${data.release.latestVersion}`,
-      level: 'success',
+      level: 'info',
       title: t('news.system.staged.title'),
       message: t('news.system.staged.message'),
       updatedAt: 0,
