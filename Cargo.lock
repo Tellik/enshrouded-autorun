@@ -3865,6 +3865,7 @@ dependencies = [
 name = "shroudforge-player-name"
 version = "1.0.0"
 dependencies = [
+ "memchr",
  "serde_json",
  "shroudforge-loader-config",
  "tempfile",

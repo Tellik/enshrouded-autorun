@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+memchr = "2.8.3"
 serde_json.workspace = true
 shroudforge-loader-config.workspace = true
 

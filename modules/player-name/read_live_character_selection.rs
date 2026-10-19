@@ -29,7 +29,7 @@ mod windows {
     const MAX_RECORD_SIZE: usize = 512;
     const SCAN_RETRY_DELAY: Duration = Duration::from_secs(60);
     const UI_PLATFORM_PREFIX: &[u8] = b"[Steam]";
-    const LEVEL_LABELS: [&[u8]; 2] = [b" Stufe ", b" Level "];
+    const LEVEL_LABELS: [&[u8]; 2] = [b"Stufe ", b"Level "];
     const MAX_PLAYER_NAME_LENGTH: usize = 40;
 
     static SCAN_STATE: OnceLock<Mutex<ScanState>> = OnceLock::new();
@@ -507,9 +507,24 @@ mod windows {
         if needle.is_empty() || needle.len() > haystack.len() {
             return None;
         }
-        haystack
-            .windows(needle.len())
-            .position(|window| window.eq_ignore_ascii_case(needle))
+        let first = *needle.first()?;
+        let first_lower = first.to_ascii_lowercase();
+        let first_upper = first.to_ascii_uppercase();
+        let last_start = haystack.len() - needle.len();
+        let mut cursor = 0;
+        while cursor <= last_start {
+            let relative =
+                memchr::memchr2(first_lower, first_upper, haystack.get(cursor..=last_start)?)?;
+            let start = cursor + relative;
+            if haystack
+                .get(start..start + needle.len())?
+                .eq_ignore_ascii_case(needle)
+            {
+                return Some(start);
+            }
+            cursor = start + 1;
+        }
+        None
     }
 
     fn starts_with_utf16_ascii_prefix(haystack: &[u8], needle: &[u8]) -> bool {
@@ -523,14 +538,24 @@ mod windows {
 
     fn find_utf16_ascii_prefix(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         let length = needle.len().checked_mul(2)?;
+        let first = *needle.first()?;
+        let first_lower = first.to_ascii_lowercase();
+        let first_upper = first.to_ascii_uppercase();
         if length > haystack.len() {
             return None;
         }
-        haystack.windows(length).position(|window| {
-            needle.iter().enumerate().all(|(index, expected)| {
-                window[index * 2].eq_ignore_ascii_case(expected) && window[index * 2 + 1] == 0
-            })
-        })
+        let last_start = haystack.len() - length;
+        let mut cursor = 0;
+        while cursor <= last_start {
+            let relative =
+                memchr::memchr2(first_lower, first_upper, haystack.get(cursor..=last_start)?)?;
+            let start = cursor + relative;
+            if starts_with_utf16_ascii_prefix(&haystack[start..], needle) {
+                return Some(start);
+            }
+            cursor = start + 1;
+        }
+        None
     }
 
     #[cfg(test)]
@@ -541,6 +566,16 @@ mod windows {
         fn accepts_uppercase_platform_and_level_without_nearby_build_label() {
             assert_eq!(
                 parse_ui_record(b"[STEAM]BonsaiBauer LEVEL 37"),
+                Some("BonsaiBauer".into())
+            );
+        }
+
+        #[test]
+        fn accepts_live_menu_text_without_space_before_level_label() {
+            assert_eq!(
+                parse_ui_record(
+                    b"[Steam]BonsaiBauerStufe 37 2026-10-19, 15:53Build-Version:  1269579"
+                ),
                 Some("BonsaiBauer".into())
             );
         }
