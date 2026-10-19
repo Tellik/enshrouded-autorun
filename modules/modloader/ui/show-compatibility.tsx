@@ -263,7 +263,7 @@ export function Compatibility({
           : 'compatibility.summary.ok'
   const unreadAlerts = news.filter(
     (item) =>
-      (item.level === 'warning' || item.level === 'error') &&
+      (item.level === 'warn' || item.level === 'error') &&
       !data.readNoticeIds.includes(item.id),
   ).length
   const groups = [

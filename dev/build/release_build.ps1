@@ -3,6 +3,7 @@ param(
     [switch]$SkipTests,
     [switch]$UseInstalledDependencies,
     [switch]$SkipUiBuild,
+    [switch]$WithoutUpdater,
     [string]$CargoTargetDir = 'target'
 )
 
@@ -22,4 +23,4 @@ if (-not $SkipTests) {
 }
 & (Join-Path $actions 'build_modloader.ps1') -CargoTargetDir $cargoTargetPath -UseInstalledDependencies -SkipUiBuild
 & (Join-Path $actions 'build_windows_bootstrap.ps1')
-& (Join-Path $actions 'package_release.ps1') -BuildNumber $BuildNumber -Version $version
+& (Join-Path $actions 'package_release.ps1') -BuildNumber $BuildNumber -Version $version -WithoutUpdater:$WithoutUpdater

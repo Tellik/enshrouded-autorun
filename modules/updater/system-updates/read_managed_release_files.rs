@@ -25,7 +25,7 @@ pub(crate) fn managed_paths(source: &Path) -> Result<Vec<String>, String> {
     Ok(paths)
 }
 
-pub(crate) fn obsolete_managed_mod_paths(
+pub(crate) fn obsolete_managed_paths(
     target: &Path,
     current: &[String],
 ) -> Result<Vec<String>, String> {
@@ -44,23 +44,27 @@ pub(crate) fn obsolete_managed_mod_paths(
         let Some(relative) = entry.as_str() else {
             return Err("installed version has an invalid managed path".into());
         };
-        if !relative.starts_with("mods/")
+        let obsolete_mod = relative.starts_with("mods/");
+        let obsolete_updater = relative.eq_ignore_ascii_case("shroudforge/shroudforge-updater.exe");
+        if (!obsolete_mod && !obsolete_updater)
             || current
                 .iter()
                 .any(|path| path.eq_ignore_ascii_case(relative))
         {
             continue;
         }
-        let mod_relative = relative.strip_prefix("mods/").unwrap_or_default();
-        let path = Path::new(mod_relative);
-        if mod_relative.is_empty()
-            || relative.contains('\\')
-            || relative.contains(':')
-            || !path
-                .components()
-                .all(|part| matches!(part, std::path::Component::Normal(_)))
-        {
-            return Err(format!("unsafe installed managed path: {relative}"));
+        if obsolete_mod {
+            let mod_relative = relative.strip_prefix("mods/").unwrap_or_default();
+            let path = Path::new(mod_relative);
+            if mod_relative.is_empty()
+                || relative.contains('\\')
+                || relative.contains(':')
+                || !path
+                    .components()
+                    .all(|part| matches!(part, std::path::Component::Normal(_)))
+            {
+                return Err(format!("unsafe installed managed path: {relative}"));
+            }
         }
         obsolete.push(relative.to_owned());
     }

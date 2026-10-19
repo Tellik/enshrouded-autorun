@@ -2,8 +2,8 @@ use std::os::windows::ffi::OsStrExt;
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 
 pub(crate) fn open_url(url: &str) -> Result<(), String> {
-    if !url.starts_with("https://") {
-        return Err("Only HTTPS links can be opened.".into());
+    if !url.starts_with("https://") && url != "mailto:support@shroudedit.com" {
+        return Err("Only HTTPS links and the ShroudEdit support address can be opened.".into());
     }
     let operation: Vec<u16> = std::ffi::OsStr::new("open")
         .encode_wide()

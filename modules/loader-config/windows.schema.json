@@ -5,7 +5,8 @@
   "properties": {
     "modloaderUi": { "$ref": "#/$defs/window" },
     "debugConsole": { "$ref": "#/$defs/window" },
-    "worldEditor": { "$ref": "#/$defs/window" }
+    "worldEditor": { "$ref": "#/$defs/window" },
+    "updates": { "$ref": "#/$defs/window" }
   },
   "additionalProperties": false,
   "$defs": {

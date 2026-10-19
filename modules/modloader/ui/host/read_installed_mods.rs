@@ -1,9 +1,8 @@
 use super::read_mod_icons::read_mod_assets;
 use super::ui_snapshot_types::ModDependencyInfo;
 use super::ui_snapshot_types::ModInfo;
-use shroudforge_package::package_lookup::mod_ecosystem_for_package;
 use shroudforge_package::config_revision;
-use shroudforge_updater::mod_installation::catalog::catalog_installed_mod_ids;
+use shroudforge_package::package_lookup::mod_ecosystem_for_package;
 use std::fs;
 use std::path::Path;
 
@@ -11,7 +10,17 @@ pub(crate) fn read_mods(root: &Path) -> Vec<ModInfo> {
     let Ok(entries) = fs::read_dir(shroudforge_loader_config::paths::mods_dir(root)) else {
         return Vec::new();
     };
-    let catalog_mods = catalog_installed_mod_ids(root);
+    let catalog_mods: std::collections::HashSet<String> =
+        fs::read(shroudforge_loader_config::paths::state_file(root))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+            .and_then(|state| state.get("catalog").cloned())
+            .and_then(|catalog| catalog.get("projects").cloned())
+            .and_then(|projects| projects.as_object().cloned())
+            .into_iter()
+            .flat_map(|projects| projects.into_values())
+            .filter_map(|project| project.get("modId")?.as_str().map(str::to_owned))
+            .collect();
     let manifests: Vec<_> = entries
         .flatten()
         .filter_map(|entry| {
@@ -50,12 +59,11 @@ pub(crate) fn read_mods(root: &Path) -> Vec<ModInfo> {
         let capabilities = value
             .get("capabilities")
             .and_then(serde_json::Value::as_array);
-        let asset = capabilities
-            .is_some_and(|items| items.iter().any(|item| item == "patch"));
+        let asset = capabilities.is_some_and(|items| items.iter().any(|item| item == "patch"));
         let runtime = capabilities.is_some_and(|items| {
-            items.iter().any(|item| {
-                item == "export" || item == "runtime" || item == "runtime-register-dll"
-            })
+            items
+                .iter()
+                .any(|item| item == "export" || item == "runtime" || item == "runtime-register-dll")
         });
         let revision = config_revision(&config);
         let ecosystem = mod_ecosystem_for_package(&package);

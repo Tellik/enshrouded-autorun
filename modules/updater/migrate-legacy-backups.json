@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "migration.legacy-update-backups",
+  "revision": 2,
+  "name": "Migrate old update storage",
+  "description": "Moves verified update backups, mod backups, and removed packages from current and pre-1.3.3 storage paths into the shared recycle bin.",
+  "trigger": "before-update",
+  "repeatable": false,
+  "action": "migrate-legacy-backups"
+}

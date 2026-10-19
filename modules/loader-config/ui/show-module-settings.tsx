@@ -17,7 +17,7 @@ import {
 import { debugConsoleSettingsFields } from '../../debug-console/ui/settings'
 import { worldEditorSettingsFields } from '../../world-editor/ui/settings'
 import { NetworkSettings } from '../../transport/ui/settings'
-import { SystemUpdatePreferences } from '../../updater/ui/edit-update-preferences'
+import { UpdatePreferences } from '../../updater/ui/edit-update-preferences'
 
 function WindowGeometryControls({
   module,
@@ -79,9 +79,16 @@ export function ModulePreferencesEditor({
   const { t } = useI18n()
   const prefs = settings.modulePreferences || {}
   const system = prefs.updates?.system || {
+    includePrereleases: false,
+  }
+  const automatic = prefs.updates?.automatic || {
     enabled: true,
     checkMinutes: 60,
-    includePrereleases: false,
+    queueUpdates: true,
+  }
+  const recycleBin = prefs.updates?.recycleBin || {
+    automaticCleanup: true,
+    retentionDays: 30,
   }
   const saveModule = (module: string, key: string, value: unknown) =>
     postRequest('save-setting', { scope: 'module', module, key, value })
@@ -94,6 +101,32 @@ export function ModulePreferencesEditor({
       },
     })
     saveModule('updates.system', key, value)
+  }
+  const changeAutomatic = (key: string, value: unknown) => {
+    setSettings({
+      ...settings,
+      modulePreferences: {
+        ...prefs,
+        updates: {
+          ...prefs.updates,
+          automatic: { ...automatic, [key]: value },
+        },
+      },
+    })
+    saveModule('updates.automatic', key, value)
+  }
+  const changeRecycleBin = (key: string, value: unknown) => {
+    setSettings({
+      ...settings,
+      modulePreferences: {
+        ...prefs,
+        updates: {
+          ...prefs.updates,
+          recycleBin: { ...recycleBin, [key]: value },
+        },
+      },
+    })
+    saveModule('updates.recycleBin', key, value)
   }
   const change = (module: string, key: string, value: unknown) => {
     setSettings({
@@ -113,11 +146,13 @@ export function ModulePreferencesEditor({
     ['modloaderUi', 'refreshMilliseconds', 'settings.modules.field.refresh'],
   ]
   const controlVisibility = (
-    module: 'debugConsole' | 'modloaderUi' | 'worldEditor',
+    module: 'debugConsole' | 'modloaderUi' | 'worldEditor' | 'updates',
     visible: boolean,
   ) => postRequest('set-window-visibility', { module, visible })
   const moduleEnabled = (module: string) =>
     prefs[module]?.enabled ?? (module === 'debugConsole')
+  const updaterAvailable = data.release.updaterAvailable === true
+  const updatesEnabled = moduleEnabled('updates') && updaterAvailable
   const ranges: Record<string, [number, number]> = {
     intervalMilliseconds: [500, 60000],
     maximumDurationSeconds: [1, 3600],
@@ -129,11 +164,23 @@ export function ModulePreferencesEditor({
   }
   return (
     <>
-      <SystemUpdatePreferences
+      <UpdatePreferences
         system={system}
-        enabled={moduleEnabled('updates')}
-        changeEnabled={(value) => change('updates', 'enabled', value)}
+        automatic={automatic}
+        enabled={updatesEnabled}
+        updaterAvailable={updaterAvailable}
+        onCommand={postRequest}
+        changeEnabled={(value) => {
+          if (value && !updaterAvailable) return
+          change('updates', 'enabled', value)
+          if (!value) controlVisibility('updates', false)
+        }}
+        windowVisible={Boolean(data.windows?.updates?.visible)}
+        changeWindowVisibility={(visible) => controlVisibility('updates', visible)}
         changeSystem={changeSystem}
+        changeAutomatic={changeAutomatic}
+        recycleBin={recycleBin}
+        changeRecycleBin={changeRecycleBin}
         geometryControls={<WindowGeometryControls module="updates" />}
       />
       <NetworkSettings

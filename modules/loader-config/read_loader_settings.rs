@@ -40,6 +40,52 @@ pub fn read_loader(root: &Path) -> Result<Value, String> {
                 updates.entry("enabled").or_insert(Value::Bool(true));
             }
         }
+        let legacy_system = loaded
+            .pointer("/modules/updates/system")
+            .cloned()
+            .unwrap_or_default();
+        let legacy_mods = loaded
+            .pointer("/modules/updates/mods")
+            .cloned()
+            .unwrap_or_default();
+        if let Some(updates) = loaded
+            .pointer_mut("/modules/updates")
+            .and_then(Value::as_object_mut)
+        {
+            let automatic = updates
+                .entry("automatic")
+                .or_insert_with(|| Value::Object(Default::default()));
+            if let Some(automatic) = automatic.as_object_mut() {
+                automatic.entry("enabled").or_insert_with(|| {
+                    Value::Bool(
+                        legacy_system
+                            .get("enabled")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(true)
+                            && legacy_mods
+                                .get("enabled")
+                                .and_then(Value::as_bool)
+                                .unwrap_or(true),
+                    )
+                });
+                automatic.entry("checkMinutes").or_insert_with(|| {
+                    let minutes = legacy_system
+                        .get("checkMinutes")
+                        .or_else(|| legacy_mods.get("checkMinutes"))
+                        .and_then(Value::as_u64)
+                        .unwrap_or(60)
+                        .clamp(5, 1440);
+                    Value::from(minutes)
+                });
+                automatic.entry("queueUpdates").or_insert(Value::Bool(true));
+            }
+            for name in ["system", "mods"] {
+                if let Some(settings) = updates.get_mut(name).and_then(Value::as_object_mut) {
+                    settings.remove("enabled");
+                    settings.remove("checkMinutes");
+                }
+            }
+        }
         if let Some(diagnostics) = loaded
             .pointer_mut("/modules/runtimeDiagnostics")
             .and_then(Value::as_object_mut)

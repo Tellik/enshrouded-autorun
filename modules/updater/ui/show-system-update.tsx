@@ -1,6 +1,5 @@
-import { postRequest } from '../../transport/ui/send-host-command'
 import { useI18n } from '../../ui-resources/i18n'
-import type { Release } from './update-types'
+import type { Release, UpdaterCommand } from './update-types'
 import { Card } from '../../ui-resources/show-card'
 import { Empty } from '../../ui-resources/show-empty-state'
 import { ReleaseNotes } from './show-release-notes'
@@ -8,9 +7,13 @@ import { ReleaseNotes } from './show-release-notes'
 export function SystemUpdate({
   release,
   queued,
+  disabled = false,
+  onCommand,
 }: {
   release: Release
   queued: boolean
+  disabled?: boolean
+  onCommand: UpdaterCommand
 }) {
   const { t } = useI18n()
   if (release.updateAvailable)
@@ -26,21 +29,20 @@ export function SystemUpdate({
         )}
         <ReleaseNotes
           text={release.message || t('updates.version.available')}
+          onCommand={onCommand}
         />
         <div className="inline-actions">
           <button
             className="button"
-            onClick={() => postRequest('queue-system-update')}
-            disabled={queued}
+            onClick={() => onCommand('queue-system-update')}
+            disabled={disabled || queued}
           >
             {queued ? t('updates.queue.added') : t('updates.queue.addSystem')}
           </button>
           {release.releaseUrl && (
             <button
               className="button ghost"
-              onClick={() =>
-                postRequest('open-url', { url: release.releaseUrl })
-              }
+              onClick={() => onCommand('open-url', { url: release.releaseUrl })}
             >
               {t('updates.release')}
             </button>

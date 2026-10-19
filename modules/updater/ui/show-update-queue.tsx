@@ -1,7 +1,6 @@
-import { postRequest } from '../../transport/ui/send-host-command'
 import { useI18n } from '../../ui-resources/i18n'
 import type { TranslationKey } from '../../ui-resources/i18n'
-import type { Release, UpdateQueue } from './update-types'
+import type { Release, UpdateQueue, UpdaterCommand } from './update-types'
 import { Card } from '../../ui-resources/show-card'
 import { UpdateProgress } from './show-update-progress'
 
@@ -9,12 +8,14 @@ export function UpdateQueuePanel({
   queue,
   mode,
   release,
-  hideWhenEmpty = false,
+  disabled = false,
+  onCommand,
 }: {
   queue: UpdateQueue
   mode: string
   release: Release
-  hideWhenEmpty?: boolean
+  disabled?: boolean
+  onCommand: UpdaterCommand
 }) {
   const { t } = useI18n()
   const items = (queue.items || []).filter((item) => item.state !== 'complete')
@@ -24,11 +25,13 @@ export function UpdateQueuePanel({
   const selected = actionable
     .filter((item) => item.selected)
     .map((item) => item.id)
+  const selectable = actionable.filter((item) => !item.required)
   const running = queue.run?.state === 'running'
-  if (hideWhenEmpty && !items.length && !running) return null
-  const desktopMode = mode === 'DESKTOP' || mode === 'UPDATER'
+  const queueError = queue.error || queue.run?.error
+  const displayedMessages = new Set(queueError ? [queueError] : [])
+  const desktopMode = mode === 'DESKTOP'
   const allSelected =
-    actionable.length > 0 && actionable.every((item) => item.selected)
+    selectable.length > 0 && selectable.every((item) => item.selected)
   const stateLabel = (state: string) => {
     const labels: Record<string, TranslationKey> = {
       queued: 'updates.queue.state.queued',
@@ -45,25 +48,30 @@ export function UpdateQueuePanel({
     return t(labels[state] || 'updates.queue.state.queued')
   }
   const setAll = () =>
-    postRequest('select-update-queue-items', {
-      ids: actionable.map((item) => item.id),
+    onCommand('select-update-queue-items', {
+      ids: selectable.map((item) => item.id),
       selected: !allSelected,
     })
   const start = (waitForGame: boolean) =>
-    postRequest('start-update-queue', { ids: selected, waitForGame })
+    onCommand('start-update-queue', { ids: selected, waitForGame })
   const installing =
     release.state === 'installing' ||
     items.some((item) => item.state === 'installing')
   const clear = () => {
     if (window.confirm(t('updates.queue.clearConfirm')))
-      postRequest('clear-update-queue')
+      onCommand('clear-update-queue')
   }
   return (
     <Card title={t('updates.queue.title')}>
+      {queueError && <p className="notice">{queueError}</p>}
       <div className="update-queue-summary">
         <span>{t('updates.queue.count', { count: items.length })}</span>
-        {actionable.length > 0 && (
-          <button className="button ghost" onClick={setAll} disabled={running}>
+        {selectable.length > 0 && (
+          <button
+            className="button ghost"
+            onClick={setAll}
+            disabled={disabled || running}
+          >
             {allSelected
               ? t('updates.queue.selectNone')
               : t('updates.queue.selectAll')}
@@ -74,59 +82,70 @@ export function UpdateQueuePanel({
         <p className="hint">{t('updates.queue.empty')}</p>
       ) : (
         <div className="update-queue-list">
-          {items.map((item) => (
-            <div className="update-queue-row" key={item.id}>
-              <label className="update-queue-item">
-                <input
-                  type="checkbox"
-                  checked={item.selected}
-                  disabled={running || !actionable.includes(item)}
-                  onChange={(event) =>
-                    postRequest('select-update-queue-items', {
-                      ids: [item.id],
-                      selected: event.target.checked,
-                    })
+          {items.map((item) => {
+            const hasProgress = item.state === 'downloading' && item.kind === 'system'
+            const itemMessage =
+              item.message && !displayedMessages.has(item.message)
+                ? item.message
+                : undefined
+            if (itemMessage) displayedMessages.add(itemMessage)
+            return (
+              <div className="update-queue-row" key={item.id}>
+                <label className="update-queue-item">
+                  <input
+                    type="checkbox"
+                    checked={item.selected}
+                    disabled={
+                      disabled || running || item.required || !actionable.includes(item)
+                    }
+                    onChange={(event) =>
+                      onCommand('select-update-queue-items', {
+                        ids: [item.id],
+                        selected: event.target.checked,
+                      })
+                    }
+                  />
+                  <span>
+                    <strong>
+                      {item.title}
+                      {item.prerelease && (
+                        <em className="release-channel-chip">
+                          {t('updates.prerelease.badge')}
+                        </em>
+                      )}
+                    </strong>
+                    <small>
+                      {item.version || item.operation || item.kind}
+                      {!hasProgress && <> · {stateLabel(item.state)}</>}
+                    </small>
+                    {itemMessage && <small>{itemMessage}</small>}
+                  </span>
+                </label>
+                {hasProgress && <UpdateProgress release={release} />}
+                <button
+                  className="button ghost"
+                  disabled={
+                    disabled ||
+                    running ||
+                    item.required ||
+                    ['downloading', 'installing'].includes(item.state)
                   }
-                />
-                <span>
-                  <strong>
-                    {item.title}
-                    {item.prerelease && (
-                      <em className="release-channel-chip">
-                        {t('updates.prerelease.badge')}
-                      </em>
-                    )}
-                  </strong>
-                  <small>
-                    {item.version || item.operation || item.kind} ·{' '}
-                    {stateLabel(item.state)}
-                  </small>
-                  {item.message && <small>{item.message}</small>}
-                </span>
-              </label>
-              {item.state === 'downloading' && item.kind === 'system' && (
-                <UpdateProgress release={release} />
-              )}
-              <button
-                className="button ghost"
-                disabled={
-                  running || ['downloading', 'installing'].includes(item.state)
-                }
-                onClick={() =>
-                  postRequest('remove-update-queue-item', { key: item.id })
-                }
-              >
-                {t('updates.queue.remove')}
-              </button>
-            </div>
-          ))}
+                  onClick={() =>
+                    onCommand('remove-update-queue-item', { key: item.id })
+                  }
+                >
+                  {t('updates.queue.remove')}
+                </button>
+              </div>
+            )
+          })}
         </div>
       )}
       <div className="inline-actions update-queue-actions">
         {desktopMode && (
           <button
             className="button"
-            disabled={!selected.length || running}
+            disabled={disabled || !selected.length || running}
             onClick={() => start(false)}
           >
             {t('updates.queue.downloadSelected')}
@@ -134,7 +153,7 @@ export function UpdateQueuePanel({
         )}
         <button
           className={`button ${desktopMode ? 'ghost' : ''}`}
-          disabled={!selected.length || running}
+          disabled={disabled || !selected.length || running}
           onClick={() => start(true)}
         >
           {t('updates.queue.afterGame')}
@@ -142,8 +161,8 @@ export function UpdateQueuePanel({
         {running && (
           <button
             className="button danger"
-            disabled={installing}
-            onClick={() => postRequest('cancel-update')}
+            disabled={disabled || installing}
+            onClick={() => onCommand('cancel-update')}
           >
             {t('updater.cancel')}
           </button>
@@ -151,7 +170,7 @@ export function UpdateQueuePanel({
         {items.length > 0 && !running && (
           <button
             className="button ghost"
-            disabled={installing}
+            disabled={disabled || installing}
             onClick={clear}
           >
             {t('updates.queue.clear')}

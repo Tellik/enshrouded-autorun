@@ -1,7 +1,7 @@
 use super::validate_message_name::{default_message_name_fallback, default_username_mode};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UiSettings {
     #[serde(default)]

@@ -33,7 +33,11 @@ pub(crate) fn runtime_profile_ids(root: &Path) -> Vec<String> {
 }
 
 pub(crate) fn active_runtime_profile(root: &Path) -> Option<String> {
-    let status = shroudforge_loader_config::config::read_document(root, shroudforge_runtime_diagnostics::documents::MOD_STATUS).ok()?;
+    let status = shroudforge_loader_config::config::read_document(
+        root,
+        shroudforge_runtime_diagnostics::documents::MOD_STATUS,
+    )
+    .ok()?;
     let detail = status.pointer("/runtimeProvider/detail")?.as_str()?;
     let profile = detail.split("profile=").nth(1)?.split_whitespace().next()?;
     Some(profile.to_owned())

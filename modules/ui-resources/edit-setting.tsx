@@ -54,16 +54,23 @@ export function ModuleEnabledRow({
   label,
   enabled,
   onChange,
+  disabled = false,
 }: {
   label: string
   enabled: boolean
   onChange(value: boolean): void
+  disabled?: boolean
 }) {
   return (
     <SettingsRow
       label={label}
       control={
-        <SettingSwitch label={label} checked={enabled} onChange={onChange} />
+        <SettingSwitch
+          label={label}
+          checked={enabled}
+          onChange={onChange}
+          disabled={disabled}
+        />
       }
     />
   )
@@ -74,11 +81,13 @@ export function SettingsNumber({
   minimum,
   maximum,
   onCommit,
+  disabled = false,
 }: {
   value: number
   minimum?: number
   maximum?: number
   onCommit(value: number): void
+  disabled?: boolean
 }) {
   const [draft, setDraft] = useState(String(value))
   useEffect(() => setDraft(String(value)), [value])
@@ -88,6 +97,7 @@ export function SettingsNumber({
       type="number"
       min={minimum}
       max={maximum}
+      disabled={disabled}
       value={draft}
       onChange={(event) => setDraft(event.target.value)}
       onBlur={() => {

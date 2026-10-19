@@ -738,6 +738,7 @@
                 "installed",
                 "discover",
                 "updates",
+                "recycle-bin",
                 "compatibility",
                 "settings"
               ]
@@ -880,17 +881,22 @@
               },
               "additionalProperties": false
             },
-            "system": {
+            "automatic": {
               "type": "object",
               "properties": {
-                "enabled": {
-                  "type": "boolean"
-                },
+                "enabled": { "type": "boolean" },
                 "checkMinutes": {
                   "type": "integer",
                   "minimum": 5,
                   "maximum": 1440
                 },
+                "queueUpdates": { "type": "boolean" }
+              },
+              "additionalProperties": false
+            },
+            "system": {
+              "type": "object",
+              "properties": {
                 "includePrereleases": {
                   "type": "boolean"
                 },
@@ -918,6 +924,58 @@
                   ],
                   "minLength": 1,
                   "maxLength": 128
+                }
+              },
+              "additionalProperties": false
+            },
+            "mods": {
+              "type": "object",
+              "properties": {
+                "lastCheckAt": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                },
+                "latestUpdates": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "projectId": { "type": "string" },
+                      "modId": { "type": "string" },
+                      "name": { "type": "string" },
+                      "currentVersion": { "type": ["string", "null"] },
+                      "latestVersion": { "type": ["string", "null"] },
+                      "latestVersionId": { "type": "string" }
+                    },
+                    "required": ["projectId", "modId", "name", "latestVersionId"],
+                    "additionalProperties": false
+                  }
+                },
+                "lastCheckResult": {
+                  "type": ["object", "null"],
+                  "properties": {
+                    "checked": { "type": "integer", "minimum": 0 },
+                    "available": { "type": "integer", "minimum": 0 },
+                    "failed": { "type": "integer", "minimum": 0 },
+                    "checkedAt": { "type": "integer", "minimum": 0 },
+                    "errors": { "type": "array", "items": { "type": "string" } }
+                  },
+                  "required": ["checked", "available", "failed", "checkedAt", "errors"],
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            },
+            "recycleBin": {
+              "type": "object",
+              "properties": {
+                "automaticCleanup": {
+                  "type": "boolean"
+                },
+                "retentionDays": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 3650
                 }
               },
               "additionalProperties": false

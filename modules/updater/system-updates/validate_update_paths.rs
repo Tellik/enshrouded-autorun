@@ -3,6 +3,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(windows)]
+use std::os::windows::fs::MetadataExt;
+
 pub(crate) fn validate_roots(root: &Path, staged: &Path) -> Result<(), String> {
     let root = root
         .canonicalize()
@@ -47,12 +50,14 @@ pub(crate) fn protected_user_path(key: &str) -> bool {
     let protected = [
         "shroudforge/config/modloader-config.json",
         "shroudforge/config/.shroudforge-write.lock",
+        "shroudforge/config/.shroudforge-mod-update-check.lock",
         "shroudforge/state.json",
         "shroudforge/cache/",
         "shroudforge/exports/",
         "shroudforge/logs/",
         "shroudforge/ui/",
         "shroudforge/updates/",
+        "shroudforge/recycle-bin/",
         "shroudforge/runtime/heartbeat.json",
         "shroudforge/runtime/startup-assets.lock",
     ];
@@ -85,7 +90,6 @@ pub(crate) fn installed_path(root: &Path, relative: &str) -> PathBuf {
 }
 
 pub(crate) fn validate_file_path(root: &Path, relative: &str) -> Result<(), String> {
-    use std::os::windows::fs::MetadataExt;
     let mut path = if relative.starts_with("mods/") {
         shroudforge_loader_config::paths::mods_dir(root)
     } else {
@@ -96,6 +100,10 @@ pub(crate) fn validate_file_path(root: &Path, relative: &str) -> Result<(), Stri
     for component in Path::new(relative_path).components() {
         path.push(component);
         match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(format!("reparse point in update path: {}", path.display()));
+            }
+            #[cfg(windows)]
             Ok(metadata) if metadata.file_attributes() & 0x400 != 0 => {
                 return Err(format!("reparse point in update path: {}", path.display()));
             }

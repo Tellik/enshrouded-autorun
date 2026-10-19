@@ -1,10 +1,6 @@
 use super::read_ui_configuration::{default_refresh, default_toggle_key};
 use serde::Deserialize;
 use serde::Serialize;
-use shroudforge_updater::catalog_search_state::CatalogState;
-use shroudforge_updater::provider_config::default_system_provider;
-use shroudforge_updater::provider_config::{CatalogProviderConfig, ProviderConfig};
-use shroudforge_updater::release_state::ReleaseState;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -13,21 +9,13 @@ pub(crate) struct ModuleConfig {
     pub(crate) toggle_key: u32,
     #[serde(default = "default_refresh")]
     pub(crate) refresh_milliseconds: u64,
-    #[serde(skip, default = "default_updates_enabled")]
-    pub(crate) updates_enabled: bool,
-    #[serde(skip, default = "default_system_provider")]
-    pub(crate) system_update_provider: ProviderConfig,
-}
-
-fn default_updates_enabled() -> bool {
-    true
 }
 
 #[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UserConfig {
     #[serde(default)]
-    pub(crate) update_provider: Option<CatalogProviderConfig>,
+    pub(crate) update_provider: Option<serde_json::Value>,
     #[serde(default)]
     pub(crate) locale: Option<String>,
 }
@@ -68,16 +56,7 @@ pub(crate) struct ModDependencyInfo {
     pub(crate) status: String,
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct Activity {
-    pub(crate) id: String,
-    pub(crate) time: String,
-    pub(crate) source: String,
-    pub(crate) action: String,
-    pub(crate) result: String,
-    pub(crate) level: String,
-}
+pub(crate) type Activity = shroudforge_logging::ActivityLogEntry;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -87,7 +66,6 @@ pub(crate) struct Snapshot {
     pub(crate) configuration: serde_json::Value,
     pub(crate) connected: bool,
     pub(crate) mode: &'static str,
-    pub(crate) updater_window: bool,
     pub(crate) game_version: String,
     pub(crate) version: String,
     pub(crate) mods: Vec<ModInfo>,
@@ -95,11 +73,11 @@ pub(crate) struct Snapshot {
     pub(crate) notices: Vec<shroudforge_news::Notice>,
     pub(crate) news_templates: serde_json::Value,
     pub(crate) read_notice_ids: Vec<String>,
-    pub(crate) release: ReleaseState,
+    pub(crate) release: serde_json::Value,
     pub(crate) update_queue: serde_json::Value,
     pub(crate) backup_management: serde_json::Value,
     pub(crate) settings: SnapshotSettings,
-    pub(crate) catalog: CatalogState,
+    pub(crate) catalog: serde_json::Value,
     pub(crate) locale: String,
 }
 

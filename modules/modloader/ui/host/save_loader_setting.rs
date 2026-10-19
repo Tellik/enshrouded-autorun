@@ -140,11 +140,20 @@ pub(crate) fn save_setting(
                 | "onlyChanges"
         ),
         "updates" => key == "enabled",
-        "updates.system" => matches!(key, "enabled" | "checkMinutes" | "includePrereleases"),
+        "updates.automatic" => matches!(key, "enabled" | "checkMinutes" | "queueUpdates"),
+        "updates.system" => key == "includePrereleases",
+        "updates.recycleBin" => matches!(key, "automaticCleanup" | "retentionDays"),
         _ => false,
     };
     if !valid {
         return Err("unsupported module setting".into());
+    }
+    if module == "updates"
+        && key == "enabled"
+        && setting == &serde_json::Value::Bool(true)
+        && !shroudforge_loader_config::paths::updater_available(root)
+    {
+        return Err("Cannot enable Updates because shroudforge-updater.exe is missing".into());
     }
     if module == "runtimeDiagnostics" && key == "jobId" {
         let job_id = setting.as_str().ok_or("diagnostic job id must be text")?;
@@ -197,8 +206,12 @@ pub(crate) fn save_setting(
     shroudforge_loader_config::config::update_loader(root, |config| {
         if key == "window.position" {
             config["modules"][module]["window"]["position"] = setting.clone();
+        } else if module == "updates.automatic" {
+            config["modules"]["updates"]["automatic"][key] = setting.clone();
         } else if module == "updates.system" {
             config["modules"]["updates"]["system"][key] = setting.clone();
+        } else if module == "updates.recycleBin" {
+            config["modules"]["updates"]["recycleBin"][key] = setting.clone();
         } else {
             config["modules"][module][key] = setting.clone();
         }

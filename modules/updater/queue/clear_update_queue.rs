@@ -1,22 +1,18 @@
 #[cfg(windows)]
-use crate::scheduled;
-#[cfg(windows)]
 use crate::update_queue_storage::update_update_queue;
 
 #[cfg(windows)]
 pub fn clear_update_queue(root: &std::path::Path) -> Result<(), String> {
-    let status = std::fs::read(
-        shroudforge_loader_config::paths::updates_dir(root).join("updater-status.json"),
-    )
-    .ok()
-    .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-    .and_then(|value| value["status"].as_str().map(str::to_owned));
-    if status.as_deref() == Some("installing") {
-        return Err("the update is being installed and can no longer be cancelled".into());
-    }
-    scheduled::clear_system_update(root)?;
     update_update_queue(root, |queue| {
-        queue["items"] = serde_json::json!([]);
+        if queue["run"]["state"] == "running" {
+            return Err("cancel the running update queue before clearing it".into());
+        }
+        let items = queue["items"]
+            .as_array_mut()
+            .ok_or("update queue has an invalid items list")?;
+        items.retain(|item| {
+            item["kind"] == "maintenance" && crate::maintenance_jobs::is_required_migration(item)
+        });
         queue["run"] = serde_json::Value::Null;
         Ok(())
     })

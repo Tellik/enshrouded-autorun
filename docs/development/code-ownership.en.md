@@ -141,7 +141,7 @@ A file contains the implementation of the action named by that file. Related hel
 | Write a log entry | `modules/logging/append_log.rs` |
 | Mark news as read | `modules/notifications/mark_news_read.rs` |
 | Display a short result message | `modules/notifications/ui/show-toasts.tsx` |
-| Check for a system update | `modules/updater/check_system_update.rs` |
+| Run update requests and versioned maintenance jobs | `modules/updater/lib.rs` (`run_request`), `modules/updater/maintenance_jobs.rs`, and the feature implementations under `modules/updater/` |
 | Start in-game mod execution | `modules/mod-runtime/ingame/start_ingame_runtime.rs` |
 | Run update callbacks | `modules/mod-runtime/ingame/update_mod_callbacks.rs` |
 | Read original game-file backup status | `modules/game-files/originals/read_original_backups.rs` |
@@ -172,7 +172,7 @@ The release ZIP contains these main program files:
 | **winmm.dll** | Starts the ShroudForge bridge beside Enshrouded. |
 | **shroudforge/shroudforge-runtime.dll** | Loader library used by the bridge. |
 | **shroudforge/shroudforge.exe** | Main program: launcher, command-line tools, and linked ShroudForge modules. |
-| **shroudforge/shroudforge-updater.exe** | Helper that installs a queued ShroudForge update after the game closes. |
+| **shroudforge/shroudforge-updater.exe** | Owns update checks and actions, queued work, versioned migration jobs, and recycle-bin operations. The Modloader UI sends actions to its request mode. |
 | **shroudforge/kfc-runtime.dll** | Native runtime used for approved in-game operations. |
 | **shroudforge/version.json** | Release version and list of files managed by system updates. |
 | **shroudforge/config/modloader-config.json** | Loader and module settings, including custom storage locations. |
@@ -193,7 +193,7 @@ ShroudForge also creates or updates these working files as you use it:
 
 The Settings → Storage locations page can redirect the mods, status, logs, cache, exports, updates, UI-data, and runtime-data folders. Those paths resolve through `modules/loader-config/resolve_installation_paths.rs`; modules should use that resolver instead of constructing paths themselves. The game install root, configuration file, and injected DLL locations stay fixed because the Windows bootstrap needs them before the configurable storage paths can be read. Selecting a folder changes where new files are written; it does not copy existing files. A custom mods folder outside the game directory may not be discovered by EML.
 
-System updates manage the program files and bundled mods. They do not replace **modloader-config.json**, the selected status file, or the write lock. Bundled mod files are installed under the configured mods folder.
+System updates manage the program files and bundled mods. They do not replace **modloader-config.json**, the selected status file, the write lock, or the mod-update check lock. Bundled mod files are installed under the configured mods folder.
 
 ## Build and development actions
 

@@ -30,12 +30,7 @@ pub(crate) fn dispatch_control_actions(
                     );
                     continue;
                 }
-                match parse_ui_command(
-                    action,
-                    arguments.desktop,
-                    arguments.updater_window,
-                    arguments.server,
-                ) {
+                match parse_ui_command(action, arguments.desktop, arguments.server) {
                     Some(command) => {
                         if control_sender.send(command).is_err() {
                             write_activity(

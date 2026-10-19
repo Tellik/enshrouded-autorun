@@ -1,5 +1,6 @@
 export type Release = {
   currentVersion: string
+  updaterAvailable?: boolean
   latestVersion?: string
   updateAvailable: boolean
   mandatory?: boolean
@@ -15,20 +16,27 @@ export type Release = {
 
 export type UpdateQueueItem = {
   id: string
-  kind: 'system' | 'mod'
+  kind: 'system' | 'mod' | 'maintenance'
   operation?: string
   title: string
   version?: string
   prerelease?: boolean
   state: string
   selected: boolean
+  required?: boolean
   message?: string
   releaseUrl?: string
 }
 
 export type UpdateQueue = {
   items: UpdateQueueItem[]
-  run?: { state: string; waitForGame?: boolean; itemIds?: string[] } | null
+  error?: string
+  run?: {
+    state: string
+    waitForGame?: boolean
+    itemIds?: string[]
+    error?: string
+  } | null
 }
 
 export type CatalogItem = {
@@ -48,3 +56,33 @@ export type Catalog = {
   message?: string
   items: CatalogItem[]
 }
+
+export type ModUpdate = {
+  projectId: string
+  modId: string
+  name: string
+  currentVersion?: string
+  latestVersion?: string
+  latestVersionId: string
+}
+
+export type ModUpdateCheckResult = {
+  checked: number
+  failed: number
+  checkedAt?: number
+}
+
+export type UpdaterViewData = {
+  mode: string
+  release: Release
+  enabled?: boolean
+  updateQueue?: UpdateQueue
+  modUpdates?: ModUpdate[]
+  modCheckResult?: ModUpdateCheckResult | null
+  modCheckRunning?: boolean
+}
+
+export type UpdaterCommand = (
+  command: string,
+  payload?: Record<string, unknown>,
+) => void

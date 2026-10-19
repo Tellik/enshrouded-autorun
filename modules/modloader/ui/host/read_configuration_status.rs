@@ -5,7 +5,11 @@ pub fn configuration(root: &Path, server: bool, api: &str) -> Value {
     let mut errors = Vec::new();
     let mut checks = Vec::new();
     let mut mod_states = serde_json::Map::new();
-    let runtime = shroudforge_loader_config::config::read_document(root, shroudforge_runtime_diagnostics::documents::MOD_STATUS).ok();
+    let runtime = shroudforge_loader_config::config::read_document(
+        root,
+        shroudforge_runtime_diagnostics::documents::MOD_STATUS,
+    )
+    .ok();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -32,7 +36,10 @@ pub fn configuration(root: &Path, server: bool, api: &str) -> Value {
             value["runtimeProvider"]["available"] == true
                 && value["runtimeProvider"]["awaitingWorld"] == true
         });
-    match shroudforge_loader_config::config::read_document(root, shroudforge_news::documents::EVENTS_STATE) {
+    match shroudforge_loader_config::config::read_document(
+        root,
+        shroudforge_news::documents::EVENTS_STATE,
+    ) {
         Ok(events) => {
             if let Some(events) = events.as_object() {
                 for (id, value) in events {
@@ -102,8 +109,11 @@ pub fn configuration(root: &Path, server: bool, api: &str) -> Value {
                 .is_some_and(|fingerprint| {
                     shroudforge_package::prepared::matches(root, &fingerprint)
                 });
-            let preparation =
-                shroudforge_loader_config::config::read_document(root, shroudforge_game_assets::documents::APPLIED).ok();
+            let preparation = shroudforge_loader_config::config::read_document(
+                root,
+                shroudforge_game_assets::documents::APPLIED,
+            )
+            .ok();
             let preparation_error = preparation
                 .as_ref()
                 .filter(|value| {
@@ -254,8 +264,11 @@ pub fn configuration(root: &Path, server: bool, api: &str) -> Value {
                         .is_some_and(|item| item.info().requires_pregame())
                 })
                 .count();
-            let existing =
-                shroudforge_loader_config::config::read_document(root, shroudforge_game_assets::documents::APPLIED).is_ok();
+            let existing = shroudforge_loader_config::config::read_document(
+                root,
+                shroudforge_game_assets::documents::APPLIED,
+            )
+            .is_ok();
             if needs_prepare || existing {
                 assets = if let Some(error) = preparation_error {
                     json!({"state":"failed","code":"asset-preparation-failed","detail":error})
@@ -289,7 +302,11 @@ pub fn configuration(root: &Path, server: bool, api: &str) -> Value {
         "enshrouded.exe"
     });
     checks.push(json!({"id":"game","group":"game","state":if executable.is_file(){"ok"}else{"warning"},"detail":if executable.is_file(){"Game executable found. Build and hook checks run in the target process."}else{"Game executable is missing from this installation."}}));
-    let parser = shroudforge_loader_config::config::read_document(root, shroudforge_game_assets::documents::PARSER_STATUS).ok();
+    let parser = shroudforge_loader_config::config::read_document(
+        root,
+        shroudforge_game_assets::documents::PARSER_STATUS,
+    )
+    .ok();
     let parser_current = parser
         .as_ref()
         .zip(fs::metadata(&executable).ok())
@@ -377,15 +394,25 @@ pub fn configuration(root: &Path, server: bool, api: &str) -> Value {
         ),
     };
     checks.push(json!({"id":"runtime","group":"game","state":runtime_state,"detail":runtime_detail,"phase":if awaiting_world {"waiting-world"} else {"normal"}}));
-    let updates = match shroudforge_loader_config::config::read_document(root, shroudforge_updater::documents::STATE) {
-        Ok(value) => value,
-        Err(error) if error.contains("has no updates state") => Value::Null,
+    let state_path = shroudforge_loader_config::paths::state_file(root);
+    let updates = match fs::read(&state_path) {
+        Ok(bytes) => match serde_json::from_slice::<Value>(&bytes) {
+            Ok(state) => state.get("updates").cloned().unwrap_or(Value::Null),
+            Err(error) => {
+                errors.push(format!("{}: {error}", state_path.display()));
+                Value::Null
+            }
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Value::Null,
         Err(error) => {
-            errors.push(error);
+            errors.push(format!("{}: {error}", state_path.display()));
             Value::Null
         }
     };
-    if let Err(error) = shroudforge_loader_config::config::read_document(root, shroudforge_game_assets::documents::APPLIED) {
+    if let Err(error) = shroudforge_loader_config::config::read_document(
+        root,
+        shroudforge_game_assets::documents::APPLIED,
+    ) {
         if !error.contains("has no assets state") {
             errors.push(error);
         }
@@ -506,11 +533,17 @@ mod tests {
             "installedAt": 1,
             "backup": "backup/1"
         });
-        shroudforge_loader_config::config::write_document(root.path(), shroudforge_updater::documents::STATE, &update)
-            .expect("installed update state");
+        shroudforge_loader_config::config::write_json(
+            &shroudforge_loader_config::paths::state_file(root.path()),
+            &json!({"updates": update}),
+        )
+        .expect("installed update state");
         assert_eq!(
-            shroudforge_loader_config::config::read_document(root.path(), shroudforge_updater::documents::STATE)
-                .expect("stored update state"),
+            serde_json::from_slice::<Value>(
+                &fs::read(shroudforge_loader_config::paths::state_file(root.path()))
+                    .expect("stored state")
+            )
+            .expect("parse stored state")["updates"],
             update
         );
         assert!(

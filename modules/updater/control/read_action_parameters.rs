@@ -17,9 +17,7 @@ pub(crate) fn read_control_action_ids(
 }
 
 #[cfg(windows)]
-pub(crate) fn read_catalog_provider(
-    root: &std::path::Path,
-) -> Result<serde_json::Value, String> {
+pub(crate) fn read_catalog_provider(root: &std::path::Path) -> Result<serde_json::Value, String> {
     let config = shroudforge_loader_config::config::read_loader(root)?;
     let provider = config.pointer("/catalog/provider").cloned();
     let provider = match provider {

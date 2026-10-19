@@ -1,9 +1,10 @@
 import type React from 'react'
-import { postRequest } from '../../transport/ui/send-host-command'
+import type { UpdaterCommand } from './update-types'
 
 export function renderReleaseInline(
   text: string,
   keyPrefix: string,
+  onCommand: UpdaterCommand,
 ): React.ReactNode[] {
   const pattern =
     /\[([^\]]+)\]\((https:\/\/[^\s)]+)\)|(\*\*|__)(.+?)\3|(`)(.+?)\5|(\*|_)(.+?)\7/g
@@ -17,7 +18,7 @@ export function renderReleaseInline(
         <button
           className="release-note-link"
           key={`${keyPrefix}-${index}`}
-          onClick={() => postRequest('open-url', { url: match[2] })}
+          onClick={() => onCommand('open-url', { url: match[2] })}
         >
           {match[1]}
         </button>,
@@ -34,7 +35,13 @@ export function renderReleaseInline(
   return nodes
 }
 
-export function ReleaseNotes({ text }: { text: string }) {
+export function ReleaseNotes({
+  text,
+  onCommand,
+}: {
+  text: string
+  onCommand: UpdaterCommand
+}) {
   const lines = text.replace(/\r/g, '').split('\n')
   const blocks: React.ReactNode[] = []
   for (let index = 0; index < lines.length; ) {
@@ -47,7 +54,7 @@ export function ReleaseNotes({ text }: { text: string }) {
     if (heading) {
       blocks.push(
         <h4 key={`heading-${index}`}>
-          {renderReleaseInline(heading[2], `heading-${index}`)}
+          {renderReleaseInline(heading[2], `heading-${index}`, onCommand)}
         </h4>,
       )
       index++
@@ -61,7 +68,7 @@ export function ReleaseNotes({ text }: { text: string }) {
         if (!item) break
         items.push(
           <li key={`item-${index}`}>
-            {renderReleaseInline(item[1], `item-${index}`)}
+            {renderReleaseInline(item[1], `item-${index}`, onCommand)}
           </li>,
         )
         index++
@@ -75,11 +82,13 @@ export function ReleaseNotes({ text }: { text: string }) {
       index < lines.length &&
       lines[index].trim() &&
       !/^(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+)/.test(lines[index].trim())
-    )
-      (paragraph.push(lines[index].trim()), index++)
+    ) {
+      paragraph.push(lines[index].trim())
+      index++
+    }
     blocks.push(
       <p key={`paragraph-${index}`}>
-        {renderReleaseInline(paragraph.join(' '), `paragraph-${index}`)}
+        {renderReleaseInline(paragraph.join(' '), `paragraph-${index}`, onCommand)}
       </p>,
     )
   }

@@ -11,7 +11,6 @@ use crate::update_queue_storage::update_update_queue;
 
 #[cfg(windows)]
 pub(crate) fn run_update_queue(root: &std::path::Path) -> Result<(), String> {
-    use std::os::windows::process::CommandExt;
     let mut queue = read_update_queue_value(root);
     let run = queue["run"].clone();
     let ids = run["itemIds"]
@@ -21,7 +20,19 @@ pub(crate) fn run_update_queue(root: &std::path::Path) -> Result<(), String> {
         .filter_map(|id| id.as_str().map(str::to_owned))
         .collect::<Vec<_>>();
     let wait_for_game = run["waitForGame"].as_bool().unwrap_or(false);
+    let wait_pid = run["waitPid"].as_u64().unwrap_or_default() as u32;
     let show_window = run["showWindow"].as_bool().unwrap_or(true);
+    shroudforge_logging::write_activity(
+        root,
+        "Updates",
+        "Run update queue",
+        "Started",
+        Some(&format!("{} selected item(s).", ids.len())),
+        "info",
+    );
+    if wait_pid != 0 {
+        scheduled::wait_for_process_id(root, wait_pid)?;
+    }
     if wait_for_game {
         scheduled::write_status(
             root,
@@ -30,7 +41,7 @@ pub(crate) fn run_update_queue(root: &std::path::Path) -> Result<(), String> {
         );
         if let Err(error) = scheduled::wait_for_game_processes(root) {
             if error == "UPDATE_CANCELLED" {
-                finish_cancelled_queue(root, &ids);
+                finish_cancelled_queue(root, &ids)?;
                 return Ok(());
             }
             return Err(error);
@@ -42,9 +53,12 @@ pub(crate) fn run_update_queue(root: &std::path::Path) -> Result<(), String> {
 
     let mut failures = Vec::new();
     for id in &ids {
-        if scheduled::check_update_cancelled(root).is_err() {
-            finish_cancelled_queue(root, &ids);
-            return Ok(());
+        if let Err(error) = scheduled::check_update_cancelled(root) {
+            if error == "UPDATE_CANCELLED" {
+                finish_cancelled_queue(root, &ids)?;
+                return Ok(());
+            }
+            return Err(error);
         }
         queue = read_update_queue_value(root);
         let Some(item) = queue["items"]
@@ -55,58 +69,75 @@ pub(crate) fn run_update_queue(root: &std::path::Path) -> Result<(), String> {
             failures.push(format!("queue item '{id}' disappeared"));
             continue;
         };
-        if item["state"] == "cancelled" {
+        let required_migration =
+            item["kind"] == "maintenance" && crate::maintenance_jobs::is_required_migration(&item);
+        if matches!(item["state"].as_str(), Some("complete" | "cancelled")) {
+            shroudforge_logging::write_activity(
+                root,
+                "Updates",
+                "Update queue item",
+                "Skipped during recovery",
+                Some(&format!(
+                    "{} ({id}) was already {}",
+                    item["title"].as_str().unwrap_or(id),
+                    item["state"].as_str().unwrap_or("complete")
+                )),
+                "debug",
+            );
             continue;
         }
+        let title = item["title"].as_str().unwrap_or(id);
+        shroudforge_logging::write_activity(
+            root,
+            "Updates",
+            "Update queue item",
+            "Started",
+            Some(&format!("{title} ({id})")),
+            "info",
+        );
+        update_update_queue(root, |queue| {
+            queue["run"]["activeItemId"] = serde_json::Value::String(id.clone());
+            queue["run"]["installing"] = serde_json::Value::Bool(false);
+            Ok(())
+        })?;
         set_update_item_state(root, id, "downloading", None)?;
         let result = match item["kind"].as_str() {
+            Some("maintenance") => {
+                set_update_item_state(root, id, "installing", None)?;
+                crate::maintenance_jobs::execute(root, &item)
+            }
             Some("system") => {
                 let request = item["payload"].clone();
                 let version = request["version"].as_str().unwrap_or_default();
-                scheduled::write_status_with_version(
-                    root,
-                    "downloading",
-                    "Downloading selected ShroudForge update",
-                    Some(version),
-                );
-                scheduled::stage_system_update(root, &request).and_then(|()| {
-                    if scheduled::check_update_cancelled(root).is_err() {
-                        return Err("UPDATE_CANCELLED".into());
-                    }
-                    set_update_item_state(
-                        root,
-                        id,
-                        "waitingForGame",
-                        Some("Download verified. Installation waits for Enshrouded to close"),
-                    )?;
-                    scheduled::write_status(
-                        root,
-                        "waitingForGame",
-                        "Download verified. Waiting to install ShroudForge",
-                    );
+                if item["operation"] == "install-staged" {
                     let staged =
                         shroudforge_loader_config::paths::updates_dir(root).join("pending");
-                    let status = std::process::Command::new(
-                        std::env::current_exe().map_err(|error| error.to_string())?,
-                    )
-                    .args(["--update-worker", "--root"])
-                    .arg(root)
-                    .arg("--staged")
-                    .arg(staged)
-                    .status()
-                    .map_err(|error| format!("could not launch validated installer: {error}"))?;
-                    let _ = std::fs::remove_file(
-                        shroudforge_loader_config::paths::updates_dir(root)
-                            .join("worker-queue.json"),
+                    crate::system_install::install_staged(root, &staged)
+                } else {
+                    scheduled::write_status_with_version(
+                        root,
+                        "downloading",
+                        "Downloading selected ShroudForge update",
+                        Some(version),
                     );
-                    if status.success() {
-                        Ok(())
-                    } else if scheduled::check_update_cancelled(root).is_err() {
-                        Err("UPDATE_CANCELLED".into())
-                    } else {
-                        Err(format!("installer returned {status}"))
-                    }
-                })
+                    scheduled::stage_system_update(root, &request).and_then(|()| {
+                        scheduled::check_update_cancelled(root)?;
+                        set_update_item_state(
+                            root,
+                            id,
+                            "waitingForGame",
+                            Some("Download verified. Installation waits for Enshrouded to close"),
+                        )?;
+                        scheduled::write_status(
+                            root,
+                            "waitingForGame",
+                            "Download verified. Waiting to install ShroudForge",
+                        );
+                        let staged =
+                            shroudforge_loader_config::paths::updates_dir(root).join("pending");
+                        crate::system_install::install_staged(root, &staged)
+                    })
+                }
             }
             Some("mod") => {
                 let payload = &item["payload"];
@@ -118,42 +149,62 @@ pub(crate) fn run_update_queue(root: &std::path::Path) -> Result<(), String> {
                     "modId":payload["modId"],
                     "provider":payload["provider"]
                 });
-                let request_path = shroudforge_loader_config::paths::updates_dir(root)
-                    .join("mod-install-queue.json");
-                shroudforge_loader_config::config::write_json(&request_path, &request)
-                    .map_err(|error| error.to_string())?;
-                let status = std::process::Command::new(
-                    shroudforge_loader_config::paths::loader_executable(root),
+                let provider = serde_json::from_value(request["provider"].clone())
+                    .map_err(|error| format!("invalid provider settings: {error}"))?;
+                let project_id = request["projectId"]
+                    .as_str()
+                    .ok_or("mod queue item has no project ID")?;
+                let update_mod_id = (item["operation"] == "update")
+                    .then(|| payload["modId"].as_str())
+                    .flatten();
+                crate::mod_installation::install::install_mod_from_catalog(
+                    root,
+                    &provider,
+                    project_id,
+                    update_mod_id,
+                    id,
                 )
-                .args(["--catalog-install-worker", "--root"])
-                .arg(root)
-                .creation_flags(0x08000000)
-                .status()
-                .map_err(|error| format!("could not launch catalog installer: {error}"))?;
-                if status.success() {
-                    Ok(())
-                } else if scheduled::check_update_cancelled(root).is_err() {
-                    Err("UPDATE_CANCELLED".into())
-                } else {
-                    Err(format!("catalog installer returned {status}"))
-                }
+                .map(|_| ())
             }
             _ => Err(format!("unsupported update queue item kind for '{id}'")),
         };
         match result {
-            Ok(()) => set_update_item_state(root, id, "complete", Some("Update completed"))?,
+            Ok(()) => {
+                set_update_item_state(root, id, "complete", Some("Update completed"))?;
+                shroudforge_logging::write_activity(
+                    root,
+                    "Updates",
+                    "Update queue item",
+                    "Succeeded",
+                    Some(&format!("{title} ({id})")),
+                    "info",
+                );
+            }
             Err(error) if error == "UPDATE_CANCELLED" => {
-                finish_cancelled_queue(root, &ids);
+                finish_cancelled_queue(root, &ids)?;
                 return Ok(());
             }
             Err(error) => {
                 set_update_item_state(root, id, "error", Some(&error))?;
+                shroudforge_logging::write_activity(
+                    root,
+                    "Updates",
+                    "Update queue item",
+                    "Failed",
+                    Some(&format!("{title} ({id}): {error}")),
+                    "error",
+                );
                 failures.push(format!("{id}: {error}"));
+                if required_migration {
+                    break;
+                }
             }
         }
     }
     update_update_queue(root, |queue| {
         queue["run"]["state"] = serde_json::Value::String("complete".into());
+        queue["run"]["activeItemId"] = serde_json::Value::Null;
+        queue["run"]["installing"] = serde_json::Value::Bool(false);
         queue["run"]["finishedAt"] = serde_json::json!(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -167,6 +218,14 @@ pub(crate) fn run_update_queue(root: &std::path::Path) -> Result<(), String> {
     );
     let contains_system_update = ids.iter().any(|id| id.starts_with("system:"));
     if failures.is_empty() {
+        shroudforge_logging::write_activity(
+            root,
+            "Updates",
+            "Run update queue",
+            "Succeeded",
+            Some(&format!("Completed {} selected item(s).", ids.len())),
+            "info",
+        );
         if contains_system_update {
             scheduled::write_status(root, "installed", "Selected update queue completed");
         } else {
@@ -174,6 +233,14 @@ pub(crate) fn run_update_queue(root: &std::path::Path) -> Result<(), String> {
         }
         Ok(())
     } else {
+        shroudforge_logging::write_activity(
+            root,
+            "Updates",
+            "Run update queue",
+            "Completed with errors",
+            Some(&failures.join("; ")),
+            "error",
+        );
         if contains_system_update {
             scheduled::write_status(root, "error", &failures.join(", "));
         } else {

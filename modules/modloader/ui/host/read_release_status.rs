@@ -1,7 +1,3 @@
-use shroudforge_updater::installed_release;
-use shroudforge_updater::installed_version;
-use shroudforge_updater::release::Release;
-use shroudforge_updater::release_state::ReleaseState;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -9,64 +5,45 @@ use std::sync::Mutex;
 
 pub(crate) fn read_release_status(
     root: &Path,
-    updater_window: bool,
     central: &serde_json::Value,
-    release: &Arc<Mutex<ReleaseState>>,
-) -> ReleaseState {
-    let mut release_snapshot = release
+    release: &Arc<Mutex<serde_json::Value>>,
+) -> serde_json::Value {
+    let mut snapshot = release
         .lock()
         .map(|value| value.clone())
-        .unwrap_or_else(|_| ReleaseState::idle(installed_release(root), false));
+        .unwrap_or_else(|_| idle_release_status(root));
+    snapshot["updaterAvailable"] = shroudforge_loader_config::paths::updater_available(root).into();
     if let Some(latest) = central.pointer("/modules/updates/system/latestRelease") {
-        if latest.is_object() {
-            if let (
-                Some(version),
-                Some(base_version),
-                Some(build),
-                Some(download_url),
-                Some(checksum),
-            ) = (
-                latest["version"].as_str(),
-                latest["baseVersion"].as_str(),
-                latest["build"].as_u64(),
-                latest["downloadUrl"].as_str(),
-                latest["checksum"].as_str(),
-            ) {
-                let update_available = latest["updateAvailable"].as_bool().unwrap_or(false);
-                let mandatory = latest["mandatory"].as_bool().unwrap_or(false);
-                let prerelease = latest["prerelease"].as_bool().unwrap_or(false);
-                let release_url = latest["releaseUrl"].as_str().map(str::to_owned);
-                let message = latest["message"].as_str().unwrap_or_default().to_owned();
-                release_snapshot.latest_version = Some(version.to_owned());
-                release_snapshot.update_available = update_available;
-                release_snapshot.mandatory = mandatory;
-                release_snapshot.prerelease = prerelease;
-                release_snapshot.release_url = release_url.clone();
-                if release_snapshot.state == "idle" || release_snapshot.state == "ready" {
-                    release_snapshot.state = "ready".into();
-                    release_snapshot.message = Some(if update_available {
-                        message.clone()
-                    } else {
-                        "ShroudForge is up to date.".into()
-                    });
-                }
-                release_snapshot.release = Some(Release {
-                    version: version.to_owned(),
-                    base_version: base_version.to_owned(),
-                    build,
-                    download_url: download_url.to_owned(),
-                    checksum: checksum.to_owned(),
-                    release_url,
-                    message,
-                    mandatory,
-                    prerelease,
-                });
+        if latest.is_object()
+            && latest["version"].is_string()
+            && latest["baseVersion"].is_string()
+            && latest["build"].as_u64().is_some()
+            && latest["downloadUrl"].is_string()
+            && latest["checksum"].is_string()
+        {
+            let update_available = latest["updateAvailable"].as_bool().unwrap_or(false);
+            snapshot["latestVersion"] = latest["version"].clone();
+            snapshot["updateAvailable"] = update_available.into();
+            snapshot["mandatory"] = latest["mandatory"].as_bool().unwrap_or(false).into();
+            snapshot["prerelease"] = latest["prerelease"].as_bool().unwrap_or(false).into();
+            snapshot["releaseUrl"] = latest["releaseUrl"].clone();
+            if update_available {
+                snapshot["message"] = latest["message"].clone();
+            }
+            if matches!(snapshot["state"].as_str(), Some("idle" | "ready")) {
+                snapshot["state"] = "ready".into();
+                snapshot["message"] = if update_available {
+                    latest["message"].clone()
+                } else {
+                    "ShroudForge is up to date.".into()
+                };
             }
         }
     }
-    if let Ok(bytes) =
-        fs::read(shroudforge_loader_config::paths::updates_dir(root).join("updater-status.json"))
-    {
+
+    let status_path =
+        shroudforge_loader_config::paths::updates_dir(root).join("updater-status.json");
+    if let Ok(bytes) = fs::read(status_path) {
         if let Ok(status) = serde_json::from_slice::<serde_json::Value>(&bytes) {
             let terminal = matches!(
                 status["status"].as_str(),
@@ -74,8 +51,8 @@ pub(crate) fn read_release_status(
             );
             let last_check = central["modules"]["updates"]["system"]["lastCheckAt"].as_u64();
             let superseded = terminal
-                && (release_snapshot.update_available
-                    || matches!(release_snapshot.state.as_str(), "checking" | "error")
+                && (snapshot["updateAvailable"] == true
+                    || matches!(snapshot["state"].as_str(), Some("checking" | "error"))
                     || status["updatedAt"]
                         .as_u64()
                         .zip(last_check)
@@ -85,29 +62,55 @@ pub(crate) fn read_release_status(
                     let staged = shroudforge_loader_config::paths::updates_dir(root)
                         .join("pending.ready")
                         .is_file();
-                    release_snapshot.state = if state == "installed" && !updater_window
-                        || (state == "staged" && !staged)
-                    {
-                        "idle".into()
+                    snapshot["state"] = if state == "installed" || (state == "staged" && !staged) {
+                        "idle"
                     } else {
-                        state.to_owned()
-                    };
-                    release_snapshot.message = status["message"].as_str().map(str::to_owned);
-                    release_snapshot.staged = state == "staged" && staged;
-                    release_snapshot.latest_version = status["version"]
-                        .as_str()
-                        .map(str::to_owned)
-                        .or(release_snapshot.latest_version);
-                    release_snapshot.downloaded_bytes =
-                        status["downloadedBytes"].as_u64().unwrap_or(0);
-                    release_snapshot.total_bytes = status["totalBytes"].as_u64();
-                    release_snapshot.bytes_per_second = status["bytesPerSecond"].as_u64();
+                        state
+                    }
+                    .into();
+                    snapshot["message"] = status["message"].clone();
+                    snapshot["staged"] = (state == "staged" && staged).into();
+                    if status["version"].is_string() {
+                        snapshot["latestVersion"] = status["version"].clone();
+                    }
+                    snapshot["downloadedBytes"] =
+                        status["downloadedBytes"].as_u64().unwrap_or(0).into();
+                    snapshot["totalBytes"] = status["totalBytes"].clone();
+                    snapshot["bytesPerSecond"] = status["bytesPerSecond"].clone();
                     if state == "installed" {
-                        release_snapshot.current_version = installed_version(root);
+                        snapshot["currentVersion"] = installed_version(root).into();
                     }
                 }
             }
         }
     }
-    release_snapshot
+    snapshot
+}
+
+pub(crate) fn idle_release_status(root: &Path) -> serde_json::Value {
+    serde_json::json!({
+        "currentVersion": installed_version(root),
+        "updaterAvailable": shroudforge_loader_config::paths::updater_available(root),
+        "latestVersion": null,
+        "updateAvailable": false,
+        "mandatory": false,
+        "prerelease": false,
+        "state": "idle",
+        "message": null,
+        "releaseUrl": null,
+        "staged": shroudforge_loader_config::paths::updates_dir(root)
+            .join("pending.ready")
+            .is_file(),
+        "downloadedBytes": 0,
+        "totalBytes": null,
+        "bytesPerSecond": null
+    })
+}
+
+fn installed_version(root: &Path) -> String {
+    fs::read(shroudforge_loader_config::paths::version_file(root))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .and_then(|value| value["version"].as_str().map(str::to_owned))
+        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").into())
 }

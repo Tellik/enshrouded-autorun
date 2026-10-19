@@ -5,9 +5,11 @@ $output = Join-Path $root 'build/x64'
 New-Item -ItemType Directory -Force -Path $output | Out-Null
 $modloaderUiSource = Join-Path $root 'modules\modloader\ui'
 $modloaderUiOutput = Join-Path $root 'build\ui\modloader'
+$updaterUiOutput = Join-Path $root 'build\ui\updater'
 if ($SkipUiBuild) {
-    if (-not (Test-Path -LiteralPath (Join-Path $modloaderUiOutput 'index.html'))) {
-        throw 'The built Modloader UI is missing; remove -SkipUiBuild.'
+    if (-not (Test-Path -LiteralPath (Join-Path $modloaderUiOutput 'index.html')) -or
+        -not (Test-Path -LiteralPath (Join-Path $updaterUiOutput 'updater.html'))) {
+        throw 'A required frontend page is missing; remove -SkipUiBuild.'
     }
 } else {
     Push-Location $modloaderUiSource

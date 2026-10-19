@@ -261,13 +261,25 @@
       "window": {
         "position": null
       },
-      "system": {
+      "automatic": {
         "enabled": true,
         "checkMinutes": 60,
+        "queueUpdates": true
+      },
+      "system": {
         "includePrereleases": false,
         "lastCheckAt": null,
         "lastCheckAttemptAt": null,
         "latestRelease": null
+      },
+      "mods": {
+        "lastCheckAt": null,
+        "latestUpdates": [],
+        "lastCheckResult": null
+      },
+      "recycleBin": {
+        "automaticCleanup": true,
+        "retentionDays": 30
       }
     }
   }

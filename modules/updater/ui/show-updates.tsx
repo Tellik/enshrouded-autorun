@@ -1,25 +1,64 @@
-import { postRequest } from '../../transport/ui/send-host-command'
 import { useI18n } from '../../ui-resources/i18n'
 import { useState } from 'react'
-import { Snapshot } from '../../modloader/ui/ui-snapshot'
 import { Empty } from '../../ui-resources/show-empty-state'
 import { Icon } from '../../ui-resources/show-icon'
 import { PageHeader } from '../../ui-resources/show-page-header'
 import { Segmented } from '../../ui-resources/choose-segment'
 import { SystemUpdate } from './show-system-update'
 import { UpdateQueuePanel } from './show-update-queue'
+import type { UpdaterCommand, UpdaterViewData } from './update-types'
+import { UpdaterAvailability } from './show-updater-availability'
 
 export function Updates({
   data,
-}: { data: Snapshot }) {
+  onCommand,
+  commandError,
+}: {
+  data: UpdaterViewData
+  onCommand: UpdaterCommand
+  commandError?: string
+}) {
   const { t } = useI18n()
   const [tab, setTab] = useState('all')
   const queue = data.updateQueue || { items: [] }
+  const modUpdates = data.modUpdates || []
+  const modCheckResult = data.modCheckResult
+  const checking =
+    tab === 'mods'
+      ? data.modCheckRunning === true
+      : data.release.state === 'checking'
+  const updaterAvailable = data.release.updaterAvailable === true
+  const enabled = data.enabled === true
+  const actionsEnabled = updaterAvailable && enabled
+  const queueFailureMessages = [
+    queue.error,
+    queue.run?.error,
+    ...queue.items
+      .filter((item) => item.state === 'error')
+      .map((item) => item.message),
+  ].filter((message): message is string => Boolean(message))
+  const duplicateQueueError =
+    data.release.state === 'error' &&
+    queueFailureMessages.some(
+      (message) =>
+        data.release.message === message || data.release.message?.includes(message),
+    )
+  const commandErrorAlreadyShown =
+    !!commandError &&
+    ((tab !== 'history' && queueFailureMessages.includes(commandError)) ||
+      (tab !== 'mods' &&
+        tab !== 'history' &&
+        data.release.state === 'error' &&
+        data.release.message === commandError))
+  const systemRelease =
+    duplicateQueueError && !data.release.updateAvailable
+      ? { ...data.release, state: 'ready', message: undefined }
+      : data.release
   const queuedSystem = queue.items.some(
     (item) =>
       item.kind === 'system' &&
       item.version === data.release.latestVersion &&
-      !['complete', 'cancelled'].includes(item.state),
+      !['complete', 'cancelled', 'error'].includes(item.state),
   )
   return (
     <>
@@ -30,15 +69,25 @@ export function Updates({
         actions={
           <button
             className="button"
-            onClick={() => postRequest('check-updates')}
-            disabled={data.release.state === 'checking'}
+            onClick={() =>
+              onCommand(tab === 'mods' ? 'check-mod-updates' : 'check-updates')
+            }
+            disabled={!actionsEnabled || checking}
           >
             <Icon name="refresh" />
-            {data.release.state === 'checking'
-              ? t('updates.checking')
-              : t('updates.check')}
+            {checking ? t('updates.checking') : t('updates.check')}
           </button>
         }
+      />
+      {commandError && !commandErrorAlreadyShown && (
+        <p className="notice" role="alert">
+          {commandError}
+        </p>
+      )}
+      <UpdaterAvailability
+        updaterAvailable={updaterAvailable}
+        enabled={enabled}
+        onCommand={onCommand}
       />
       <Segmented
         value={tab}
@@ -55,14 +104,65 @@ export function Updates({
           queue={queue}
           mode={data.mode}
           release={data.release}
+          disabled={!actionsEnabled}
+          onCommand={onCommand}
         />
       )}
       {tab === 'mods' ? (
-        <Empty
-          title={t('updates.mods.empty.title')}
-          text={t('updates.mods.empty.text')}
-          icon="updates"
-        />
+        <>
+          {modUpdates.length === 0 ? (
+            <Empty
+              title={t('updates.mods.empty.title')}
+              text={t('updates.mods.empty.text')}
+              icon="updates"
+            />
+          ) : (
+            <div className="settings-module-list">
+              {modUpdates.map((update) => {
+                const queued = queue.items.some(
+                  (item) =>
+                    item.id === `mod-update:${update.projectId}:${update.modId}` &&
+                    !['complete', 'cancelled', 'error'].includes(item.state),
+                )
+                return (
+                  <section className="card" key={update.projectId}>
+                    <div className="card-head">
+                      <div>
+                        <h2>{update.name || update.modId}</h2>
+                        <p>
+                          {update.currentVersion || update.modId}
+                          {' → '}
+                          {update.latestVersion || t('updates.mods.available')}
+                        </p>
+                      </div>
+                      <button
+                        className="button"
+                        disabled={!actionsEnabled || queued}
+                        onClick={() =>
+                          onCommand('update-mod', {
+                            modId: update.modId,
+                            title: update.name || update.modId,
+                          })
+                        }
+                      >
+                        {t(queued ? 'updates.queue.added' : 'updates.queue.addMod')}
+                      </button>
+                    </div>
+                  </section>
+                )
+              })}
+            </div>
+          )}
+          {modCheckResult?.checkedAt && (
+            <p className="hint settings-module-hint">
+              {t('updates.mods.lastChecked', {
+                checked: modCheckResult.checked,
+                failed: modCheckResult.failed,
+                time: new Date(modCheckResult.checkedAt * 1000).toLocaleString(),
+              })}
+            </p>
+          )}
+        </>
       ) : tab === 'history' ? (
         <Empty
           title={t('updates.history.empty.title')}
@@ -70,7 +170,12 @@ export function Updates({
           icon="activity"
         />
       ) : (
-        <SystemUpdate release={data.release} queued={queuedSystem} />
+        <SystemUpdate
+          release={systemRelease}
+          queued={queuedSystem}
+          disabled={!actionsEnabled}
+          onCommand={onCommand}
+        />
       )}
     </>
   )

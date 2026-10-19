@@ -1,6 +1,7 @@
 param(
     [string]$BuildNumber = $(if ($env:SHROUDFORGE_BUILD_NUMBER) { $env:SHROUDFORGE_BUILD_NUMBER } else { 'dev' }),
-    [string]$Version
+    [string]$Version,
+    [switch]$WithoutUpdater
 )
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
@@ -70,7 +71,10 @@ New-Item -ItemType Directory -Force -Path $package | Out-Null
 Copy-Item -LiteralPath (Join-Path $output 'winmm.dll'),(Join-Path $output 'dbghelp.dll'),(Join-Path $output 'dinput8.dll') -Destination $package
 $dataPackage = Join-Path $package 'shroudforge'
 New-Item -ItemType Directory -Force -Path $dataPackage | Out-Null
-Copy-Item -LiteralPath (Join-Path $output 'shroudforge-runtime.dll'),(Join-Path $output 'shroudforge.exe'),(Join-Path $output 'shroudforge-updater.exe'),(Join-Path $output 'kfc-runtime.dll') -Destination $dataPackage
+Copy-Item -LiteralPath (Join-Path $output 'shroudforge-runtime.dll'),(Join-Path $output 'shroudforge.exe'),(Join-Path $output 'kfc-runtime.dll') -Destination $dataPackage
+if (-not $WithoutUpdater) {
+    Copy-Item -LiteralPath (Join-Path $output 'shroudforge-updater.exe') -Destination $dataPackage
+}
 New-Item -ItemType Directory -Force -Path (Join-Path $dataPackage 'runtime\profiles') | Out-Null
 Get-ChildItem -LiteralPath (Join-Path $root 'modules\game-runtime\profiles') -Exclude 'dev' | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $dataPackage 'runtime\profiles') -Recurse -Force }
 Copy-ShroudForgeMods (Join-Path $package 'mods')
@@ -85,6 +89,7 @@ $versionManifest = [ordered]@{
     build = $BuildNumber
     builtAt = [DateTime]::UtcNow.ToString('o')
     updateKind = 'system'
+    updaterIncluded = -not $WithoutUpdater
     requiredAction = 'game_restart'
     managedPaths = @(Get-ChildItem -LiteralPath $package -Force -File -Recurse |
         ForEach-Object { [IO.Path]::GetRelativePath($package, $_.FullName).Replace('\', '/') } |
@@ -96,7 +101,8 @@ Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
 $releaseZip = [System.IO.Compression.ZipFile]::OpenRead($archive)
 try {
     $entryNames = @($releaseZip.Entries | ForEach-Object { $_.FullName })
-    if ($entryNames -notcontains 'winmm.dll' -or $entryNames -notcontains 'dbghelp.dll' -or $entryNames -notcontains 'dinput8.dll' -or $entryNames -notcontains 'shroudforge/shroudforge.exe' -or $entryNames -notcontains 'shroudforge/shroudforge-updater.exe' -or $entryNames -notcontains 'shroudforge/shroudforge-runtime.dll' -or $entryNames -notcontains 'shroudforge/kfc-runtime.dll' -or $entryNames -notcontains 'shroudforge/config/modloader-config.json' -or
+    $updaterEntryPresent = $entryNames -contains 'shroudforge/shroudforge-updater.exe'
+    if ($entryNames -notcontains 'winmm.dll' -or $entryNames -notcontains 'dbghelp.dll' -or $entryNames -notcontains 'dinput8.dll' -or $entryNames -notcontains 'shroudforge/shroudforge.exe' -or (-not $WithoutUpdater -and -not $updaterEntryPresent) -or ($WithoutUpdater -and $updaterEntryPresent) -or $entryNames -notcontains 'shroudforge/shroudforge-runtime.dll' -or $entryNames -notcontains 'shroudforge/kfc-runtime.dll' -or $entryNames -notcontains 'shroudforge/config/modloader-config.json' -or
         $entryNames -notcontains 'shroudforge/version.json' -or $entryNames -notcontains 'shroudforge/runtime/profiles/enshrouded/client/1076226.json') {
         throw 'Release archive is missing the launcher, loader configuration, or version file.'
     }

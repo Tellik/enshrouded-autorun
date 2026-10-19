@@ -7,7 +7,6 @@ import type { NoticeAction } from '../../notifications/ui/notification-types'
 import { Chirper } from '../../notifications/ui/show-notice-popup'
 import { useNotifications } from '../../notifications/ui/read-notifications'
 import { Toasts, useCommandToasts } from '../../notifications/ui/show-toasts'
-import { UpdaterWindow } from '../../updater/ui/show-updater-window'
 import { Nav, NavGroup } from '../../ui-resources/show-navigation'
 import { ModIcon } from './show-mod-icon'
 import { ModPage } from './show-mod'
@@ -73,16 +72,6 @@ export function App() {
       postRequest('queue-system-update')
   }
 
-  if (data.updaterWindow)
-    return (
-      <UpdaterWindow
-        release={data.release}
-        version={data.version}
-        queue={data.updateQueue || { items: [] }}
-        mode={data.mode}
-      />
-    )
-
   return (
     <main className="shell">
       <Toasts errors={data.configuration?.errors} message={saveMessage} />
@@ -144,6 +133,12 @@ export function App() {
               active={!activeMod && page === 'updates'}
               onClick={() => navigate('updates')}
             />
+            <Nav
+              icon="trash"
+              label={t('nav.recycleBin')}
+              active={!activeMod && page === 'recycle-bin'}
+              onClick={() => navigate('recycle-bin')}
+            />
           </NavGroup>
           <NavGroup className="nav-group-mods" title={t('nav.mods')}>
             <div className="sidebar-mods">
@@ -180,6 +175,7 @@ export function App() {
               runNoticeAction={runNoticeAction}
               openNews={() => navigate('news')}
               selectMod={setSelectedMod}
+              onUpdaterCommand={postRequest}
             />
           )}
         </section>

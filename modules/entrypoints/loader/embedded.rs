@@ -1,5 +1,8 @@
 #[path = "asset_preparation/mod.rs"]
 mod pregame;
+#[cfg(any(windows, target_os = "linux"))]
+#[path = "start_updater_controller.rs"]
+mod start_updater_controller;
 #[cfg(test)]
 mod tests;
 
@@ -110,8 +113,8 @@ pub unsafe extern "C" fn shroudforge_prepare_startup(game: *const u16) -> bool {
         let _ = shroudforge_logging::initialize(&game, false);
         let started = std::time::Instant::now();
         let startup_result = pregame::run_startup(&game);
-        #[cfg(windows)]
-        if let Err(error) = shroudforge_updater::start_headless_control_worker(&game) {
+        #[cfg(any(windows, target_os = "linux"))]
+        if let Err(error) = start_updater_controller::start(&game) {
             let _ = shroudforge_logging::append(
                 &game,
                 'E',

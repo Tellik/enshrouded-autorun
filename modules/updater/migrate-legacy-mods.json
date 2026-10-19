@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "migration.legacy-shroudforge-mods",
+  "revision": 1,
+  "name": "Move retired ShroudForge mods to the recycle bin",
+  "description": "Moves only allowlisted legacy ShroudForge mod folders with matching historical manifest IDs. Current mod IDs are protected.",
+  "trigger": "before-update",
+  "repeatable": false,
+  "action": "migrate-legacy-mods"
+}

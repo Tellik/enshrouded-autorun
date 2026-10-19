@@ -1,11 +1,9 @@
-#[cfg(windows)]
 use crate::update_queue_storage::update_update_queue;
 
-#[cfg(windows)]
 pub(crate) fn enqueue_update_item(
     root: &std::path::Path,
     item: serde_json::Value,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let id = item["id"]
         .as_str()
         .ok_or("update queue item has no ID")?
@@ -18,12 +16,18 @@ pub(crate) fn enqueue_update_item(
             .iter_mut()
             .find(|existing| existing["id"].as_str() == Some(&id))
         {
-            if existing["state"] == "complete" {
+            if matches!(
+                existing["state"].as_str(),
+                Some("complete" | "error" | "cancelled")
+            ) {
                 *existing = item;
+                Ok(true)
+            } else {
+                Ok(false)
             }
         } else {
             items.push(item);
+            Ok(true)
         }
-        Ok(())
     })
 }

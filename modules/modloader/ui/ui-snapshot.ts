@@ -35,7 +35,6 @@ export type Snapshot = {
   }
   connected: boolean
   mode: string
-  updaterWindow?: boolean
   gameVersion: string
   version: string
   mods: ModInfo[]
@@ -70,6 +69,7 @@ export type PageId =
   | 'discover'
   | 'installed'
   | 'updates'
+  | 'recycle-bin'
   | 'compatibility'
   | 'settings'
 
@@ -87,17 +87,14 @@ export const startPageOptions: PageId[] = [
   'discover',
   'installed',
   'updates',
+  'recycle-bin',
   'compatibility',
   'settings',
 ]
 
 export const empty: Snapshot = {
   connected: false,
-  mode:
-    (window as any).__shroudforgeLaunchMode === 'updater'
-      ? 'UPDATER'
-      : 'DESKTOP',
-  updaterWindow: (window as any).__shroudforgeLaunchMode === 'updater',
+  mode: 'DESKTOP',
   gameVersion: '',
   version: '1.0.0',
   mods: [],
@@ -107,6 +104,7 @@ export const empty: Snapshot = {
   locale: 'de',
   release: {
     currentVersion: '1.0.0',
+    updaterAvailable: false,
     updateAvailable: false,
     state: 'idle',
     staged: false,
@@ -122,11 +120,11 @@ export const empty: Snapshot = {
   },
   settings: {
     compactMode: false,
-    effectiveUsername: 'Flameborn',
-    usernameSource: 'fallback',
     reducedMotion: false,
     usernameMode: 'auto',
     detectedUsername: null,
+    effectiveUsername: 'Flameborn',
+    usernameSource: 'fallback',
     messageNameFallback: 'Flameborn',
     logLevel: 'INFO',
     exportEnabled: true,

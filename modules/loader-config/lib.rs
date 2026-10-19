@@ -1,6 +1,7 @@
 mod document;
 pub use document::{Document, Storage};
 mod calculate_revision;
+mod claim_control_actions;
 pub mod documents;
 mod initialize_loader_settings;
 mod lock_installation;
@@ -19,8 +20,25 @@ mod validate_document;
 mod window_state;
 mod write_document;
 mod write_json_atomically;
+
+pub const UPDATER_CONTROL_ACTIONS: &[&str] = &[
+    "checkUpdates",
+    "installMod",
+    "updateMod",
+    "queueSystemUpdate",
+    "selectUpdateQueueItems",
+    "removeUpdateQueueItem",
+    "clearUpdateQueue",
+    "cancelUpdate",
+    "startUpdateQueue",
+    "stageUpdate",
+    "restoreGamefiles",
+    "captureGamefileOriginals",
+];
+
 pub mod config {
     pub use crate::calculate_revision::*;
+    pub use crate::claim_control_actions::*;
     pub use crate::initialize_loader_settings::*;
     pub use crate::lock_installation::*;
     pub use crate::publish_window_visibility::*;

@@ -1,7 +1,7 @@
 use super::loader_settings_input::UiSettings;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UiCommand {
     #[serde(default)]
@@ -13,6 +13,8 @@ pub(crate) struct UiCommand {
     pub(crate) url: Option<String>,
     #[serde(default)]
     pub(crate) mod_id: Option<String>,
+    #[serde(default)]
+    pub(crate) id: Option<String>,
     #[serde(default)]
     pub(crate) values: Option<serde_json::Value>,
     #[serde(default)]
@@ -65,16 +67,6 @@ pub(crate) enum Command {
     CopyLogs(String),
     RefreshMod(String, String),
     ReloadSettings(String),
-    CheckUpdates(String),
-    StageUpdate(String, bool),
-    QueueSystemUpdate(String),
-    SelectUpdateQueueItems(Vec<String>, bool, String),
-    RemoveUpdateQueueItem(String, String),
-    StartUpdateQueue(Vec<String>, bool, bool, String),
-    ClearUpdateQueue(String),
-    CancelUpdate(String),
-    RestoreGamefiles(String),
-    CaptureGamefileOriginals(String),
     OpenUrl(String, String),
     SetModEnabled(String, bool, String, String),
     SaveModSettings(String, serde_json::Value, String, String),
@@ -83,24 +75,19 @@ pub(crate) enum Command {
     BrowsePath(String, String),
     OpenPath(String, String),
     SetWindowVisibility(String, bool, String),
-    SearchCatalog(String, String),
-    InstallMod(String, String, String),
-    UpdateMod(String, String, String),
     SaveLanguage(String, String),
     RunModAction(String, String, String),
-    RemoveMod(String, String),
+    UpdaterRequest(String, String, String, serde_json::Value),
     SetNewsRead(Vec<String>, bool, String),
     Diagnostics(String, Option<String>, String),
     UiReady,
     UiError(String),
 }
 
-pub(crate) fn parse_ui_command(
-    value: UiCommand,
-    desktop: bool,
-    updater_window: bool,
-    server: bool,
-) -> Option<Command> {
+pub(crate) fn parse_ui_command(value: UiCommand, desktop: bool, server: bool) -> Option<Command> {
+    if let Some(command) = parse_updater_request(&value, desktop, server) {
+        return Some(command);
+    }
     Some(match value.command.as_str() {
         "diagnostics" => Command::Diagnostics(
             value.action.unwrap_or_default(),
@@ -126,54 +113,6 @@ pub(crate) fn parse_ui_command(
             None => return None,
         },
         "reload-settings" => Command::ReloadSettings(value.request_id.unwrap_or_default()),
-        "check-updates" => Command::CheckUpdates(value.request_id.unwrap_or_default()),
-        "stage-update" => Command::StageUpdate(
-            value.request_id.unwrap_or_default(),
-            value.wait_for_game.unwrap_or(!desktop),
-        ),
-        "queue-system-update" => Command::QueueSystemUpdate(value.request_id.unwrap_or_default()),
-        "select-update-queue-items" => match value.selected {
-            Some(selected) => Command::SelectUpdateQueueItems(
-                value.ids.unwrap_or_default(),
-                selected,
-                value.request_id.unwrap_or_default(),
-            ),
-            _ => return None,
-        },
-        "remove-update-queue-item" => match value.key {
-            Some(id) => Command::RemoveUpdateQueueItem(id, value.request_id.unwrap_or_default()),
-            None => return None,
-        },
-        "start-update-queue" => Command::StartUpdateQueue(
-            value.ids.unwrap_or_default(),
-            value.wait_for_game.unwrap_or(!desktop),
-            !server && !updater_window,
-            value.request_id.unwrap_or_default(),
-        ),
-        "clear-update-queue" => Command::ClearUpdateQueue(value.request_id.unwrap_or_default()),
-        "cancel-update" => Command::CancelUpdate(value.request_id.unwrap_or_default()),
-        "restore-gamefiles" => Command::RestoreGamefiles(value.request_id.unwrap_or_default()),
-        "capture-gamefile-originals" => {
-            Command::CaptureGamefileOriginals(value.request_id.unwrap_or_default())
-        }
-        "search-catalog" => match value.query {
-            Some(query) => Command::SearchCatalog(query, value.request_id.unwrap_or_default()),
-            None => return None,
-        },
-        "install-mod" => match value.project_id {
-            Some(project_id) => {
-                let title = value.title.unwrap_or_else(|| project_id.clone());
-                Command::InstallMod(project_id, title, value.request_id.unwrap_or_default())
-            }
-            None => return None,
-        },
-        "update-mod" => match value.mod_id {
-            Some(mod_id) => {
-                let title = value.title.unwrap_or_else(|| mod_id.clone());
-                Command::UpdateMod(mod_id, title, value.request_id.unwrap_or_default())
-            }
-            None => return None,
-        },
         "save-language" => match value.locale {
             Some(locale) => Command::SaveLanguage(locale, value.request_id.unwrap_or_default()),
             None => return None,
@@ -234,10 +173,6 @@ pub(crate) fn parse_ui_command(
             }
             _ => return None,
         },
-        "remove-mod" => match value.mod_id {
-            Some(id) => Command::RemoveMod(id, value.request_id.unwrap_or_default()),
-            None => return None,
-        },
         "set-news-read" => Command::SetNewsRead(
             value.ids.unwrap_or_default(),
             value.read.unwrap_or(true),
@@ -251,4 +186,93 @@ pub(crate) fn parse_ui_command(
         ),
         _ => return None,
     })
+}
+
+fn parse_updater_request(value: &UiCommand, desktop: bool, server: bool) -> Option<Command> {
+    let (operation, command, subject) = match value.command.as_str() {
+        "check-updates" => (
+            "check-system-update",
+            "check-system-update",
+            "Updates".into(),
+        ),
+        "check-mod-updates" => (
+            "check-mod-updates",
+            "check-mod-updates",
+            "ShroudEdit mods".into(),
+        ),
+        "stage-update" => (
+            "stage-system-update",
+            "stage-system-update",
+            "Updates".into(),
+        ),
+        "queue-system-update" => (
+            "enqueue-system-update",
+            "enqueue-system-update",
+            "Updates".into(),
+        ),
+        "select-update-queue-items" if value.selected.is_some() => (
+            "select-update-queue-items",
+            "select-update-queue-items",
+            "Updates".into(),
+        ),
+        "remove-update-queue-item" => (
+            "remove-update-queue-item",
+            "remove-update-queue-item",
+            value.key.clone()?,
+        ),
+        "start-update-queue" => ("start-update-queue", "start-update-queue", "Updates".into()),
+        "clear-update-queue" => ("clear-update-queue", "clear-update-queue", "Updates".into()),
+        "cancel-update" => ("cancel-update", "cancel-update", "Updates".into()),
+        "restore-gamefiles" => (
+            "restore-gamefiles",
+            "restore-gamefiles",
+            "Backup Management".into(),
+        ),
+        "capture-gamefile-originals" => (
+            "capture-verified-gamefile-originals",
+            "capture-verified-gamefile-originals",
+            "Backup Management".into(),
+        ),
+        "search-catalog" => ("search-catalog", "search-catalog", value.query.clone()?),
+        "install-mod" => ("install-mod", "install-mod", value.project_id.clone()?),
+        "update-mod" => ("update-mod", "update-mod", value.mod_id.clone()?),
+        "remove-mod" => ("remove-mod", "recycle-mod", value.mod_id.clone()?),
+        "updater-request" => {
+            let action = value.action.as_deref()?;
+            if !matches!(
+                action,
+                "recycle-bin-list"
+                    | "recycle-bin-restore"
+                    | "recycle-bin-delete"
+                    | "recycle-bin-empty"
+            ) || (matches!(action, "recycle-bin-restore" | "recycle-bin-delete")
+                && value.id.is_none())
+            {
+                return None;
+            }
+            (action, action, value.id.clone().unwrap_or_default())
+        }
+        _ => return None,
+    };
+    let mut request = serde_json::to_value(value).ok()?;
+    request["command"] = command.into();
+    match value.command.as_str() {
+        "check-updates" | "check-mod-updates" => request["manual"] = true.into(),
+        "stage-update" => request["waitForGame"] = value.wait_for_game.unwrap_or(!desktop).into(),
+        "start-update-queue" => {
+            request["waitForGame"] = value.wait_for_game.unwrap_or(!desktop).into();
+            request["showWindow"] = (!server).into();
+        }
+        "remove-update-queue-item" => request["id"] = value.key.clone()?.into(),
+        "capture-gamefile-originals" => {
+            request["target"] = if server { "server" } else { "client" }.into();
+        }
+        _ => {}
+    }
+    Some(Command::UpdaterRequest(
+        operation.into(),
+        subject,
+        value.request_id.clone().unwrap_or_default(),
+        request,
+    ))
 }

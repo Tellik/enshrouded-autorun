@@ -1,20 +1,29 @@
 use super::loader_settings_input::UiSettings;
 use super::validate_message_name::normalize_message_name;
-use shroudforge_updater::provider_config::CatalogProviderConfig;
-use shroudforge_updater::provider_config::default_loader;
-use shroudforge_updater::provider_config::default_provider_kind;
 use std::path::Path;
 
 pub(crate) fn save_settings(root: &Path, settings: &UiSettings) -> Result<(), String> {
-    let provider = CatalogProviderConfig {
-        kind: default_provider_kind(),
-        base_url: settings.base_url.trim_end_matches('/').to_owned(),
-        project_id: settings.project_id.trim().to_owned(),
-        loader: default_loader(),
-    };
-    if provider.base_url.is_empty() || provider.project_id.is_empty() {
+    if settings
+        .module_preferences
+        .as_ref()
+        .and_then(|preferences| preferences.pointer("/updates/enabled"))
+        .and_then(serde_json::Value::as_bool)
+        == Some(true)
+        && !shroudforge_loader_config::paths::updater_available(root)
+    {
+        return Err("Cannot enable Updates because shroudforge-updater.exe is missing".into());
+    }
+    let base_url = settings.base_url.trim_end_matches('/');
+    let project_id = settings.project_id.trim();
+    if base_url.is_empty() || project_id.is_empty() {
         return Err("update provider fields must not be empty".into());
     }
+    let provider = serde_json::json!({
+        "kind": "shroudedit",
+        "baseUrl": base_url,
+        "projectId": project_id,
+        "loader": "shroudforge"
+    });
     shroudforge_loader_config::config::update_loader(root, |value| {
         if let Some(preferences) = &settings.module_preferences {
             for (module, keys) in [
@@ -88,9 +97,19 @@ pub(crate) fn save_settings(root: &Path, settings: &UiSettings) -> Result<(), St
             if let Some(enabled) = preferences.pointer("/updates/enabled") {
                 value["modules"]["updates"]["enabled"] = enabled.clone();
             }
-            for key in ["enabled", "checkMinutes", "includePrereleases"] {
+            for key in ["enabled", "checkMinutes", "queueUpdates"] {
+                if let Some(setting) = preferences.pointer(&format!("/updates/automatic/{key}")) {
+                    value["modules"]["updates"]["automatic"][key] = setting.clone();
+                }
+            }
+            for key in ["includePrereleases"] {
                 if let Some(setting) = preferences.pointer(&format!("/updates/system/{key}")) {
                     value["modules"]["updates"]["system"][key] = setting.clone();
+                }
+            }
+            for key in ["automaticCleanup", "retentionDays"] {
+                if let Some(setting) = preferences.pointer(&format!("/updates/recycleBin/{key}")) {
+                    value["modules"]["updates"]["recycleBin"][key] = setting.clone();
                 }
             }
         }

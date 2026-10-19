@@ -21,9 +21,7 @@ HANDLE world_editor_ui_process{};
 void start_recovery_update_window(const std::filesystem::path& root) {
     const auto executable = shroudforge_directory(root) / L"shroudforge-updater.exe";
     if (!std::filesystem::is_regular_file(executable)) {
-        const auto detail = "Recovery updater executable is missing: " + executable.string();
-        log('E', detail);
-        if (!is_dedicated_server_process()) show_startup_error(root, detail);
+        log('D', "Recovery updater is not installed. Skipping the optional repair window");
         return;
     }
 
@@ -47,10 +45,12 @@ void start_recovery_update_window(const std::filesystem::path& root) {
 bool run_startup_update_check(const std::filesystem::path& root) {
     const auto executable = shroudforge_directory(root) / L"shroudforge-updater.exe";
     if (!std::filesystem::is_regular_file(executable)) {
-        const auto detail = "Installation cannot be checked because shroudforge-updater.exe is missing. Restore ShroudForge from its release package";
-        log('E', detail);
-        if (!is_dedicated_server_process()) show_startup_error(root, detail);
-        return false;
+        log('W', "Updater executable is missing. Skipping the startup update check");
+        return true;
+    }
+    if (!ShroudforgeConfig::ModuleEnabled(root, "updates")) {
+        log('D', "Updates module is disabled. Skipping the startup update and repair check");
+        return true;
     }
 
     std::wstring command = L"\"" + executable.wstring() + L"\" --startup-check --root \"" +

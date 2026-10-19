@@ -70,37 +70,54 @@ const inlineBuiltAssets: Plugin = {
   },
 }
 
-export default defineConfig({
-  plugins: [react(), inlineBuiltAssets],
-  resolve: {
-    alias: {
-      '@generated-flags': fileURLToPath(
-        new URL(
-          '../../../build/ui/modloader-inputs/generated-flags.ts',
-          import.meta.url,
+export default defineConfig(({ mode }) => {
+  const standaloneUpdater = mode === 'updater'
+  const root = standaloneUpdater
+    ? resolve(process.cwd(), '../../updater/ui')
+    : process.cwd()
+  return {
+    plugins: [react(), inlineBuiltAssets],
+    resolve: {
+      alias: {
+        react: resolve(process.cwd(), 'node_modules/react'),
+        'react-dom': resolve(process.cwd(), 'node_modules/react-dom'),
+        '@generated-flags': fileURLToPath(
+          new URL(
+            '../../../build/ui/modloader-inputs/generated-flags.ts',
+            import.meta.url,
+          ),
         ),
-      ),
-      '@generated-crowdin-progress': fileURLToPath(
-        new URL(
-          '../../../build/ui/modloader-inputs/crowdin-progress.json',
-          import.meta.url,
+        '@generated-crowdin-progress': fileURLToPath(
+          new URL(
+            '../../../build/ui/modloader-inputs/crowdin-progress.json',
+            import.meta.url,
+          ),
         ),
-      ),
+      },
+      dedupe: ['react', 'react-dom'],
     },
-    dedupe: ['react', 'react-dom'],
-  },
-  server: { fs: { allow: [resolve(process.cwd(), '../../../')] } },
-  base: './',
-  build: {
-    outDir: fileURLToPath(
-      new URL('../../../build/ui/modloader/', import.meta.url),
-    ),
-    emptyOutDir: true,
-    target: 'es2020',
-    assetsInlineLimit: 100000000,
-    chunkSizeWarningLimit: 100000000,
-    assetsDir: '',
-    cssCodeSplit: false,
-    rollupOptions: { output: { codeSplitting: false } },
-  },
+    root,
+    server: { fs: { allow: [resolve(process.cwd(), '../../../')] } },
+    base: './',
+    build: {
+      outDir: fileURLToPath(
+        new URL(
+          standaloneUpdater ? '../../../build/ui/updater/' : '../../../build/ui/modloader/',
+          import.meta.url,
+        ),
+      ),
+      emptyOutDir: true,
+      target: 'es2020',
+      assetsInlineLimit: 100000000,
+      chunkSizeWarningLimit: 100000000,
+      assetsDir: '',
+      cssCodeSplit: false,
+      rollupOptions: {
+        input: standaloneUpdater
+          ? resolve(root, 'updater.html')
+          : resolve(root, 'index.html'),
+        output: { codeSplitting: false },
+      },
+    },
+  }
 })

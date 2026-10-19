@@ -1,10 +1,9 @@
 use crate::*;
-#[cfg(windows)]
 pub(crate) fn headless_check_system_updates(
     root: &std::path::Path,
     mode: crate::update_check::SystemUpdateCheckMode,
 ) -> Result<String, String> {
-    if !crate::update_check::system_updates_enabled(root) {
+    if !crate::update_check::updates_enabled(root) {
         return Err("System updates module is disabled".into());
     }
     super::refresh_cached_repair_status(root)?;
@@ -89,6 +88,29 @@ pub(crate) fn headless_check_system_updates(
         });
         Ok(())
     })?;
+    #[cfg(windows)]
+    if update_available
+        && config
+            .pointer("/modules/updates/automatic/queueUpdates")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(true)
+    {
+        let release = shroudforge_loader_config::config::read_loader(root)?
+            .pointer("/modules/updates/system/latestRelease")
+            .cloned()
+            .ok_or("checked system update result was not saved")?;
+        let version = release["version"].as_str().unwrap_or("unknown").to_owned();
+        crate::enqueue_system_update(root, release)
+            .map_err(|error| format!("could not add the system update to the queue: {error}"))?;
+        shroudforge_logging::write_activity(
+            root,
+            "Updates",
+            "Queue system update",
+            "Added",
+            Some(&version),
+            "info",
+        );
+    }
     Ok(if update_available {
         format!("ShroudForge update {} is available", release.version)
     } else {
@@ -98,7 +120,7 @@ pub(crate) fn headless_check_system_updates(
 
 #[cfg(windows)]
 pub fn startup_check(root: &std::path::Path) -> Result<bool, String> {
-    if !crate::update_check::system_updates_enabled(root) {
+    if !crate::update_check::updates_enabled(root) {
         return Ok(false);
     }
     let missing = missing_required_files(root);

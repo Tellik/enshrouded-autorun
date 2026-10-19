@@ -38,13 +38,13 @@ export function UpdateProgress({ release }: { release: Release }) {
         />
       </div>
       <div className="updater-progress-meta">
-        <span>
-          {total
-            ? `${(downloaded / 1024 / 1024).toFixed(1)} / ${(total / 1024 / 1024).toFixed(1)} MB`
-            : downloaded
-              ? `${(downloaded / 1024 / 1024).toFixed(1)} MB`
-              : t('updater.preparing')}
-        </span>
+        {(total || downloaded) > 0 && (
+          <span>
+            {total
+              ? `${(downloaded / 1024 / 1024).toFixed(1)} / ${(total / 1024 / 1024).toFixed(1)} MB`
+              : `${(downloaded / 1024 / 1024).toFixed(1)} MB`}
+          </span>
+        )}
         <span>{t(stepKeys[release.state] || 'updater.preparing')}</span>
       </div>
     </div>

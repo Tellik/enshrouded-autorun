@@ -85,9 +85,10 @@ fn runtime_api_definition_has_no_machine_patch_surface() {
         .unwrap()
         .parent()
         .unwrap();
-    let definition =
-        fs::read_to_string(root.join("modules/mod-runtime/lua/shroudforge/v1/definitions/runtime_api.lua"))
-            .unwrap();
+    let definition = fs::read_to_string(
+        root.join("modules/mod-runtime/lua/shroudforge/v1/definitions/runtime_api.lua"),
+    )
+    .unwrap();
     assert_no_machine_patch_primitives("runtime definition", &definition);
 }
 

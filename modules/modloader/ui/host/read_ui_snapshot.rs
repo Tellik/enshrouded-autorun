@@ -14,18 +14,14 @@ use super::validate_message_name::default_message_name_fallback;
 use super::validate_message_name::normalize_message_name;
 use shroudforge_loader_config::runtime_status::runtime_is_active;
 use shroudforge_package::config_revision;
-use shroudforge_updater::catalog_search_state::CatalogState;
-use shroudforge_updater::installed_version;
-use shroudforge_updater::provider_config::CatalogProviderConfig;
-use shroudforge_updater::release_state::ReleaseState;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 pub(crate) fn read_ui_snapshot(
     arguments: &Arguments,
-    provider: &CatalogProviderConfig,
-    release: &Arc<Mutex<ReleaseState>>,
-    catalog: &Arc<Mutex<CatalogState>>,
+    provider: &serde_json::Value,
+    release: &Arc<Mutex<serde_json::Value>>,
+    catalog: &Arc<Mutex<serde_json::Value>>,
     central: serde_json::Value,
     mods: Vec<ModInfo>,
     player_name_detection: &shroudforge_player_name::DetectionReport,
@@ -39,8 +35,11 @@ pub(crate) fn read_ui_snapshot(
         .pointer("/exports/enabled")
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false);
-    let release_snapshot =
-        read_release_status(&arguments.root, arguments.updater_window, &central, release);
+    let release_snapshot = read_release_status(&arguments.root, &central, release);
+    let version = release_snapshot["currentVersion"]
+        .as_str()
+        .unwrap_or(env!("CARGO_PKG_VERSION"))
+        .to_owned();
     let username_mode = central
         .pointer("/general/usernameMode")
         .and_then(|value| value.as_str())
@@ -82,19 +81,14 @@ pub(crate) fn read_ui_snapshot(
         ),
         connected: !arguments.desktop && runtime_is_active(&arguments.root),
         mode: if arguments.desktop {
-            if arguments.updater_window {
-                "UPDATER"
-            } else {
-                "DESKTOP"
-            }
+            "DESKTOP"
         } else if !arguments.server {
             "CLIENT"
         } else {
             "SERVER"
         },
-        updater_window: arguments.updater_window,
         game_version: read_game_version(&arguments.root),
-        version: installed_version(&arguments.root),
+        version,
         notices: shroudforge_news::read_notifications(&arguments.root, &notification_mods),
         mods,
         activity: read_activity(&arguments.root).unwrap_or_default(),
@@ -104,7 +98,7 @@ pub(crate) fn read_ui_snapshot(
             .unwrap_or_else(|| serde_json::json!({})),
         read_notice_ids: shroudforge_news::read_news_state(&arguments.root),
         release: release_snapshot,
-        update_queue: shroudforge_updater::read_update_queue(&arguments.root),
+        update_queue: read_update_queue(&arguments.root),
         backup_management: shroudforge_game_assets::originals::management_status(
             &arguments.root,
             if arguments.server { "server" } else { "client" },
@@ -116,14 +110,14 @@ pub(crate) fn read_ui_snapshot(
                 .pointer("/general/compactMode")
                 .and_then(|value| value.as_bool())
                 .unwrap_or(false),
-            effective_username: resolved_username.name.clone(),
-            username_source: resolved_username.source.key().to_owned(),
             reduced_motion: central
                 .pointer("/general/reducedMotion")
                 .and_then(|value| value.as_bool())
                 .unwrap_or(false),
             username_mode,
             detected_username,
+            effective_username: resolved_username.name.clone(),
+            username_source: resolved_username.source.key().to_owned(),
             message_name_fallback: fallback_username,
             log_level: logging_level,
             export_enabled,
@@ -142,18 +136,33 @@ pub(crate) fn read_ui_snapshot(
             diagnostic_job_errors: diagnostic_jobs.errors,
             diagnostic_job_directory: diagnostic_jobs.directory,
             diagnostic_selected_job_id: diagnostic_jobs.selected_job_id,
-            base_url: provider.base_url.clone(),
-            project_id: provider.project_id.clone(),
+            base_url: provider["baseUrl"].as_str().unwrap_or_default().to_owned(),
+            project_id: provider["projectId"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
             paths: storage_paths(&arguments.root),
         },
         catalog: catalog
             .lock()
             .map(|value| value.clone())
-            .unwrap_or_default(),
+            .unwrap_or_else(|_| default_catalog_state()),
         locale: load_user_config(&arguments.root)
             .locale
             .filter(|locale| is_valid_locale(locale))
             .unwrap_or_else(|| "de".into()),
     };
     (snapshot, resolved_username)
+}
+
+fn read_update_queue(root: &std::path::Path) -> serde_json::Value {
+    std::fs::read(shroudforge_loader_config::paths::updates_dir(root).join("update-queue.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .filter(|value: &serde_json::Value| value["items"].is_array())
+        .unwrap_or_else(|| serde_json::json!({"schemaVersion":1,"items":[],"run":null}))
+}
+
+pub(crate) fn default_catalog_state() -> serde_json::Value {
+    serde_json::json!({"state":"idle","query":"","message":null,"items":[]})
 }

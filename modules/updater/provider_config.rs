@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -56,7 +56,6 @@ impl Default for ProviderConfig {
         }
     }
 }
-
 
 pub fn default_provider_kind() -> String {
     "shroudedit".into()

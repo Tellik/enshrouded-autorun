@@ -21,11 +21,14 @@ pub(crate) fn request_module_visibility(
     let result = if visible
         && matches!(
             module.as_str(),
-            "debugConsole" | "modloaderUi" | "worldEditor"
+            "debugConsole" | "modloaderUi" | "worldEditor" | "updates"
         )
         && !module_enabled
     {
         Err(format!("{module} is disabled in module settings."))
+    } else if module == "updates" && visible {
+        shroudforge_loader_config::config::request_window_visibility(&arguments.root, &module, true)
+            .and_then(|()| start_updater_window(&arguments.root))
     } else if module == "debugConsole" && visible && arguments.desktop {
         if desktop_debug_console.is_none() {
             let executable = shroudforge_loader_config::paths::loader_executable(&arguments.root);
@@ -73,4 +76,34 @@ pub(crate) fn request_module_visibility(
         false,
     );
     *next_refresh = Instant::now();
+}
+
+fn start_updater_window(root: &std::path::Path) -> Result<(), String> {
+    use std::process::Stdio;
+
+    let executable = shroudforge_loader_config::paths::updater_executable(root);
+    if !executable.is_file() {
+        return Err(format!(
+            "ShroudForge updater executable was not found: {}",
+            executable.display()
+        ));
+    }
+    let mut command = std::process::Command::new(&executable);
+    command
+        .arg("--open-window")
+        .arg("--root")
+        .arg(root)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    command.spawn().map(|_| ()).map_err(|error| {
+        let _ =
+            shroudforge_loader_config::config::request_window_visibility(root, "updates", false);
+        format!("could not open the updater window: {error}")
+    })
 }

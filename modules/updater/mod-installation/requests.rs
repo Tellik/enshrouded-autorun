@@ -1,11 +1,13 @@
 use crate::*;
-#[cfg(windows)]
 pub fn request_mod_install(
     root: &std::path::Path,
     project_id: &str,
     title: &str,
     provider: serde_json::Value,
 ) -> Result<(), String> {
+    if !crate::update_check::updates_enabled(root) {
+        return Err("Updates module is disabled".into());
+    }
     if project_id.is_empty()
         || project_id.len() > 128
         || !project_id
@@ -18,10 +20,9 @@ pub fn request_mod_install(
         root,
         serde_json::json!({"id":format!("mod-install:{project_id}"),"kind":"mod","operation":"install","title":title,"version":"","state":"queued","selected":true,"payload":{"projectId":project_id,"provider":provider}}),
     )
+    .map(|_| ())
 }
 
-
-#[cfg(windows)]
 pub fn request_mod_update(
     root: &std::path::Path,
     project_id: &str,
@@ -29,6 +30,29 @@ pub fn request_mod_update(
     title: &str,
     provider: serde_json::Value,
 ) -> Result<(), String> {
+    enqueue_mod_update(root, project_id, mod_id, title, provider).map(|_| ())
+}
+
+pub(crate) fn request_mod_update_if_needed(
+    root: &std::path::Path,
+    project_id: &str,
+    mod_id: &str,
+    title: &str,
+    provider: serde_json::Value,
+) -> Result<bool, String> {
+    enqueue_mod_update(root, project_id, mod_id, title, provider)
+}
+
+fn enqueue_mod_update(
+    root: &std::path::Path,
+    project_id: &str,
+    mod_id: &str,
+    title: &str,
+    provider: serde_json::Value,
+) -> Result<bool, String> {
+    if !crate::update_check::updates_enabled(root) {
+        return Err("Updates module is disabled".into());
+    }
     if project_id.is_empty()
         || project_id.len() > 128
         || !project_id
@@ -46,27 +70,4 @@ pub fn request_mod_update(
         root,
         serde_json::json!({"id":format!("mod-update:{project_id}:{mod_id}"),"kind":"mod","operation":"update","title":title,"version":"","state":"queued","selected":true,"payload":{"projectId":project_id,"modId":mod_id,"provider":provider}}),
     )
-}
-
-
-#[cfg(not(windows))]
-pub fn request_mod_update(
-    _: &std::path::Path,
-    _: &str,
-    _: &str,
-    _: &str,
-    _: serde_json::Value,
-) -> Result<(), String> {
-    Err("scheduled updater is available on Windows only".into())
-}
-
-
-#[cfg(not(windows))]
-pub fn request_mod_install(
-    _: &std::path::Path,
-    _: &str,
-    _: &str,
-    _: serde_json::Value,
-) -> Result<(), String> {
-    Err("scheduled updater is available on Windows only".into())
 }

@@ -3770,6 +3770,8 @@ dependencies = [
 name = "shroudforge-logging"
 version = "1.0.0"
 dependencies = [
+ "libc",
+ "serde",
  "serde_json",
  "shroudforge-loader-config",
  "tracing",
@@ -3796,7 +3798,6 @@ dependencies = [
  "shroudforge-modloader-ui",
  "shroudforge-package",
  "shroudforge-runtime-diagnostics",
- "shroudforge-updater",
  "shroudforge-world-editor-ui",
  "thiserror 2.0.20",
  "tracing",
@@ -3820,7 +3821,6 @@ dependencies = [
  "shroudforge-player-name",
  "shroudforge-runtime-diagnostics",
  "shroudforge-ui-resources",
- "shroudforge-updater",
  "shroudforge-window-management",
  "tao",
  "tempfile",
@@ -3919,6 +3919,7 @@ dependencies = [
 name = "shroudforge-updater"
 version = "1.0.0"
 dependencies = [
+ "fs2",
  "mod-loader-bridge",
  "parking_lot",
  "reqwest",
@@ -3930,7 +3931,10 @@ dependencies = [
  "shroudforge-loader-config",
  "shroudforge-logging",
  "shroudforge-package",
+ "shroudforge-window-management",
+ "tao",
  "windows-sys 0.61.2",
+ "wry",
  "zip",
 ]
 
@@ -3941,6 +3945,7 @@ dependencies = [
  "serde_json",
  "shroudforge-loader-config",
  "tao",
+ "windows",
  "windows-sys 0.61.2",
 ]
 
@@ -4609,15 +4614,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
-name = "typenum"
-version = "1.20.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-[[package]]
 name = "typeid"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc7d623258602320d5c55d1bc22793b57daff0ec7efc270ea7d55ce1d5f5471c"
 
+[[package]]
+name = "typenum"
+version = "1.20.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]

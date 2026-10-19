@@ -1,7 +1,7 @@
 use super::notify_command_result::notify_command_result;
 use super::open_external_link::open_url;
 use super::read_host_arguments::Arguments;
-use shroudforge_logging::write_activity;
+use shroudforge_logging::{activity_log_level, write_activity, write_activity_at_level};
 
 pub(crate) fn open_requested_link(
     url: String,
@@ -19,15 +19,25 @@ pub(crate) fn open_requested_link(
             "info",
         ),
         Err(error) => {
-            write_activity(
+            let level = activity_log_level("Open external link", "error");
+            write_activity_at_level(
                 &arguments.root,
                 "modloader-ui",
                 "Open external link",
                 "Failed",
                 Some(&error),
-                "error",
+                level,
             );
-            notify_command_result(&webview, &request_id, Err(error), "", None, false, None);
+            notify_command_result(
+                &webview,
+                &request_id,
+                Err(error),
+                "",
+                level,
+                None,
+                false,
+                None,
+            );
         }
     }
 }

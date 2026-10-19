@@ -49,10 +49,17 @@ pub(crate) fn write_status_with_version(
         serde_json::Value::Null
     };
     let value = serde_json::json!({"schemaVersion":1,"operation":"systemStage","status":status,"step":status,"message":message,"version":version,"downloadedBytes":downloaded,"totalBytes":total,"bytesPerSecond":speed,"updatedAt":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()});
-    let _ = shroudforge_loader_config::config::write_json(
+    if let Err(error) = shroudforge_loader_config::config::write_json(
         &shroudforge_loader_config::paths::updates_dir(root).join("updater-status.json"),
         &value,
-    );
+    ) {
+        let _ = shroudforge_logging::append(
+            root,
+            'W',
+            "updater",
+            &format!("Could not save updater status '{status}': {error}"),
+        );
+    }
 }
 
 pub(crate) fn write_download_progress(

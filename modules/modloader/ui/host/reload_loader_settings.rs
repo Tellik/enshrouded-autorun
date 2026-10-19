@@ -1,6 +1,6 @@
 use super::notify_command_result::notify_command_result;
 use super::read_host_arguments::Arguments;
-use shroudforge_logging::write_activity;
+use shroudforge_logging::{activity_log_level, write_activity_at_level};
 use std::time::Instant;
 
 pub(crate) fn reload_loader_settings(
@@ -9,19 +9,21 @@ pub(crate) fn reload_loader_settings(
     webview: &wry::WebView,
     next_refresh: &mut Instant,
 ) {
-    write_activity(
+    let level = activity_log_level("Reload settings", "success");
+    write_activity_at_level(
         &arguments.root,
         "Settings",
         "Reload settings",
         "Succeeded",
         None,
-        "success",
+        level,
     );
     notify_command_result(
         &webview,
         &request_id,
         Ok(()),
         "settings.reloaded",
+        level,
         None,
         false,
         None,

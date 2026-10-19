@@ -24,7 +24,9 @@ pub use mod_installation_requests::*;
 mod windows_entry;
 pub use windows_entry::*;
 
-pub use shroudforge_game_assets::request_gamefiles_restore;
+#[path = "restore_gamefiles.rs"]
+mod restore_gamefiles;
+pub use restore_gamefiles::request_gamefiles_restore;
 
 #[cfg(windows)]
 #[path = "windows/worker.rs"]
@@ -59,31 +61,379 @@ pub mod update_check;
 pub mod catalog_item;
 pub mod provider_config;
 
-pub mod command_result;
+mod recycle_bin;
+
+/// Run recycle-bin restores from an updater copy outside the managed install
+/// files so Windows can restore a saved updater executable.
+pub fn hand_off_request_to_worker(
+    root: &std::path::Path,
+    request: &serde_json::Value,
+    input: &[u8],
+) -> Result<bool, String> {
+    #[cfg(windows)]
+    let result = windows::hand_off_request_worker(root, request, input);
+    #[cfg(not(windows))]
+    let result = {
+        let _ = (root, request, input);
+        Ok(false)
+    };
+    if let Err(error) = &result {
+        let _ = shroudforge_logging::append(
+            root,
+            'E',
+            "updater",
+            &format!("Could not prepare updater request worker: {error}"),
+        );
+    }
+    result
+}
+
+pub fn wait_for_request_parent(root: &std::path::Path, pid: u32) -> Result<(), String> {
+    #[cfg(windows)]
+    return scheduled::wait_for_process_id(root, pid);
+    #[cfg(not(windows))]
+    {
+        let _ = (root, pid);
+        Ok(())
+    }
+}
+
+/// Execute one update request in the updater process.
+pub fn run_request(
+    root: &std::path::Path,
+    request: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    if !root.is_dir() {
+        return Err("updater request root is not a directory".into());
+    }
+    let command = request
+        .get("command")
+        .and_then(serde_json::Value::as_str)
+        .ok_or("updater request is missing its command")?;
+    let result: Result<serde_json::Value, String> = (|| match command {
+        "check-system-update" => {
+            #[cfg(windows)]
+            {
+                let mode = if request["manual"].as_bool().unwrap_or(true) {
+                    update_check::SystemUpdateCheckMode::Manual
+                } else {
+                    update_check::SystemUpdateCheckMode::Automatic
+                };
+                headless_check_system_updates(root, mode).map(|message| {
+                    let release = shroudforge_loader_config::config::read_loader(root)
+                        .ok()
+                        .and_then(|config| {
+                            config
+                                .pointer("/modules/updates/system/latestRelease")
+                                .cloned()
+                        });
+                    let success_message = match release {
+                        Some(value) if value["updateAvailable"].as_bool() == Some(true) => {
+                            "updates.check.available"
+                        }
+                        Some(value) if value.is_null() => "updates.check.none",
+                        _ if message.contains("No compatible") => "updates.check.none",
+                        _ => "updates.check.upToDate",
+                    };
+                    serde_json::json!({
+                        "message": message,
+                        "successMessage": success_message
+                    })
+                })
+            }
+            #[cfg(not(windows))]
+            {
+                Err("system update checks are unavailable on this platform".into())
+            }
+        }
+        "check-mod-updates" => mod_installation::catalog::check_catalog_mod_updates(
+            root,
+            request["manual"].as_bool().unwrap_or(true),
+        )
+        .map(|mut result| {
+            result["successMessage"] = if result["available"].as_u64().unwrap_or_default() > 0 {
+                "updates.mods.found".into()
+            } else {
+                "updates.mods.checked".into()
+            };
+            result
+        }),
+        "install-system-update" => (|| {
+            let release = checked_system_release(root)?;
+            let version = request_string(&release, "version")?.to_owned();
+            request_system_update(root, release, true, false)?;
+            Ok(serde_json::json!({"queued":true,"version":version,"close":true}))
+        })(),
+        "install-staged-update" => {
+            let wait_pid = request["waitPid"].as_u64().unwrap_or_default() as u32;
+            request_staged_install(root, wait_pid).map(|()| serde_json::json!({"queued":true}))
+        }
+        "search-catalog" => (|| {
+            if !update_check::updates_enabled(root) {
+                return Err("Updates module is disabled".into());
+            }
+            let provider = request
+                .get("provider")
+                .cloned()
+                .ok_or_else(|| "catalog search request is missing its provider".to_owned())
+                .and_then(|value| {
+                    serde_json::from_value::<provider_config::CatalogProviderConfig>(value)
+                        .map_err(|error| format!("invalid catalog provider: {error}"))
+                })?;
+            let query = request
+                .get("query")
+                .and_then(serde_json::Value::as_str)
+                .ok_or("catalog search request is missing its query")?
+                .trim()
+                .chars()
+                .take(100)
+                .collect::<String>();
+            let items = mod_installation::catalog::fetch_catalog(&provider, &query)?;
+            Ok(serde_json::json!({"query":query,"items":items}))
+        })(),
+        "install-mod" => (|| {
+            let provider = read_request_provider(request)?;
+            let provider = serde_json::to_value(provider)
+                .map_err(|error| format!("could not serialize catalog provider: {error}"))?;
+            let project_id = request_string(request, "projectId")?;
+            let title = request
+                .get("title")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(project_id);
+            request_mod_install(
+                root,
+                project_id,
+                title,
+                provider,
+            )?;
+            Ok(
+                serde_json::json!({"message":format!("Mod installation for {project_id} added to the update queue.")}),
+            )
+        })(),
+        "update-mod" => (|| {
+            let provider = read_request_provider(request)?;
+            let provider = serde_json::to_value(provider)
+                .map_err(|error| format!("could not serialize catalog provider: {error}"))?;
+            let mod_id = request_string(request, "modId")?;
+            let title = request
+                .get("title")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(mod_id);
+            let project_id = mod_installation::catalog::catalog_project_for_mod(root, mod_id)
+                .ok_or("This mod is not registered as a ShroudEdit installation.")?;
+            request_mod_update(
+                root,
+                &project_id,
+                mod_id,
+                title,
+                provider,
+            )?;
+            Ok(serde_json::json!({"message":format!("Update queued for {mod_id}.")}))
+        })(),
+        "stage-system-update" => (|| {
+            if shroudforge_loader_config::config::read_loader(root)?
+                .pointer("/modules/updates/system/latestRelease")
+                .is_none_or(|release| !release.is_object())
+            {
+                headless_check_system_updates(
+                    root,
+                    update_check::SystemUpdateCheckMode::Automatic,
+                )?;
+            }
+            let release = checked_system_release(root)?;
+            let wait_for_game = request["waitForGame"].as_bool().unwrap_or(true);
+            request_system_update(root, release.clone(), wait_for_game, true)?;
+            Ok(serde_json::json!({
+                "message":format!("Download of version {} queued in the update queue.", release["version"].as_str().unwrap_or_default())
+            }))
+        })(),
+        "enqueue-system-update" => checked_system_release(root)
+            .and_then(|release| enqueue_system_update(root, release))
+            .map(|()| serde_json::json!({"queued":true})),
+        "select-update-queue-items" => (|| {
+            let ids = request
+                .get("ids")
+                .and_then(serde_json::Value::as_array)
+                .ok_or("update selection request is missing its item IDs")?
+                .iter()
+                .map(|value| {
+                    value
+                        .as_str()
+                        .map(str::to_owned)
+                        .ok_or("update item IDs must be strings")
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let selected = request["selected"]
+                .as_bool()
+                .ok_or("update selection request is missing its selected value")?;
+            select_update_queue_items(root, &ids, selected)?;
+            Ok(serde_json::json!({"selected":selected}))
+        })(),
+        "remove-update-queue-item" => {
+            let id = request_string(request, "id")?;
+            remove_update_queue_item(root, id).map(|()| serde_json::json!({"removed":true}))
+        }
+        "start-update-queue" => {
+            (|| {
+                let ids = match request.get("ids") {
+                    Some(value) => value
+                        .as_array()
+                        .ok_or("update queue IDs must be an array")?
+                        .iter()
+                        .map(|value| {
+                            value
+                                .as_str()
+                                .map(str::to_owned)
+                                .ok_or("update queue IDs must be strings")
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                    None => Vec::new(),
+                };
+                start_update_queue(
+                    root,
+                    &ids,
+                    request["waitForGame"].as_bool().unwrap_or(true),
+                    request["showWindow"].as_bool().unwrap_or(true),
+                )?;
+                Ok(serde_json::json!({"started":true}))
+            })()
+        }
+        "clear-update-queue" => {
+            clear_update_queue(root).map(|()| serde_json::json!({"cleared":true}))
+        }
+        "cancel-update" => {
+            cancel_update_queue(root).map(|()| serde_json::json!({"cancelled":true}))
+        }
+        "restore-gamefiles" => request_gamefiles_restore(root).map(|()| {
+            serde_json::json!({
+                "message":"Gamefile restoration was handed to the updater.",
+                "successMessage":"backups.restore.queued"
+            })
+        }),
+        "capture-gamefile-originals" => {
+            #[cfg(windows)]
+            {
+                capture_original_game_files(root, request)
+                    .map(|message| serde_json::json!({"message":message}))
+            }
+            #[cfg(not(windows))]
+            {
+                Err("gamefile capture is available on Windows only".into())
+            }
+        }
+        "capture-verified-gamefile-originals" => {
+            #[cfg(windows)]
+            {
+                capture_verified_original_game_files(root, request).map(|message| {
+                    serde_json::json!({
+                        "message":message,
+                        "successMessage":"backups.originals.captured"
+                    })
+                })
+            }
+            #[cfg(not(windows))]
+            {
+                Err("gamefile capture is available on Windows only".into())
+            }
+        }
+        "recycle-bin-list" => (|| {
+            let entries = recycle_bin::list_entries(root)?;
+            Ok(serde_json::json!({"entries": entries}))
+        })(),
+        "recycle-bin-restore" => {
+            let id = request
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .ok_or("recycle-bin restore request is missing its entry ID")?;
+            recycle_bin::restore_entry(root, id).map(|()| serde_json::json!({"restored": true}))
+        }
+        "recycle-bin-delete" => {
+            let id = request
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .ok_or("recycle-bin delete request is missing its entry ID")?;
+            recycle_bin::delete_entry(root, id).map(|()| serde_json::json!({"deleted": true}))
+        }
+        "recycle-bin-empty" => {
+            recycle_bin::empty(root).map(|removed| serde_json::json!({"removed": removed}))
+        }
+        "recycle-mod" => {
+            let id = request
+                .get("modId")
+                .and_then(serde_json::Value::as_str)
+                .ok_or("recycle mod request is missing its mod ID")?;
+            recycle_bin::recycle_mod(root, id).map(|()| serde_json::json!({"removed": true}))
+        }
+        _ => Err(format!("unsupported updater request: {command}")),
+    })();
+    let details = request
+        .get("id")
+        .or_else(|| request.get("modId"))
+        .and_then(serde_json::Value::as_str)
+        .map(|id| format!(" {id}"))
+        .unwrap_or_default();
+    if command != "check-mod-updates" || result.is_err() {
+        match &result {
+            Ok(_) => {
+                let _ = shroudforge_logging::append(
+                    root,
+                    'I',
+                    "updater",
+                    &format!("Completed updater request {command}{details}"),
+                );
+            }
+            Err(error) => {
+                let _ = shroudforge_logging::append(
+                    root,
+                    'E',
+                    "updater",
+                    &format!("Updater request {command}{details} failed: {error}"),
+                );
+            }
+        }
+    }
+    result
+}
+
+fn request_string<'a>(request: &'a serde_json::Value, key: &str) -> Result<&'a str, String> {
+    request
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| format!("updater request is missing '{key}'"))
+}
+
+fn read_request_provider(
+    request: &serde_json::Value,
+) -> Result<provider_config::CatalogProviderConfig, String> {
+    request
+        .get("provider")
+        .cloned()
+        .ok_or_else(|| "mod update request is missing its provider".to_owned())
+        .and_then(|value| {
+            serde_json::from_value(value)
+                .map_err(|error| format!("invalid catalog provider: {error}"))
+        })
+}
+
+fn checked_system_release(root: &std::path::Path) -> Result<serde_json::Value, String> {
+    if !update_check::updates_enabled(root) {
+        return Err("System updates module is disabled".into());
+    }
+    shroudforge_loader_config::config::read_loader(root)?
+        .pointer("/modules/updates/system/latestRelease")
+        .cloned()
+        .filter(|release| release.is_object() && release["updateAvailable"].as_bool() == Some(true))
+        .ok_or_else(|| "Check for system updates before adding one to the queue.".into())
+}
+
+mod maintenance_jobs;
 
 pub mod release_state;
 
 pub mod release;
 
-pub mod catalog_search_state;
-
-pub mod search_mod_catalog;
-pub use search_mod_catalog::start_catalog_search;
-
-pub mod queue_mod_installation;
-pub use queue_mod_installation::start_mod_install;
-
-pub mod queue_mod_update;
-pub use queue_mod_update::start_mod_update;
-
 pub mod restore_checked_release;
 pub use restore_checked_release::restore_persisted_update_result;
-
-pub mod check_system_update;
-pub use check_system_update::start_update_check;
-
-pub mod queue_system_update_download;
-pub use queue_system_update_download::start_staging;
 
 #[path = "system-updates/read_installed_release.rs"]
 mod read_installed_release;
@@ -117,7 +467,6 @@ pub use set_update_item_state::set_active_queue_item_state;
 
 #[path = "queue/add_update_item.rs"]
 mod add_update_item;
-#[cfg(windows)]
 pub(crate) use add_update_item::enqueue_update_item;
 
 #[path = "queue/select_update_items.rs"]
@@ -156,7 +505,7 @@ pub use request_runtime_mod_action::request_runtime_mod_unload;
 
 #[path = "control/run_headless_update_controller.rs"]
 mod run_headless_update_controller;
-pub use run_headless_update_controller::start_headless_control_worker;
+pub use run_headless_update_controller::run_headless_control_controller;
 
 #[path = "control/claim_update_actions.rs"]
 mod claim_update_actions;
@@ -186,59 +535,44 @@ mod clear_staged_update;
 #[path = "system-updates/read_install_arguments.rs"]
 mod read_install_arguments;
 
-#[cfg(windows)]
 #[path = "system-updates/validate_update_paths.rs"]
 mod validate_update_paths;
 
-#[cfg(windows)]
 #[path = "system-updates/read_managed_release_files.rs"]
 mod read_managed_release_files;
 
-#[cfg(windows)]
 #[path = "system-updates/apply_release_files.rs"]
 mod apply_release_files;
 
-#[cfg(windows)]
 #[path = "system-updates/restore_release_files.rs"]
 mod restore_release_files;
 
-#[cfg(windows)]
 #[path = "system-updates/remove_release_files.rs"]
 mod remove_release_files;
 
-#[path = "control/queue_stored_system_update.rs"]
-mod queue_stored_system_update;
-
-#[path = "control/stage_stored_system_update.rs"]
-mod stage_stored_system_update;
-
-#[path = "control/start_selected_updates.rs"]
-mod start_selected_updates;
-
 #[path = "control/capture_original_game_files.rs"]
 mod capture_original_game_files;
-
-#[path = "control/queue_requested_mod_installation.rs"]
-mod queue_requested_mod_installation;
-
-#[path = "control/queue_requested_mod_update.rs"]
-mod queue_requested_mod_update;
+#[cfg(windows)]
+pub(crate) use capture_original_game_files::capture_original_game_files;
+#[cfg(windows)]
+pub(crate) use capture_original_game_files::capture_verified_original_game_files;
 
 #[path = "control/read_action_parameters.rs"]
 mod read_action_parameters;
 
 #[path = "control/check_due_system_update.rs"]
 mod check_due_system_update;
-pub use check_due_system_update::system_update_check_delay;
-
-#[path = "mod-installation/run_mod_installation_worker.rs"]
-mod run_mod_installation_worker;
+pub(crate) use check_due_system_update::system_update_check_delay;
+pub(crate) use check_due_system_update::{check_due_mod_updates, mod_update_check_delay};
 
 #[path = "mod-installation/install_catalog_mod.rs"]
 mod install_catalog_mod;
 
 #[path = "mod-installation/download_mod_package.rs"]
 mod download_mod_package;
+
+#[path = "mod-installation/stage_mod_in_storage.rs"]
+mod stage_mod_in_storage;
 
 #[path = "mod-installation/replace_installed_mod.rs"]
 mod replace_installed_mod;

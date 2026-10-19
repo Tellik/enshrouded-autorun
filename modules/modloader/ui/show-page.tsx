@@ -11,6 +11,8 @@ import { Installed } from './show-installed-mods'
 import { SettingsPage } from '../../loader-config/ui/show-loader-settings'
 import { ActivityPage } from '../../logging/ui/show-activity'
 import { Compatibility } from './show-compatibility'
+import { RecycleBin } from '../../updater/ui/show-recycle-bin'
+import type { UpdaterCommand } from '../../updater/ui/update-types'
 
 export function Page({
   id,
@@ -24,6 +26,7 @@ export function Page({
   runNoticeAction,
   openNews,
   selectMod,
+  onUpdaterCommand,
 }: {
   id: PageId
   data: Snapshot
@@ -36,6 +39,7 @@ export function Page({
   runNoticeAction(action: NoticeAction): void
   openNews(): void
   selectMod(id: string): void
+  onUpdaterCommand: UpdaterCommand
 }) {
   if (id === 'activity')
     return <ActivityPage activity={data.activity} mods={data.mods} />
@@ -49,10 +53,44 @@ export function Page({
         runNoticeAction={runNoticeAction}
       />
     )
-  if (id === 'discover') return <Discover data={data} />
+  if (id === 'discover')
+    return (
+      <Discover
+        catalog={data.catalog}
+        updaterAvailable={data.release.updaterAvailable === true}
+        enabled={data.settings.modulePreferences?.updates?.enabled === true}
+        onCommand={onUpdaterCommand}
+      />
+    )
   if (id === 'installed')
     return <Installed mods={data.mods} select={selectMod} />
-  if (id === 'updates') return <Updates data={data} />
+  if (id === 'updates')
+    return (
+      <Updates
+        data={{
+          mode: data.mode,
+          release: data.release,
+          enabled: data.settings.modulePreferences?.updates?.enabled === true,
+          updateQueue: data.updateQueue,
+          modUpdates:
+            data.settings.modulePreferences?.updates?.mods?.latestUpdates,
+          modCheckResult:
+            data.settings.modulePreferences?.updates?.mods?.lastCheckResult,
+        }}
+        onCommand={onUpdaterCommand}
+      />
+    )
+  if (id === 'recycle-bin') {
+    const recycleBin = settings.modulePreferences?.updates?.recycleBin
+    return (
+      <RecycleBin
+        retentionDays={recycleBin?.retentionDays ?? 30}
+        automaticCleanup={recycleBin?.automaticCleanup !== false}
+        updaterAvailable={data.release.updaterAvailable === true}
+        enabled={data.settings.modulePreferences?.updates?.enabled === true}
+      />
+    )
+  }
   if (id === 'compatibility')
     return (
       <Compatibility

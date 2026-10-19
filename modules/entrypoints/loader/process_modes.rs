@@ -3,12 +3,6 @@ use std::{env, ffi::OsString, path::PathBuf};
 pub(crate) fn run(args: &[OsString]) -> Option<Result<(), Box<dyn std::error::Error>>> {
     match args.get(1).and_then(|value| value.to_str()) {
         Some("--module-ui") => return Some(shroudforge_modloader_ui::run_module()),
-        Some("--catalog-install-worker") => {
-            return Some(
-                shroudforge_modloader_ui::run_catalog_install_worker()
-                    .map_err(|error| std::io::Error::other(error).into()),
-            );
-        }
         Some("--debug-console") => {
             return Some(match shroudforge_debug_console::run_module() {
                 Ok(()) => Ok(()),
@@ -75,12 +69,6 @@ pub(crate) fn run(args: &[OsString]) -> Option<Result<(), Box<dyn std::error::Er
         Some("--runtime-diagnostics") => {
             return Some(
                 shroudforge_runtime_diagnostics::run_module()
-                    .map_err(|error| std::io::Error::other(error).into()),
-            );
-        }
-        Some("--update-worker") => {
-            return Some(
-                shroudforge_updater::run_module()
                     .map_err(|error| std::io::Error::other(error).into()),
             );
         }

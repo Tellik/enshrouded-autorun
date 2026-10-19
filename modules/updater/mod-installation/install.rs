@@ -6,5 +6,4 @@ pub use crate::mod_package::{
     ResolveContentPlan, ResolvedContent,
 };
 pub use crate::replace_installed_mod::replace_catalog_mod;
-pub use crate::run_mod_installation_worker::run_catalog_install_worker;
 pub use crate::verify_mod_checksum::verify_mod_hash;

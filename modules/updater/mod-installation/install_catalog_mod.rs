@@ -2,11 +2,10 @@ use crate as shroudforge_updater;
 use crate::download_mod_package::download_catalog_version;
 use crate::mod_installation::catalog::{
     catalog_project_for_mod, forget_catalog_install, read_catalog_install_registry,
-    remember_catalog_install,
+    remember_catalog_install, resolve_catalog_project,
 };
-use crate::mod_package::ResolveContentPlan;
 use crate::provider_config::CatalogProviderConfig;
-use crate::replace_installed_mod::replace_catalog_mod;
+use crate::replace_installed_mod::replace_catalog_mod_with_runtime_dependencies;
 use shroudforge_loader_config::runtime_status::runtime_is_active;
 use shroudforge_package::package_lookup::find_mod_package;
 use std::{
@@ -51,35 +50,14 @@ pub fn install_mod_from_catalog(
         .and_then(|value| value.as_object())
         .map(|projects| projects.keys().cloned().collect::<Vec<_>>())
         .unwrap_or_default();
-    let response = client
-        .post(format!(
-            "{}/v3/content/resolve",
-            provider.base_url.trim_end_matches('/')
-        ))
-        .json(&serde_json::json!({
-            "project_id": project_id,
-            "version_id": null,
-            "content_type": "mod",
-            "selected": { "game_versions": [], "loaders": [provider.loader] },
-            "target": { "game_versions": [], "loaders": [provider.loader] },
-            "existing_project_ids": existing_project_ids
-        }))
-        .send()
-        .map_err(|error| format!("ShroudEdit is unreachable: {error}"))?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "ShroudEdit resolution returned HTTP {}",
-            response.status()
-        ));
-    }
-    let plan: ResolveContentPlan = response
-        .json()
-        .map_err(|error| format!("Invalid installation plan: {error}"))?;
+    let plan = resolve_catalog_project(&client, provider, project_id, &existing_project_ids)?;
     let mut resolved = plan.dependencies;
     resolved.push(plan.primary);
     let mut installed_paths = Vec::new();
     let mut installed = Vec::new();
     let mut staged_update: Option<(String, String, PathBuf)> = None;
+    let mut runtime_dependency_ids = Vec::new();
+    let mut refresh_runtime_after_cleanup = false;
     let result = (|| {
         for item in resolved {
             let is_primary_update = update_mod_id.is_some() && item.project_id == project_id;
@@ -108,70 +86,120 @@ pub fn install_mod_from_catalog(
             )?;
             installed.push(installed_mod.0);
         }
-        if update_mod_id.is_none() && runtime_is_active(root) {
-            let runtime_ids = installed
-                .iter()
-                .filter_map(|id| {
-                    let package = shroudforge_loader_config::paths::mods_dir(root).join(id);
-                    shroudforge_package::config::read_manifest_path(root, &package)
-                        .ok()
-                        .filter(|manifest| {
-                            manifest
-                                .capabilities
-                                .iter()
-                                .any(|capability| capability.requires_runtime())
-                        })
-                        .map(|manifest| manifest.id)
-                })
-                .collect::<Vec<_>>();
-            if !runtime_ids.is_empty() {
-                shroudforge_updater::request_runtime_mod_reload(root, &runtime_ids)
-                    .map_err(|error| format!("catalog package installed, but its runtime modules could not be loaded in the running game: {error}"))?;
-            }
-        }
-        if let Some((updated_project_id, version_id, staging)) = staged_update.take() {
+        runtime_dependency_ids = installed
+            .iter()
+            .filter(|id| Some(id.as_str()) != update_mod_id)
+            .filter_map(|id| {
+                let package = shroudforge_loader_config::paths::mods_dir(root).join(id);
+                shroudforge_package::config::read_manifest_path(root, &package)
+                    .ok()
+                    .filter(|manifest| {
+                        manifest
+                            .capabilities
+                            .iter()
+                            .any(|capability| capability.requires_runtime())
+                    })
+                    .map(|manifest| manifest.id)
+            })
+            .collect();
+        if let Some((updated_project_id, version_id, staging)) = staged_update.as_ref() {
+            refresh_runtime_after_cleanup =
+                runtime_is_active(root) && !runtime_dependency_ids.is_empty();
             let mod_id = update_mod_id.expect("staged update has target");
             let destination = shroudforge_loader_config::paths::mods_dir(root).join(mod_id);
-            if let Err(error) = replace_catalog_mod(
+            replace_catalog_mod_with_runtime_dependencies(
                 root,
                 mod_id,
-                &staging,
+                staging,
                 &destination,
-                &updated_project_id,
-                &version_id,
-            ) {
-                let _ = fs::remove_dir_all(&staging);
-                return Err(error);
-            }
+                updated_project_id,
+                version_id,
+                &runtime_dependency_ids,
+            )?;
+        } else if runtime_is_active(root) && !runtime_dependency_ids.is_empty() {
+            shroudforge_updater::request_runtime_mod_reload(root, &runtime_dependency_ids)
+                .map_err(|error| format!("catalog package installed, but its runtime modules could not be loaded in the running game: {error}"))?;
         }
         Ok(())
     })();
     if let Err(error) = result {
+        let mut cleanup_errors = Vec::new();
+        let mut removed_mod_ids = Vec::new();
         for path in installed_paths {
-            // Failed multi-package installs remain recoverable in the loader trash.
-            let trash = shroudforge_loader_config::paths::ui_data_dir(root).join("trash");
-            let _ = fs::create_dir_all(&trash);
-            if let Some(name) = path.file_name() {
-                let destination = trash.join(format!(
-                    "failed-{}-{}",
-                    SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_nanos(),
-                    name.to_string_lossy()
+            let mod_id = path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned());
+            match move_directory_to_recycle_bin(root, &path, "Failed mod installation") {
+                Ok(()) => {
+                    if let Some(mod_id) = mod_id {
+                        removed_mod_ids.push(mod_id);
+                    }
+                }
+                Err(cleanup_error) => cleanup_errors.push(cleanup_error),
+            }
+        }
+        if let Some((_, _, staging)) = staged_update
+            && let Err(cleanup_error) =
+                move_directory_to_recycle_bin(root, &staging, "Failed mod update staging files")
+        {
+            cleanup_errors.push(cleanup_error);
+        }
+        for mod_id in removed_mod_ids {
+            if Some(mod_id.as_str()) != update_mod_id
+                && let Err(cleanup_error) = forget_catalog_install(root, &mod_id)
+            {
+                cleanup_errors.push(format!(
+                    "could not clear catalog record for recycled mod {mod_id}: {cleanup_error}"
                 ));
-                let _ = fs::rename(&path, destination);
             }
         }
-        if let Some((_, _, staging)) = staged_update {
-            let _ = fs::remove_dir_all(staging);
+        if refresh_runtime_after_cleanup
+            && let Err(refresh_error) =
+                shroudforge_updater::request_runtime_mod_reload(root, &runtime_dependency_ids)
+        {
+            cleanup_errors.push(format!(
+                "runtime recovery after package cleanup also failed: {refresh_error}"
+            ));
         }
-        for mod_id in &installed {
-            if Some(mod_id.as_str()) != update_mod_id {
-                let _ = forget_catalog_install(root, mod_id);
-            }
-        }
-        return Err(error);
+        return Err(if cleanup_errors.is_empty() {
+            error
+        } else {
+            format!(
+                "{error}. Cleanup also reported: {}",
+                cleanup_errors.join("; ")
+            )
+        });
     }
     Ok(installed)
+}
+
+fn move_directory_to_recycle_bin(root: &Path, source: &Path, reason: &str) -> Result<(), String> {
+    if !source.exists() {
+        return Ok(());
+    }
+    let id = format!(
+        "mod-cleanup-{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    );
+    let mods = shroudforge_loader_config::paths::mods_dir(root);
+    let mod_id = source
+        .parent()
+        .filter(|parent| *parent == mods)
+        .and_then(|_| source.file_name())
+        .and_then(|name| name.to_str())
+        .filter(|name| shroudforge_package::package_lookup::valid_identifier(name));
+    if let Some(mod_id) = mod_id {
+        crate::recycle_bin::preserve_mod_directory(root, source, &id, reason, mod_id, None)?;
+    } else {
+        crate::recycle_bin::preserve_directory(root, source, &id, reason)?;
+    }
+    fs::remove_dir_all(source).map_err(|error| {
+        format!(
+            "could not remove recycled package {}: {error}",
+            source.display()
+        )
+    })
 }

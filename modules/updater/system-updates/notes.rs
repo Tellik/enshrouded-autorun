@@ -5,7 +5,10 @@ pub fn parse_release_notes(body: &str) -> (bool, String) {
     let notes = body
         .lines()
         .filter(|line| {
-            if line.trim().eq_ignore_ascii_case("ShroudForge-Update: required") {
+            if line
+                .trim()
+                .eq_ignore_ascii_case("ShroudForge-Update: required")
+            {
                 mandatory = true;
                 false
             } else {

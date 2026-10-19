@@ -18,6 +18,12 @@ pub fn data_dir(root: &Path) -> PathBuf {
 pub fn backups_dir(root: &Path) -> PathBuf {
     data_dir(root).join("backups")
 }
+pub fn recycle_bin_dir(root: &Path) -> PathBuf {
+    data_dir(root).join("recycle-bin")
+}
+pub fn updater_jobs_dir(root: &Path) -> PathBuf {
+    updates_dir(root).join("jobs")
+}
 pub fn default_directory(root: &Path, key: &str) -> Option<PathBuf> {
     let data = data_dir(root);
     match key {
@@ -52,6 +58,9 @@ pub fn loader_executable(root: &Path) -> PathBuf {
 }
 pub fn updater_executable(root: &Path) -> PathBuf {
     data_dir(root).join("shroudforge-updater.exe")
+}
+pub fn updater_available(root: &Path) -> bool {
+    updater_executable(root).is_file()
 }
 pub fn runtime_library(root: &Path) -> PathBuf {
     data_dir(root).join("shroudforge-runtime.dll")
@@ -94,8 +103,26 @@ fn is_dedicated_server(root: &Path) -> bool {
     std::env::current_exe().ok().is_some_and(|path| {
         path.file_name()
             .and_then(|name| name.to_str())
-            .is_some_and(|name| name.eq_ignore_ascii_case("enshrouded_server.exe"))
-    }) || (root.join("enshrouded_server.exe").is_file() && !root.join("enshrouded.exe").is_file())
+            .is_some_and(|name| {
+                [
+                    "enshrouded_server.exe",
+                    "enshrouded_server",
+                    "enshrouded_server.x86_64",
+                ]
+                .iter()
+                .any(|server| name.eq_ignore_ascii_case(server))
+            })
+    }) || (has_server_binary(root) && !root.join("enshrouded.exe").is_file())
+}
+
+fn has_server_binary(root: &Path) -> bool {
+    [
+        "enshrouded_server.exe",
+        "enshrouded_server",
+        "enshrouded_server.x86_64",
+    ]
+    .iter()
+    .any(|name| root.join(name).is_file())
 }
 pub fn logs_dir(root: &Path) -> PathBuf {
     configured_dir(root, "logs")

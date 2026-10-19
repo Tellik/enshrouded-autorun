@@ -11,7 +11,6 @@ pub(crate) struct Arguments {
     pub(crate) game_process: HANDLE,
     pub(crate) stop_name: Option<String>,
     pub(crate) desktop: bool,
-    pub(crate) updater_window: bool,
     pub(crate) server: bool,
 }
 
@@ -25,7 +24,6 @@ pub(crate) fn arguments() -> Result<Arguments, Box<dyn std::error::Error>> {
     };
     let root = PathBuf::from(value("--root").ok_or("missing --root")?);
     let desktop = values.iter().any(|value| value == "--desktop");
-    let updater_window = values.iter().any(|value| value == "--updater-window");
     let game_pid = if desktop {
         unsafe { GetCurrentProcessId() }
     } else {
@@ -120,7 +118,6 @@ pub(crate) fn arguments() -> Result<Arguments, Box<dyn std::error::Error>> {
         game_process,
         stop_name,
         desktop,
-        updater_window,
         server,
     })
 }

@@ -3,7 +3,10 @@ use serde_json::{Value, json};
 use std::path::Path;
 
 pub fn request_window_visibility(root: &Path, module: &str, visible: bool) -> Result<(), String> {
-    if !matches!(module, "modloaderUi" | "debugConsole" | "worldEditor") {
+    if !matches!(
+        module,
+        "modloaderUi" | "debugConsole" | "worldEditor" | "updates"
+    ) {
         return Err("unknown window module".into());
     }
     update_state_section(root, "windows", |existing| {
