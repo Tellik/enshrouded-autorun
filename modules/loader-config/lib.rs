@@ -26,6 +26,7 @@ pub mod config {
     pub use crate::publish_window_visibility::*;
     pub use crate::read_document::*;
     pub use crate::read_loader_settings::*;
+    pub use crate::read_loader_state::*;
     pub use crate::request_window_visibility::*;
     pub use crate::request_world_editor_module_settings::*;
     pub use crate::resolve_document_path::*;

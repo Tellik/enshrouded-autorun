@@ -19,7 +19,7 @@ export function useNotifications(
   const { t } = useI18n()
   const news = useMemo<NewsItem[]>(
     () => buildNewsItems(data, settings, t),
-    [data, t, settings.messageNameFallback],
+    [data, t, settings.effectiveUsername, settings.messageNameFallback],
   )
   const unread = news.filter((item) => !read.includes(item.id))
   const errorCount = unread.filter((item) => item.level === 'error').length

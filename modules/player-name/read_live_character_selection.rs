@@ -30,7 +30,7 @@ mod windows {
     const SCAN_RETRY_DELAY: Duration = Duration::from_secs(60);
     const UI_PLATFORM_PREFIX: &[u8] = b"[Steam]";
     const LEVEL_LABELS: [&[u8]; 2] = [b" Stufe ", b" Level "];
-    const BUILD_VERSION_LABEL: &[u8] = b"Build-Version:";
+    const MAX_PLAYER_NAME_LENGTH: usize = 40;
 
     static SCAN_STATE: OnceLock<Mutex<ScanState>> = OnceLock::new();
 
@@ -102,6 +102,8 @@ mod windows {
                         && state.address == Some(address)
                     {
                         state.address = None;
+                        state.last_scan_finished = Some(Instant::now());
+                        state.last_status = Some(DetectionStatus::SelectionNotFound);
                     }
                 }
             }
@@ -145,8 +147,10 @@ mod windows {
     ) -> DetectionReport {
         DetectionReport {
             name,
+            saved_name: None,
             status,
             process_id,
+            cache_error: None,
         }
     }
 
@@ -324,8 +328,9 @@ mod windows {
                         let combined_address = address.saturating_sub(carry.len());
                         let mut combined = std::mem::take(&mut carry);
                         combined.extend_from_slice(&bytes);
-                        // VirtualQueryEx walks upward by address. The first matching row is the
-                        // row that changed during the live Ikiju-to-Bonsaibauer comparison.
+                        // VirtualQueryEx walks upward by address. The first matching row was the
+                        // row that changed in the live character comparison. The parser accepts
+                        // the observed platform and level text without case sensitivity.
                         if let Some((record_offset, _name)) = find_first_ui_record(&combined) {
                             let found_address = combined_address
                                 .checked_add(record_offset)
@@ -382,42 +387,105 @@ mod windows {
 
     fn find_first_ui_record(bytes: &[u8]) -> Option<(usize, String)> {
         let mut cursor = 0usize;
-        while let Some(relative) = find_bytes(&bytes[cursor..], UI_PLATFORM_PREFIX) {
-            let start = cursor + relative;
+        while cursor < bytes.len() {
+            let utf8 = find_ascii_case_insensitive(&bytes[cursor..], UI_PLATFORM_PREFIX)
+                .map(|relative| cursor + relative);
+            let utf16 = find_utf16_ascii_prefix(&bytes[cursor..], UI_PLATFORM_PREFIX)
+                .map(|relative| cursor + relative);
+            let Some(start) = [utf8, utf16].into_iter().flatten().min() else {
+                break;
+            };
             if let Some(name) = parse_ui_record(&bytes[start..]) {
                 return Some((start, name));
             }
-            cursor = start.checked_add(UI_PLATFORM_PREFIX.len())?;
-            if cursor >= bytes.len() {
-                break;
-            }
+            cursor = start.checked_add(1)?;
         }
         None
     }
 
     fn parse_ui_record(bytes: &[u8]) -> Option<String> {
-        if !bytes.starts_with(UI_PLATFORM_PREFIX) {
-            return None;
+        if starts_with_ascii_case_insensitive(bytes, UI_PLATFORM_PREFIX) {
+            return parse_ui_utf8_record(bytes);
         }
+        if starts_with_utf16_ascii_prefix(bytes, UI_PLATFORM_PREFIX) {
+            let utf16: Vec<u16> = bytes
+                .get(..bytes.len().min(MAX_RECORD_SIZE))?
+                .chunks_exact(2)
+                .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+                .collect();
+            let text = String::from_utf16_lossy(&utf16);
+            return parse_ui_text_record(&text);
+        }
+        None
+    }
+
+    fn parse_ui_utf8_record(bytes: &[u8]) -> Option<String> {
         let name_start = UI_PLATFORM_PREFIX.len();
-        let search_end = bytes.len().min(name_start.checked_add(128)?);
+        let search_end = bytes.len().min(name_start.checked_add(160)?);
         let name_area = bytes.get(name_start..search_end)?;
-        let (label_offset, label) = LEVEL_LABELS
-            .iter()
-            .filter_map(|label| find_bytes(name_area, label).map(|offset| (offset, *label)))
-            .min_by_key(|(offset, _)| *offset)?;
-        if label_offset == 0 {
-            return None;
-        }
+        let (label_offset, label) = find_level_label(name_area)?;
         let name_bytes = name_area.get(..label_offset)?;
-        let name = std::str::from_utf8(name_bytes).ok()?.trim();
-        if name.is_empty() || name.chars().any(char::is_control) {
-            return None;
-        }
+        let name = std::str::from_utf8(name_bytes)
+            .ok()?
+            .trim_matches('\0')
+            .trim();
+        validate_name(name)?;
 
         let level_start = name_start
             .checked_add(label_offset)?
             .checked_add(label.len())?;
+        validate_level(bytes, level_start)?;
+        Some(name.to_owned())
+    }
+
+    fn parse_ui_text_record(text: &str) -> Option<String> {
+        if !text
+            .as_bytes()
+            .get(..UI_PLATFORM_PREFIX.len())
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(UI_PLATFORM_PREFIX))
+        {
+            return None;
+        }
+        let bytes = text.as_bytes();
+        let name_start = UI_PLATFORM_PREFIX.len();
+        let search_end = bytes.len().min(name_start.checked_add(160)?);
+        let name_area = bytes.get(name_start..search_end)?;
+        let (label_offset, label) = find_level_label(name_area)?;
+        let name_bytes = name_area.get(..label_offset)?;
+        let name = std::str::from_utf8(name_bytes)
+            .ok()?
+            .trim_matches('\0')
+            .trim();
+        validate_name(name)?;
+
+        let level_start = name_start
+            .checked_add(label_offset)?
+            .checked_add(label.len())?;
+        validate_level(bytes, level_start)?;
+        Some(name.to_owned())
+    }
+
+    fn find_level_label(name_area: &[u8]) -> Option<(usize, &[u8])> {
+        LEVEL_LABELS
+            .iter()
+            .filter_map(|label| {
+                find_ascii_case_insensitive(name_area, label).map(|offset| (offset, *label))
+            })
+            .min_by_key(|(offset, _)| *offset)
+            .filter(|(offset, _)| *offset > 0)
+    }
+
+    fn validate_name(name: &str) -> Option<()> {
+        if name.is_empty()
+            || name.chars().count() > MAX_PLAYER_NAME_LENGTH
+            || name.chars().any(char::is_control)
+        {
+            return None;
+        }
+        Some(())
+    }
+
+    fn validate_level(bytes: &[u8], level_start: usize) -> Option<()> {
         let mut position = level_start;
         let level_digit_start = position;
         while bytes.get(position).is_some_and(u8::is_ascii_digit) {
@@ -426,40 +494,80 @@ mod windows {
         if position == level_digit_start || position - level_digit_start > 3 {
             return None;
         }
-        let tail_end = bytes.len().min(position.checked_add(192)?);
-        let build_version_offset = position.checked_add(find_bytes(
-            bytes.get(position..tail_end)?,
-            BUILD_VERSION_LABEL,
-        )?)?;
-        let mut version_start = build_version_offset.checked_add(BUILD_VERSION_LABEL.len())?;
-        while bytes
-            .get(version_start)
-            .is_some_and(u8::is_ascii_whitespace)
-        {
-            version_start += 1;
-        }
-        if !bytes.get(version_start).is_some_and(u8::is_ascii_digit) {
-            return None;
-        }
-        let version_end = version_start
-            + bytes
-                .get(version_start..)?
-                .iter()
-                .take_while(|byte| byte.is_ascii_digit())
-                .count();
-        if version_end == version_start {
-            return None;
-        }
-        Some(name.to_owned())
+        Some(())
     }
 
-    fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    fn starts_with_ascii_case_insensitive(haystack: &[u8], needle: &[u8]) -> bool {
+        haystack
+            .get(..needle.len())
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(needle))
+    }
+
+    fn find_ascii_case_insensitive(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         if needle.is_empty() || needle.len() > haystack.len() {
             return None;
         }
         haystack
             .windows(needle.len())
-            .position(|window| window == needle)
+            .position(|window| window.eq_ignore_ascii_case(needle))
+    }
+
+    fn starts_with_utf16_ascii_prefix(haystack: &[u8], needle: &[u8]) -> bool {
+        let Some(prefix) = haystack.get(..needle.len().saturating_mul(2)) else {
+            return false;
+        };
+        needle.iter().enumerate().all(|(index, expected)| {
+            prefix[index * 2].eq_ignore_ascii_case(expected) && prefix[index * 2 + 1] == 0
+        })
+    }
+
+    fn find_utf16_ascii_prefix(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+        let length = needle.len().checked_mul(2)?;
+        if length > haystack.len() {
+            return None;
+        }
+        haystack.windows(length).position(|window| {
+            needle.iter().enumerate().all(|(index, expected)| {
+                window[index * 2].eq_ignore_ascii_case(expected) && window[index * 2 + 1] == 0
+            })
+        })
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::parse_ui_record;
+
+        #[test]
+        fn accepts_uppercase_platform_and_level_without_nearby_build_label() {
+            assert_eq!(
+                parse_ui_record(b"[STEAM]BonsaiBauer LEVEL 37"),
+                Some("BonsaiBauer".into())
+            );
+        }
+
+        #[test]
+        fn accepts_previous_label_casing_and_optional_build_label() {
+            assert_eq!(
+                parse_ui_record(b"[Steam]BonsaiBauer Stufe 37 Build-Version: 1269579"),
+                Some("BonsaiBauer".into())
+            );
+        }
+
+        #[test]
+        fn accepts_utf16le_menu_text() {
+            let bytes: Vec<u8> = "[STEAM]BonsaiBauer Level 37"
+                .encode_utf16()
+                .flat_map(u16::to_le_bytes)
+                .collect();
+            assert_eq!(parse_ui_record(&bytes), Some("BonsaiBauer".into()));
+        }
+
+        #[test]
+        fn rejects_records_without_a_level_or_with_a_too_long_name() {
+            assert_eq!(parse_ui_record(b"[STEAM]BonsaiBauer"), None);
+            let long_name = format!("[STEAM]{} Level 37", "A".repeat(41));
+            assert_eq!(parse_ui_record(long_name.as_bytes()), None);
+        }
     }
 }
 
@@ -472,7 +580,9 @@ pub(super) fn read_live_character_selection() -> DetectionReport {
 pub(super) fn read_live_character_selection() -> DetectionReport {
     DetectionReport {
         name: None,
+        saved_name: None,
         process_id: None,
         status: DetectionStatus::UnsupportedPlatform,
+        cache_error: None,
     }
 }

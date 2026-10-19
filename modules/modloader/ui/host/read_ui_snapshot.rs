@@ -29,7 +29,7 @@ pub(crate) fn read_ui_snapshot(
     central: serde_json::Value,
     mods: Vec<ModInfo>,
     player_name_detection: &shroudforge_player_name::DetectionReport,
-) -> Snapshot {
+) -> (Snapshot, shroudforge_player_name::ResolvedName) {
     let logging_level = central
         .pointer("/logging/minimumLevel")
         .and_then(|v| v.as_str())
@@ -52,7 +52,12 @@ pub(crate) fn read_ui_snapshot(
         .and_then(|value| value.as_str())
         .and_then(|value| normalize_message_name(value).ok())
         .unwrap_or_else(default_message_name_fallback);
-    let detected_username = player_name_detection.name.clone();
+    let resolved_username =
+        player_name_detection.resolve_name(username_mode == "manual", &fallback_username);
+    let detected_username = player_name_detection
+        .name
+        .clone()
+        .or_else(|| player_name_detection.saved_name.clone());
     let diagnostic_jobs = shroudforge_runtime_diagnostics::diagnostic_job_catalog(
         &arguments.root,
         &central["modules"]["runtimeDiagnostics"],
@@ -67,7 +72,7 @@ pub(crate) fn read_ui_snapshot(
             changelog: &item.changelog,
         })
         .collect();
-    Snapshot {
+    let snapshot = Snapshot {
         diagnostics: shroudforge_runtime_diagnostics::status(&arguments.root),
         windows: shroudforge_loader_config::config::window_state(&arguments.root),
         configuration: super::read_configuration_status::configuration(
@@ -111,6 +116,8 @@ pub(crate) fn read_ui_snapshot(
                 .pointer("/general/compactMode")
                 .and_then(|value| value.as_bool())
                 .unwrap_or(false),
+            effective_username: resolved_username.name.clone(),
+            username_source: resolved_username.source.key().to_owned(),
             reduced_motion: central
                 .pointer("/general/reducedMotion")
                 .and_then(|value| value.as_bool())
@@ -147,5 +154,6 @@ pub(crate) fn read_ui_snapshot(
             .locale
             .filter(|locale| is_valid_locale(locale))
             .unwrap_or_else(|| "de".into()),
-    }
+    };
+    (snapshot, resolved_username)
 }

@@ -21,3 +21,8 @@ pub(crate) fn read_state_file(root: &Path) -> Result<Value, String> {
         Err(error) => Err(error.to_string()),
     }
 }
+
+pub fn read_state_section(root: &Path, section: &str) -> Result<Option<Value>, String> {
+    let state = read_state_file(root)?;
+    Ok(state.get(section).cloned())
+}

@@ -11,10 +11,8 @@ export function buildNewsItems(
 ): NewsItem[] {
   const items: NewsItem[] = []
   const username =
-    (settings.usernameMode === 'manual'
-      ? settings.messageNameFallback
-      : settings.detectedUsername || settings.messageNameFallback
-    ).trim() || 'Flameborn'
+    (settings.effectiveUsername || settings.messageNameFallback).trim() ||
+    'Flameborn'
   const personalize = (text: string) => text.replace(/\{username\}/g, username)
   const configured = (kind: string, values: Record<string, string> = {}) => {
     const template = data.newsTemplates?.[kind]

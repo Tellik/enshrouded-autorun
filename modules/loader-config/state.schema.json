@@ -14,7 +14,16 @@
     "events": { "type": "object" },
     "catalog": { "type": "object" },
     "mods": { "type": "object" },
-    "parser": { "type": "object" }
+    "parser": { "type": "object" },
+    "playerName": {
+      "type": "object",
+      "required": ["lastDetectedName", "cachedAtUnixSeconds"],
+      "properties": {
+        "lastDetectedName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "cachedAtUnixSeconds": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
   },
   "additionalProperties": false
 }

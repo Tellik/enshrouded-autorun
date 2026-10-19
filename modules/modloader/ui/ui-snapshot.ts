@@ -122,6 +122,8 @@ export const empty: Snapshot = {
   },
   settings: {
     compactMode: false,
+    effectiveUsername: 'Flameborn',
+    usernameSource: 'fallback',
     reducedMotion: false,
     usernameMode: 'auto',
     detectedUsername: null,

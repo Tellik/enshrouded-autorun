@@ -839,8 +839,9 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                         id: &item.id, name: &item.name, version: &item.version, ecosystem: item.ecosystem, changelog: &item.changelog,
                     }).collect();
                     shroudforge_news::sync_mod_events(&arguments.root, &notification_mods);
-                    let player_name_detection = shroudforge_player_name::detect_active_character();
-                    let snapshot = read_ui_snapshot(
+                    let player_name_detection =
+                        shroudforge_player_name::detect_active_character(&arguments.root);
+                    let (snapshot, resolved_player_name) = read_ui_snapshot(
                         &arguments,
                         &active_provider,
                         &release_state,
@@ -852,6 +853,7 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                     log_player_name_detection(
                         &arguments.root,
                         &player_name_detection,
+                        &resolved_player_name,
                         &mut previous_player_name_detection,
                     );
                     log_configuration_check_transitions(

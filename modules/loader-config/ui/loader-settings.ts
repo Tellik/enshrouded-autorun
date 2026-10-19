@@ -15,6 +15,8 @@ export type Settings = {
   reducedMotion: boolean
   usernameMode: 'auto' | 'manual'
   detectedUsername?: string | null
+  effectiveUsername: string
+  usernameSource: 'live' | 'saved' | 'fallback'
   messageNameFallback: string
   logLevel: string
   exportEnabled: boolean

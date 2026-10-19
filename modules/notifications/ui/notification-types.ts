@@ -53,6 +53,7 @@ export type NewsItem = {
 export type NewsPersonalization = {
   usernameMode: 'auto' | 'manual'
   detectedUsername?: string | null
+  effectiveUsername?: string
   messageNameFallback: string
 }
 export type NewsDisplaySource = {

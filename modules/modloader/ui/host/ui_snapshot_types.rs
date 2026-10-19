@@ -112,6 +112,8 @@ pub(crate) struct SnapshotSettings {
     pub(crate) reduced_motion: bool,
     pub(crate) username_mode: String,
     pub(crate) detected_username: Option<String>,
+    pub(crate) effective_username: String,
+    pub(crate) username_source: String,
     pub(crate) message_name_fallback: String,
     pub(crate) log_level: String,
     pub(crate) export_enabled: bool,

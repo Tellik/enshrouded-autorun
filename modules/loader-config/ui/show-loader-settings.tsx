@@ -157,12 +157,14 @@ export function SettingsPage({
             />
             <SettingsRow
               label={t('settings.username.effective')}
-              detail={t('settings.username.effective.hint')}
+              detail={t(
+                `settings.username.source.${settings.usernameSource || 'fallback'}` as TranslationKey,
+              )}
               control={
                 <strong className="settings-value">
                   {settings.usernameMode === 'manual'
                     ? messageNameDraft
-                    : settings.detectedUsername || messageNameDraft}
+                    : settings.effectiveUsername || messageNameDraft}
                 </strong>
               }
             />
