@@ -172,51 +172,58 @@ if (!token) {
   )
 
   if (!currentBranch || typeof currentBranch.id !== 'number') {
-    throw new Error(
-      'Crowdin does not have the requested version branch: ' + requestedBranch,
+    const snapshot = createSnapshot(
+      requestedBranch,
+      targetLocales.map(emptyLanguage),
+    )
+    await writeSnapshot(snapshot)
+    console.warn(
+      'Crowdin progress was not refreshed because the project does not have the requested version branch ' +
+        requestedBranch +
+        '. Wrote an unavailable entry for each local target locale.',
+    )
+  } else {
+    const branchRows = await getAllPages(
+      '/projects/' + projectId + '/branches/' + currentBranch.id + '/languages/progress',
+    )
+    const rowsByLocale = new Map()
+    for (const item of branchRows) {
+      const locale = localeForLanguageProgress(item)
+      if (!locale) continue
+      if (rowsByLocale.has(locale)) {
+        throw new Error(
+          'More than one Crowdin language maps to the local locale file ' +
+            locale +
+            '.json. Use distinct locale filenames for these languages.',
+        )
+      }
+      rowsByLocale.set(locale, normalizeLanguage(item, locale))
+    }
+
+    const languages = targetLocales.map(
+      (locale) => rowsByLocale.get(locale) ?? emptyLanguage(locale),
+    )
+    const snapshot = createSnapshot(
+      currentBranch.name,
+      languages,
+      new Date().toISOString(),
+    )
+    await writeSnapshot(snapshot)
+
+    console.log(
+      'Crowdin progress captured for build branch ' +
+        currentBranch.name +
+        ': ' +
+        snapshot.languages
+          .map(
+            (language) =>
+              language.locale +
+              ' ' +
+              (language.translationProgress === null
+                ? 'unavailable'
+                : language.translationProgress + '%'),
+          )
+          .join(', '),
     )
   }
-
-  const branchRows = await getAllPages(
-    '/projects/' + projectId + '/branches/' + currentBranch.id + '/languages/progress',
-  )
-  const rowsByLocale = new Map()
-  for (const item of branchRows) {
-    const locale = localeForLanguageProgress(item)
-    if (!locale) continue
-    if (rowsByLocale.has(locale)) {
-      throw new Error(
-        'More than one Crowdin language maps to the local locale file ' +
-          locale +
-          '.json. Use distinct locale filenames for these languages.',
-      )
-    }
-    rowsByLocale.set(locale, normalizeLanguage(item, locale))
-  }
-
-  const languages = targetLocales.map(
-    (locale) => rowsByLocale.get(locale) ?? emptyLanguage(locale),
-  )
-  const snapshot = createSnapshot(
-    currentBranch.name,
-    languages,
-    new Date().toISOString(),
-  )
-  await writeSnapshot(snapshot)
-
-  console.log(
-    'Crowdin progress captured for build branch ' +
-      currentBranch.name +
-      ': ' +
-      snapshot.languages
-        .map(
-          (language) =>
-            language.locale +
-            ' ' +
-            (language.translationProgress === null
-              ? 'unavailable'
-              : language.translationProgress + '%'),
-        )
-        .join(', '),
-  )
 }
