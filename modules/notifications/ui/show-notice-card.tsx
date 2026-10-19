@@ -77,10 +77,9 @@ export function NoticeCard({
     item.kind === 'notice.support'
       ? links.find((link) => link.labelKey === 'news.link.buyCoffee')
       : undefined
-  const modSupportLink =
-    item.id === 'shroudforge-mod-support-1'
-      ? links.find((link) => link.labelKey === 'news.link.modCompatibility')
-      : undefined
+  const modSupportLink = links.find(
+    (link) => link.labelKey === 'news.link.modCompatibility',
+  )
   const footerLinks =
     !compact && supportLink
       ? links.filter((link) => link !== supportLink)
