@@ -31,6 +31,18 @@ function normalizeCode(value) {
   return String(value ?? '').trim().replaceAll('_', '-').toLowerCase()
 }
 
+function versionTuple(value) {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(value)
+  return match ? match.slice(1).map(Number) : null
+}
+
+function compareVersions(left, right) {
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return left[index] - right[index]
+  }
+  return 0
+}
+
 function isRecord(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
@@ -167,9 +179,29 @@ if (!token) {
   }
 
   const branches = await getAllPages('/projects/' + projectId + '/branches')
-  const currentBranch = branches.find(
+  const exactBranch = branches.find(
     (branch) => isRecord(branch) && branch.name === requestedBranch,
   )
+  const requestedVersion = versionTuple(requestedBranch)
+  const fallbackBranch =
+    !exactBranch && requestedVersion
+      ? branches
+          .filter((branch) => {
+            if (!isRecord(branch) || typeof branch.name !== 'string') {
+              return false
+            }
+            const candidateVersion = versionTuple(branch.name)
+            return (
+              candidateVersion &&
+              compareVersions(candidateVersion, requestedVersion) < 0
+            )
+          })
+          .sort((left, right) =>
+            compareVersions(versionTuple(left.name), versionTuple(right.name)),
+          )
+          .at(-1)
+      : null
+  const currentBranch = exactBranch ?? fallbackBranch
 
   if (!currentBranch || typeof currentBranch.id !== 'number') {
     const snapshot = createSnapshot(
@@ -183,6 +215,16 @@ if (!token) {
         '. Wrote an unavailable entry for each local target locale.',
     )
   } else {
+    if (currentBranch.name !== requestedBranch) {
+      console.warn(
+        'Crowdin does not have version branch ' +
+          requestedBranch +
+          '. Using the latest earlier branch ' +
+          currentBranch.name +
+          ' for the progress snapshot.',
+      )
+    }
+
     const branchRows = await getAllPages(
       '/projects/' + projectId + '/branches/' + currentBranch.id + '/languages/progress',
     )
