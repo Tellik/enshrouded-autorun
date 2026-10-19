@@ -25,7 +25,7 @@ bool run_startup_update_check(const std::filesystem::path& root) {
         return true;
     }
     if (!ShroudforgeConfig::ModuleEnabled(root, "updates")) {
-        log('W', "Startup update service is unavailable because the Updates module is intentionally disabled in Settings");
+        log('W', "Startup update service is unavailable because the Updates module is disabled in Settings");
         return true;
     }
 
@@ -82,7 +82,7 @@ void start_debug_console(const std::filesystem::path& root) {
         return;
     }
     if (!ShroudforgeConfig::ModuleEnabled(root, "debugConsole")) {
-        log('W', "Debug Console is unavailable because the module is intentionally disabled in Settings");
+        log('W', "Debug Console is unavailable because the module is disabled in Settings");
         return;
     }
     if (!std::filesystem::is_regular_file(root / L"enshrouded.exe") &&
@@ -168,7 +168,7 @@ void start_modloader_ui(const std::filesystem::path& root) {
         return;
     }
     if (!ShroudforgeConfig::ModuleEnabled(root, "modloaderUi")) {
-        log('W', "Modloader UI service is unavailable because the module is intentionally disabled in Settings");
+        log('W', "Modloader UI service is unavailable because the module is disabled in Settings");
         return;
     }
     const auto executable = shroudforge_directory(root) / L"shroudforge.exe";
@@ -223,7 +223,7 @@ void start_world_editor_ui(const std::filesystem::path& root) {
         return;
     }
     if (!ShroudforgeConfig::ModuleEnabled(root, "worldEditor")) {
-        log('W', "World Editor service is unavailable because the module is intentionally disabled in Settings");
+        log('W', "World Editor service is unavailable because the module is disabled in Settings");
         return;
     }
     const auto executable = shroudforge_directory(root) / L"shroudforge.exe";
@@ -277,7 +277,7 @@ void start_pending_update(const std::filesystem::path& root) {
     const auto marker = updates / L"pending.ready";
     if (!ShroudforgeConfig::ModuleEnabled(root, "updates")) {
         if (std::filesystem::is_regular_file(marker)) {
-            log('W', "Pending update was not installed because the Updates module is intentionally disabled in Settings");
+            log('W', "Pending update was not installed because the Updates module is disabled in Settings");
         }
         return;
     }

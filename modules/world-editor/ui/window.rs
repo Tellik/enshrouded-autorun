@@ -205,7 +205,7 @@ pub(crate) fn run_module() -> Result<(), Box<dyn std::error::Error>> {
                                     );
                                 }
                                 Ok(_) => {
-                                    let message = "World Editor module was intentionally disabled in Settings. The blueprint service is unavailable until it is enabled.";
+                                    let message = "World Editor module is disabled in Settings. The blueprint service is unavailable until it is enabled.";
                                     log_world_editor(&arguments.root, 'W', "request", message);
                                     let _ = webview.evaluate_script(&format!(
                                         "window.__worldEditorNotice({}, 'warn');",

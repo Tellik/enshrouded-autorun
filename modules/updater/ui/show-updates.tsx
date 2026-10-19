@@ -32,7 +32,7 @@ export function Updates({
   const actionsEnabled = updaterAvailable && enabled
   const moduleUnavailable =
     !!commandError &&
-    /intentionally disabled in Settings|is disabled in module settings/i.test(
+    /disabled in Settings|is disabled in module settings/i.test(
       commandError,
     )
   const queueFailureMessages = [

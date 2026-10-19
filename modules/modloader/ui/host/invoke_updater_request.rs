@@ -40,7 +40,7 @@ fn invoke(root: &Path, request: &serde_json::Value) -> Result<serde_json::Value,
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false);
     if !updates_enabled {
-        return Err("Updates module was intentionally disabled in Settings. The update service is unavailable until it is enabled.".into());
+        return Err("Updates module is disabled in Settings. The update service is unavailable until it is enabled.".into());
     }
     let executable = shroudforge_loader_config::paths::updater_executable(root);
     if !executable.is_file() {

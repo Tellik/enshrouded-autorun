@@ -40,10 +40,10 @@ pub(super) fn plan_runtime_mods<'a>(
         for id in disabled_mods {
             errors.insert(
                 id.clone(),
-                "module-disabled: World Editor module was intentionally disabled in Settings. The World Editor mod is unavailable until it is enabled.".into(),
+                "module-disabled: World Editor module is disabled in Settings. The World Editor mod is unavailable until it is enabled.".into(),
             );
             tracing::warn!(target: "shroudforge::runtime", mod_id = %id,
-                "World Editor module was intentionally disabled in Settings. The World Editor mod will not be loaded");
+                "World Editor module is disabled in Settings. The World Editor mod will not be loaded");
         }
     }
     // Candidate plans contain disabled mods so the UI can toggle them live.
@@ -174,7 +174,7 @@ mod tests {
         assert!(errors["world-editor"]
             .as_str()
             .unwrap()
-            .contains("intentionally disabled in Settings"));
+            .contains("disabled in Settings"));
 
         fs::remove_dir_all(root).unwrap();
     }

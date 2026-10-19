@@ -74,10 +74,10 @@ fn denied(lua: &Lua, owner: &Mod, operation: &str, context: RuntimeContext) -> O
                 target: "shroudforge::network",
                 mod_id,
                 operation,
-                "Network module was intentionally disabled in Settings. The networking service is unavailable until it is enabled"
+                "Network module is disabled in Settings. The networking service is unavailable until it is enabled"
             );
         }
-        return Some("Network module was intentionally disabled in Settings. The networking service is unavailable until it is enabled.".into());
+        return Some("Network module is disabled in Settings. The networking service is unavailable until it is enabled.".into());
     }
     let status = steam_network::status();
     if !status.available {

@@ -45,7 +45,7 @@ pub(crate) fn request_module_visibility(
             );
         }
         Err(format!(
-            "{module} module was intentionally disabled in Settings. Its service is unavailable until it is enabled."
+            "{module} module is disabled in Settings. Its service is unavailable until it is enabled."
         ))
     } else if module == "updates" && visible {
         shroudforge_loader_config::config::request_window_visibility(&arguments.root, &module, true)
@@ -110,7 +110,7 @@ fn start_updater_window(root: &std::path::Path) -> Result<(), String> {
     {
         let _ =
             shroudforge_loader_config::config::request_window_visibility(root, "updates", false);
-        return Err("Updates module was intentionally disabled in Settings. The update service is unavailable until it is enabled.".into());
+        return Err("Updates module is disabled in Settings. The update service is unavailable until it is enabled.".into());
     }
     let executable = shroudforge_loader_config::paths::updater_executable(root);
     if !executable.is_file() {
