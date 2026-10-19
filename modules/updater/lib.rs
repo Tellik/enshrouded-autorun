@@ -63,7 +63,7 @@ pub mod provider_config;
 
 mod recycle_bin;
 
-pub(crate) const UPDATE_MODULE_DISABLED_MESSAGE: &str = "Updates module is intentionally disabled in Settings. The update service is unavailable until it is enabled.";
+pub(crate) const UPDATE_MODULE_DISABLED_MESSAGE: &str = "Updates module is disabled in Settings. The update service is unavailable until it is enabled.";
 
 /// Run recycle-bin restores from an updater copy outside the managed install
 /// files so Windows can restore a saved updater executable.

@@ -163,7 +163,7 @@ pub fn configuration(root: &Path, server: bool, api: &str) -> Value {
                 let state = if manifest.id == "world-editor"
                     && world_editor_module_enabled == Some(false)
                 {
-                    json!({"state":"disabled","code":"module-disabled","detail":"World Editor module was intentionally disabled in Settings. The World Editor mod is unavailable until it is enabled."})
+                    json!({"state":"disabled","code":"module-disabled","detail":"World Editor module is disabled in Settings. The World Editor mod is unavailable until it is enabled."})
                 } else if runtime_mod
                     && runtime_error.is_some_and(|reason| {
                         reason.starts_with("plan-blocked:")
