@@ -27,7 +27,7 @@
   ],
   "kind": "runtime-discovery-index",
   "catalog": "../../../captures/registry-complete-20261008/server/runtime-bindings.json",
-  "regeneration": "dev/profiles/capture/export_runtime_bindings.py",
+  "regeneration": "modules/runtime-diagnostics/diagnostics-jobs/game_inspection/capture/export_runtime_bindings.py",
   "runtimeApi": "runtime.types / runtime.values / runtime.ecs / runtime.functions",
   "productionProfile": false
 }
