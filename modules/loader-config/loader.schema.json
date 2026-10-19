@@ -998,6 +998,11 @@
         "reducedMotion": {
           "type": "boolean"
         },
+        "zoomPercent": {
+          "type": "integer",
+          "minimum": 70,
+          "maximum": 150
+        },
         "usernameMode": {
           "type": "string",
           "enum": ["auto", "manual"]

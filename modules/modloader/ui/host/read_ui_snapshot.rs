@@ -120,6 +120,11 @@ pub(crate) fn read_ui_snapshot(
                 .pointer("/general/reducedMotion")
                 .and_then(|value| value.as_bool())
                 .unwrap_or(false),
+            zoom_percent: central
+                .pointer("/general/zoomPercent")
+                .and_then(|value| value.as_u64())
+                .filter(|value| (70..=150).contains(value))
+                .unwrap_or(100) as u16,
             username_mode,
             detected_username,
             effective_username: resolved_username.name.clone(),

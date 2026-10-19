@@ -13,7 +13,11 @@ pub(crate) fn save_setting(
     if scope == "general" {
         if !matches!(
             key,
-            "compactMode" | "reducedMotion" | "usernameMode" | "messageNameFallback"
+            "compactMode"
+                | "reducedMotion"
+                | "zoomPercent"
+                | "usernameMode"
+                | "messageNameFallback"
         ) {
             return Err("unsupported general setting".into());
         }
@@ -25,6 +29,12 @@ pub(crate) fn save_setting(
                 Some("manual") => "manual".into(),
                 _ => return Err("username mode must be auto or manual".into()),
             }
+        } else if key == "zoomPercent" {
+            let value = setting
+                .as_u64()
+                .filter(|value| (70..=150).contains(value))
+                .ok_or("zoom percent must be an integer from 70 to 150")?;
+            serde_json::Value::from(value)
         } else {
             setting.clone()
         };

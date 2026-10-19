@@ -14,6 +14,7 @@ import { useUiUpdates } from './receive-ui-updates'
 import { TopBar } from './show-top-bar'
 import { Page } from './show-page'
 import { UiErrorBoundary } from './show-ui-error'
+import { PageZoomProvider } from '../../ui-resources/show-page-header'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
 
@@ -58,6 +59,14 @@ export function App() {
     setSelectedMod(null)
     setPage(next)
   }
+  const savePageZoom = (zoomPercent: number) => {
+    setSettings((current) => ({ ...current, zoomPercent }))
+    postRequest('save-setting', {
+      scope: 'general',
+      key: 'zoomPercent',
+      value: zoomPercent,
+    })
+  }
 
   const runNoticeAction = (action: NoticeAction) => {
     if (action.kind === 'open-installed-mods') navigate('installed')
@@ -88,103 +97,108 @@ export function App() {
         title={chirperTitle}
         onChirper={() => setChirper(true)}
       />
-      <div className="workspace">
-        <aside className="sidebar">
-          <NavGroup title={t('nav.modloader')}>
-            <Nav
-              icon="activity"
-              label={t('nav.activity')}
-              active={!activeMod && page === 'activity'}
-              onClick={() => navigate('activity')}
-            />
-            <Nav
-              icon="news"
-              label={t('nav.news')}
-              badge={unread.length || undefined}
-              active={!activeMod && page === 'news'}
-              onClick={() => navigate('news')}
-            />
-            <Nav
-              icon="compatibility"
-              label={t('nav.compatibility')}
-              active={!activeMod && page === 'compatibility'}
-              onClick={() => navigate('compatibility')}
-            />
-            <Nav
-              icon="settings"
-              label={t('nav.settings')}
-              active={!activeMod && page === 'settings'}
-              onClick={() => navigate('settings')}
-            />
-          </NavGroup>
-          <NavGroup title={t('nav.modsManagement')}>
-            <Nav
-              icon="discover"
-              label={t('nav.discover')}
-              active={!activeMod && page === 'discover'}
-              onClick={() => navigate('discover')}
-            />
-            <Nav
-              icon="installed"
-              label={t('nav.installed')}
-              badge={data.mods.length || undefined}
-              active={!activeMod && page === 'installed'}
-              onClick={() => navigate('installed')}
-            />
-            <Nav
-              icon="updates"
-              label={t('nav.updates')}
-              badge={data.release.updateAvailable ? 1 : undefined}
-              active={!activeMod && page === 'updates'}
-              onClick={() => navigate('updates')}
-            />
-            <Nav
-              icon="trash"
-              label={t('nav.recycleBin')}
-              active={!activeMod && page === 'recycle-bin'}
-              onClick={() => navigate('recycle-bin')}
-            />
-          </NavGroup>
-          <NavGroup className="nav-group-mods" title={t('nav.mods')}>
-            <div className="sidebar-mods">
-              {data.mods.map((mod) => (
-                <button
-                  key={mod.id}
-                  className={`nav-item ${activeMod?.id === mod.id ? 'active' : ''}`}
-                  onClick={() => setSelectedMod(mod.id)}
-                >
-                  <ModIcon mod={mod} variant="nav" />
-                  <span>{mod.name}</span>
-                </button>
-              ))}
-            </div>
-          </NavGroup>
-        </aside>
-        <section className="content">
-          {activeMod ? (
-            <ModPage
-              mod={activeMod}
-              status={data.configuration?.modStates?.[activeMod.id]}
-              dependencyStates={data.configuration?.modStates || {}}
-            />
-          ) : (
-            <Page
-              id={page}
-              data={data}
-              settings={settings}
-              setSettings={setSettings}
-              news={news}
-              unread={unread}
-              read={read}
-              markRead={markRead}
-              runNoticeAction={runNoticeAction}
-              openNews={() => navigate('news')}
-              selectMod={setSelectedMod}
-              onUpdaterCommand={postRequest}
-            />
-          )}
-        </section>
-      </div>
+      <PageZoomProvider
+        zoomPercent={settings.zoomPercent ?? 100}
+        onChange={savePageZoom}
+      >
+        <div className="workspace">
+          <aside className="sidebar">
+            <NavGroup title={t('nav.modloader')}>
+              <Nav
+                icon="activity"
+                label={t('nav.activity')}
+                active={!activeMod && page === 'activity'}
+                onClick={() => navigate('activity')}
+              />
+              <Nav
+                icon="news"
+                label={t('nav.news')}
+                badge={unread.length || undefined}
+                active={!activeMod && page === 'news'}
+                onClick={() => navigate('news')}
+              />
+              <Nav
+                icon="compatibility"
+                label={t('nav.compatibility')}
+                active={!activeMod && page === 'compatibility'}
+                onClick={() => navigate('compatibility')}
+              />
+              <Nav
+                icon="settings"
+                label={t('nav.settings')}
+                active={!activeMod && page === 'settings'}
+                onClick={() => navigate('settings')}
+              />
+            </NavGroup>
+            <NavGroup title={t('nav.modsManagement')}>
+              <Nav
+                icon="discover"
+                label={t('nav.discover')}
+                active={!activeMod && page === 'discover'}
+                onClick={() => navigate('discover')}
+              />
+              <Nav
+                icon="installed"
+                label={t('nav.installed')}
+                badge={data.mods.length || undefined}
+                active={!activeMod && page === 'installed'}
+                onClick={() => navigate('installed')}
+              />
+              <Nav
+                icon="updates"
+                label={t('nav.updates')}
+                badge={data.release.updateAvailable ? 1 : undefined}
+                active={!activeMod && page === 'updates'}
+                onClick={() => navigate('updates')}
+              />
+              <Nav
+                icon="trash"
+                label={t('nav.recycleBin')}
+                active={!activeMod && page === 'recycle-bin'}
+                onClick={() => navigate('recycle-bin')}
+              />
+            </NavGroup>
+            <NavGroup className="nav-group-mods" title={t('nav.mods')}>
+              <div className="sidebar-mods">
+                {data.mods.map((mod) => (
+                  <button
+                    key={mod.id}
+                    className={`nav-item ${activeMod?.id === mod.id ? 'active' : ''}`}
+                    onClick={() => setSelectedMod(mod.id)}
+                  >
+                    <ModIcon mod={mod} variant="nav" />
+                    <span>{mod.name}</span>
+                  </button>
+                ))}
+              </div>
+            </NavGroup>
+          </aside>
+          <section className="content">
+            {activeMod ? (
+              <ModPage
+                mod={activeMod}
+                status={data.configuration?.modStates?.[activeMod.id]}
+                dependencyStates={data.configuration?.modStates || {}}
+              />
+            ) : (
+              <Page
+                id={page}
+                data={data}
+                settings={settings}
+                setSettings={setSettings}
+                news={news}
+                unread={unread}
+                read={read}
+                markRead={markRead}
+                runNoticeAction={runNoticeAction}
+                openNews={() => navigate('news')}
+                selectMod={setSelectedMod}
+                onUpdaterCommand={postRequest}
+              />
+            )}
+          </section>
+        </div>
+      </PageZoomProvider>
       {chirper && (
         <Chirper
           items={chirperItems}

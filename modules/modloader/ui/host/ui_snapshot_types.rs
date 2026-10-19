@@ -89,6 +89,7 @@ pub(crate) struct SnapshotSettings {
     pub(crate) module_preferences: serde_json::Value,
     pub(crate) compact_mode: bool,
     pub(crate) reduced_motion: bool,
+    pub(crate) zoom_percent: u16,
     pub(crate) username_mode: String,
     pub(crate) detected_username: Option<String>,
     pub(crate) effective_username: String,

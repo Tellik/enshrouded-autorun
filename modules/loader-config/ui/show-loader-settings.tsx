@@ -7,7 +7,7 @@ import { startPageOptions } from '../../modloader/ui/ui-snapshot'
 import { Card } from '../../ui-resources/show-card'
 import { Field, SettingsRow, Toggle } from '../../ui-resources/edit-setting'
 import { Flag } from '../../ui-resources/show-flag'
-import { PageHeader } from '../../ui-resources/show-page-header'
+import { PageHeader, usePageZoom } from '../../ui-resources/show-page-header'
 import { Segmented } from '../../ui-resources/choose-segment'
 import { GamefileBackupManagement } from '../../game-files/ui/show-game-file-backups'
 import { StoragePathsEditor } from './show-storage-paths'
@@ -23,6 +23,7 @@ export function SettingsPage({
   setSettings(v: Settings): void
 }) {
   const { t, locale, locales, setLocale } = useI18n()
+  const { setZoomPercent } = usePageZoom()
   const [tab, setTab] = useState('general')
   const [messageNameDraft, setMessageNameDraft] = useState(
     settings.messageNameFallback || 'Flameborn',
@@ -205,6 +206,25 @@ export function SettingsPage({
               </span>
             </Field>
             <p className="hint">{t('settings.language.hint')}</p>
+            <SettingsRow
+              label={t('common.contentZoom')}
+              detail={t('settings.zoom.hint')}
+              control={
+                <div className="zoom-setting-control">
+                  <output className="zoom-setting-value">
+                    {settings.zoomPercent ?? 100}%
+                  </output>
+                  <button
+                    type="button"
+                    className="button ghost"
+                    disabled={(settings.zoomPercent ?? 100) === 100}
+                    onClick={() => setZoomPercent(100)}
+                  >
+                    {t('settings.zoom.reset')}
+                  </button>
+                </div>
+              }
+            />
             <SettingsRow
               label={t('settings.startPage')}
               detail={t('settings.startPage.hint')}
