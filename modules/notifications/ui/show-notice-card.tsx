@@ -8,6 +8,7 @@ import { Icon } from '../../ui-resources/show-icon'
 import { ContributorList } from './show-contributors'
 import { CrowdinProgressPanel } from './show-crowdin-progress'
 import buyMeACoffeeButton from './assets/buymeacoffee-button.png'
+import nexusModsBanner from '../../../assets/nexusmods-enshrouded-banner.jpg'
 export function noticeIcon(item: NewsItem) {
   if (item.level === 'error') return 'issue'
   if (item.level === 'warn') return 'warning'
@@ -28,6 +29,8 @@ export function noticeIcon(item: NewsItem) {
     case 'notice.discord':
       return 'discord'
     case 'notice.localization':
+      return 'discover'
+    case 'notice.nexusMods':
       return 'discover'
     case 'notice.applySettings':
       return 'refresh'
@@ -110,6 +113,18 @@ export function NoticeCard({
             }
           >
             <img src={item.banner.imageUrl} alt="" loading="lazy" />
+          </button>
+        )}
+        {!compact && item.kind === 'notice.nexusMods' && item.actionUrl && (
+          <button
+            className="notice-banner"
+            type="button"
+            aria-label={t('news.notice.nexusMods.open')}
+            onClick={() =>
+              postRequest('open-url', { url: localizedUrl(item.actionUrl!) })
+            }
+          >
+            <img src={nexusModsBanner} alt="" loading="lazy" />
           </button>
         )}
         <p>{message}</p>

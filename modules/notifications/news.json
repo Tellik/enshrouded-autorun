@@ -23,6 +23,15 @@
       "actionLabelKey": "news.notice.discord.join"
     },
     {
+      "id": "shroudforge-nexusmods-1",
+      "kind": "notice.nexusMods",
+      "title": "Find EML mods on Nexus Mods",
+      "message": "ShroudForge supports mods in the Enshrouded Mod Loader (EML) format. Find current EML mods and the Enshrouded modding community on Nexus Mods.",
+      "level": "info",
+      "actionUrl": "https://www.nexusmods.com/games/enshrouded",
+      "actionLabelKey": "news.notice.nexusMods.open"
+    },
+    {
       "id": "shroudforge-welcome-1.6.5",
       "kind": "notice.welcome",
       "title": "Welcome — and thank you for being here",

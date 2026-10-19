@@ -32,6 +32,7 @@ const infoCategoryPriority = (item: NewsItem): InfoCategory => {
     case 'notice.localization':
     case 'notice.feedback':
     case 'notice.discord':
+    case 'notice.nexusMods':
       return 'community'
     case 'mod.update.success':
       return 'updates'
