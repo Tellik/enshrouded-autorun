@@ -22,6 +22,24 @@ pub(crate) fn run_update_queue(root: &std::path::Path) -> Result<(), String> {
     let wait_for_game = run["waitForGame"].as_bool().unwrap_or(false);
     let wait_pid = run["waitPid"].as_u64().unwrap_or_default() as u32;
     let show_window = run["showWindow"].as_bool().unwrap_or(true);
+    let contains_system_install = ids.iter().any(|id| {
+        queue["items"].as_array().is_some_and(|items| {
+            items.iter().any(|item| {
+                item["id"].as_str() == Some(id.as_str())
+                    && (item["kind"] == "system"
+                        || (item["kind"] == "installer" && item["operation"] == "install-latest"))
+            })
+        })
+    });
+    let contains_uninstall = ids.iter().any(|id| {
+        queue["items"].as_array().is_some_and(|items| {
+            items.iter().any(|item| {
+                item["id"].as_str() == Some(id.as_str())
+                    && item["kind"] == "installer"
+                    && item["operation"] == "uninstall"
+            })
+        })
+    });
     shroudforge_logging::write_activity(
         root,
         "Updates",
@@ -98,6 +116,7 @@ pub(crate) fn run_update_queue(root: &std::path::Path) -> Result<(), String> {
         update_update_queue(root, |queue| {
             queue["run"]["activeItemId"] = serde_json::Value::String(id.clone());
             queue["run"]["installing"] = serde_json::Value::Bool(false);
+            queue["run"]["cancelable"] = serde_json::Value::Bool(true);
             Ok(())
         })?;
         set_update_item_state(root, id, "downloading", None)?;
@@ -139,6 +158,47 @@ pub(crate) fn run_update_queue(root: &std::path::Path) -> Result<(), String> {
                     })
                 }
             }
+            Some("installer") if item["operation"] == "install-latest" => {
+                let request = item["payload"].clone();
+                let version = request["version"].as_str().unwrap_or_default();
+                scheduled::write_status_with_version(
+                    root,
+                    "downloading",
+                    "Downloading the latest ShroudForge release",
+                    Some(version),
+                );
+                scheduled::stage_system_update(root, &request).and_then(|()| {
+                    scheduled::check_update_cancelled(root)?;
+                    set_update_item_state(
+                        root,
+                        id,
+                        "waitingForGame",
+                        Some("Download verified. Installation waits for Enshrouded to close"),
+                    )?;
+                    scheduled::write_status(
+                        root,
+                        "waitingForGame",
+                        "Download verified. Waiting to install ShroudForge",
+                    );
+                    let staged =
+                        shroudforge_loader_config::paths::updates_dir(root).join("pending");
+                    crate::system_install::install_staged(root, &staged)
+                })
+            }
+            Some("installer") if item["operation"] == "uninstall" => {
+                set_update_item_state(
+                    root,
+                    id,
+                    "waitingForGame",
+                    Some("Waiting for Enshrouded to close before removing ShroudForge"),
+                )?;
+                crate::system_uninstall::uninstall_program_files(
+                    root,
+                    item["payload"]["removeMods"].as_bool() == Some(true),
+                    item["payload"]["resetUserSettings"].as_bool() == Some(true),
+                    item["payload"]["purgeData"].as_bool() == Some(true),
+                )
+            }
             Some("mod") => {
                 let payload = &item["payload"];
                 let request = serde_json::json!({
@@ -170,7 +230,13 @@ pub(crate) fn run_update_queue(root: &std::path::Path) -> Result<(), String> {
         };
         match result {
             Ok(()) => {
-                set_update_item_state(root, id, "complete", Some("Update completed"))?;
+                let success_message =
+                    if item["kind"] == "installer" && item["operation"] == "uninstall" {
+                        "ShroudForge uninstallation completed"
+                    } else {
+                        "Update completed"
+                    };
+                set_update_item_state(root, id, "complete", Some(success_message))?;
                 shroudforge_logging::write_activity(
                     root,
                     "Updates",
@@ -205,6 +271,7 @@ pub(crate) fn run_update_queue(root: &std::path::Path) -> Result<(), String> {
         queue["run"]["state"] = serde_json::Value::String("complete".into());
         queue["run"]["activeItemId"] = serde_json::Value::Null;
         queue["run"]["installing"] = serde_json::Value::Bool(false);
+        queue["run"]["cancelable"] = serde_json::Value::Bool(false);
         queue["run"]["finishedAt"] = serde_json::json!(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -216,7 +283,6 @@ pub(crate) fn run_update_queue(root: &std::path::Path) -> Result<(), String> {
     let _ = std::fs::remove_file(
         shroudforge_loader_config::paths::updates_dir(root).join("cancel-system-update"),
     );
-    let contains_system_update = ids.iter().any(|id| id.starts_with("system:"));
     if failures.is_empty() {
         shroudforge_logging::write_activity(
             root,
@@ -226,9 +292,9 @@ pub(crate) fn run_update_queue(root: &std::path::Path) -> Result<(), String> {
             Some(&format!("Completed {} selected item(s).", ids.len())),
             "info",
         );
-        if contains_system_update {
+        if contains_system_install {
             scheduled::write_status(root, "installed", "Selected update queue completed");
-        } else {
+        } else if !contains_uninstall {
             scheduled::write_status(root, "ready", "Selected mod queue completed");
         }
         Ok(())
@@ -241,7 +307,7 @@ pub(crate) fn run_update_queue(root: &std::path::Path) -> Result<(), String> {
             Some(&failures.join("; ")),
             "error",
         );
-        if contains_system_update {
+        if contains_system_install || contains_uninstall {
             scheduled::write_status(root, "error", &failures.join(", "));
         } else {
             scheduled::write_status(root, "ready", "One or more mod queue items failed");

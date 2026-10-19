@@ -81,8 +81,15 @@ pub(crate) fn validate_release_path(relative: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+pub(crate) fn mod_relative_path(relative: &str) -> Option<&str> {
+    relative
+        .get(..5)
+        .filter(|prefix| prefix.eq_ignore_ascii_case("mods/"))
+        .map(|_| &relative[5..])
+}
+
 pub(crate) fn installed_path(root: &Path, relative: &str) -> PathBuf {
-    if let Some(mod_relative) = relative.strip_prefix("mods/") {
+    if let Some(mod_relative) = mod_relative_path(relative) {
         shroudforge_loader_config::paths::mods_dir(root).join(mod_relative)
     } else {
         root.join(relative)
@@ -90,13 +97,12 @@ pub(crate) fn installed_path(root: &Path, relative: &str) -> PathBuf {
 }
 
 pub(crate) fn validate_file_path(root: &Path, relative: &str) -> Result<(), String> {
-    let mut path = if relative.starts_with("mods/") {
-        shroudforge_loader_config::paths::mods_dir(root)
-    } else {
-        root.to_path_buf()
-    };
+    let mod_relative = mod_relative_path(relative);
+    let mut path = mod_relative
+        .map(|_| shroudforge_loader_config::paths::mods_dir(root))
+        .unwrap_or_else(|| root.to_path_buf());
     // Never follow a junction/symlink into another installation or user directory.
-    let relative_path = relative.strip_prefix("mods/").unwrap_or(relative);
+    let relative_path = mod_relative.unwrap_or(relative);
     for component in Path::new(relative_path).components() {
         path.push(component);
         match fs::symlink_metadata(&path) {
@@ -116,4 +122,26 @@ pub(crate) fn validate_file_path(root: &Path, relative: &str) -> Result<(), Stri
         return Err(format!("update target is not a file: {}", path.display()));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mod_relative_path;
+
+    #[test]
+    fn mod_path_prefix_is_case_insensitive() {
+        assert_eq!(
+            mod_relative_path("mods/example/file.dll"),
+            Some("example/file.dll")
+        );
+        assert_eq!(
+            mod_relative_path("Mods/example/file.dll"),
+            Some("example/file.dll")
+        );
+        assert_eq!(
+            mod_relative_path("MODS/example/file.dll"),
+            Some("example/file.dll")
+        );
+        assert_eq!(mod_relative_path("shroudforge/file.dll"), None);
+    }
 }

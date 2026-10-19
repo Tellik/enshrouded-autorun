@@ -1,9 +1,11 @@
-use crate::apply_release_files::apply;
+use crate::apply_release_files::apply_with_progress_and_cancel;
 use crate::read_install_arguments::Arguments;
 use crate::read_managed_release_files::{managed_paths, obsolete_managed_paths};
 use crate::remove_release_files::{remove_empty_mod_directories, remove_entry};
-use crate::restore_release_files::restore;
-use crate::validate_update_paths::{installed_path, validate_file_path, validate_roots};
+use crate::restore_release_files::restore_with_progress;
+use crate::validate_update_paths::{
+    installed_path, mod_relative_path, validate_file_path, validate_roots,
+};
 use crate::windows::append_log;
 use std::{fs, path::Path, time::SystemTime};
 
@@ -18,10 +20,9 @@ impl QueueInstallationGuard<'_> {
                 return Err("the update queue stopped before installation could begin".into());
             }
             crate::check_update_cancelled::check_update_cancelled(root)?;
-            let active_id = queue["run"]["activeItemId"]
-                .as_str()
-                .map(str::to_owned);
+            let active_id = queue["run"]["activeItemId"].as_str().map(str::to_owned);
             queue["run"]["installing"] = serde_json::Value::Bool(true);
+            queue["run"]["cancelable"] = serde_json::Value::Bool(true);
             if let Some(active_id) = active_id
                 && let Some(item) = queue["items"].as_array_mut().and_then(|items| {
                     items
@@ -30,12 +31,24 @@ impl QueueInstallationGuard<'_> {
                 })
             {
                 item["state"] = serde_json::Value::String("installing".into());
-                item["message"] =
-                    serde_json::Value::String("Applying the verified update".into());
+                item["message"] = serde_json::Value::String("Applying the verified update".into());
             }
             Ok(())
         })?;
         Ok(QueueInstallationGuard { root })
+    }
+
+    fn ensure_installation_can_continue(&self) -> Result<(), String> {
+        crate::update_queue_storage::update_update_queue(self.root, |queue| {
+            if queue["run"]["state"] != "running" || queue["run"]["installing"] != true {
+                return Err("the update queue stopped before installation could begin".into());
+            }
+            crate::check_update_cancelled::check_update_cancelled(self.root)?;
+            // Applying files is cancellable because every interruption rolls
+            // back from the verified backup before the queue worker exits.
+            queue["run"]["cancelable"] = serde_json::Value::Bool(true);
+            Ok(())
+        })
     }
 }
 
@@ -145,21 +158,84 @@ pub(crate) fn install_staged(root: &Path, staged: &Path) -> Result<(), String> {
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or("invalid recycle-bin entry path")?;
-    let backup = crate::recycle_bin::preserve_update_files(
+    let backup = match crate::recycle_bin::preserve_update_files_with_progress_and_cancel(
         root,
         backup_id,
         "System update",
         &transaction_paths,
-    )?;
+        Some(root),
+        |completed, total, relative, copied, file_total| {
+            crate::check_update_cancelled::check_update_cancelled(root)?;
+            crate::write_update_status::write_file_progress(
+                root,
+                "installing",
+                "Preparing rollback backup",
+                completed,
+                total,
+                relative,
+                copied,
+                file_total,
+            );
+            Ok(())
+        },
+    ) {
+        Ok(backup) => backup,
+        Err(error) => {
+            if let Err(cancel_error) = crate::check_update_cancelled::check_update_cancelled(root)
+                && cancel_error == "UPDATE_CANCELLED"
+            {
+                return Err(cancel_error);
+            }
+            return Err(error);
+        }
+    };
+    if let Err(error) = _installation.ensure_installation_can_continue() {
+        return match fs::remove_dir_all(&backup_entry) {
+            Ok(()) => Err(error),
+            Err(cleanup_error) if cleanup_error.kind() == std::io::ErrorKind::NotFound => {
+                Err(error)
+            }
+            Err(cleanup_error) => {
+                let detail = format!(
+                    "{error}. Could not remove the unused rollback copy at {}: {cleanup_error}",
+                    backup_entry.display()
+                );
+                append_log(root, 'E', &detail);
+                Err(detail)
+            }
+        };
+    }
     super::scheduled::write_status(root, "installing", "Applying the verified update");
-    let result = apply(source, root, &paths).and_then(|()| {
+    let result = apply_with_progress_and_cancel(
+        source,
+        root,
+        &paths,
+        Some(root),
+        |completed, total, relative, copied, file_total| {
+            crate::check_update_cancelled::check_update_cancelled(root)?;
+            crate::write_update_status::write_file_progress(
+                root,
+                "installing",
+                "Installing update",
+                completed,
+                total,
+                relative,
+                copied,
+                file_total,
+            );
+            Ok(())
+        },
+    )
+    .and_then(|()| {
         for relative in &obsolete_paths {
+            crate::check_update_cancelled::check_update_cancelled(root)?;
             let current = installed_path(root, relative);
             remove_entry(&current)?;
-            if relative.starts_with("mods/") {
+            if mod_relative_path(relative).is_some() {
                 remove_empty_mod_directories(root, &current)?;
             }
         }
+        crate::check_update_cancelled::check_update_cancelled(root)?;
         Ok(())
     });
     match result {
@@ -183,9 +259,8 @@ pub(crate) fn install_staged(root: &Path, staged: &Path) -> Result<(), String> {
                     .and_then(|build| build.parse::<u64>().ok())
             });
             if !repair_required
-                && let Err(error) = shroudforge_loader_config::config::update_loader(
-                    root,
-                    |config| {
+                && let Err(error) =
+                    shroudforge_loader_config::config::update_loader(root, |config| {
                         let latest = &mut config["modules"]["updates"]["system"]["latestRelease"];
                         let same_release = latest["baseVersion"].as_str()
                             == installed_version.as_deref()
@@ -196,8 +271,7 @@ pub(crate) fn install_staged(root: &Path, staged: &Path) -> Result<(), String> {
                             latest["repairRequired"] = serde_json::Value::Bool(false);
                         }
                         Ok(())
-                    },
-                )
+                    })
             {
                 append_log(
                     root,
@@ -213,7 +287,7 @@ pub(crate) fn install_staged(root: &Path, staged: &Path) -> Result<(), String> {
                 &state,
             ) {
                 append_log(
-                root,
+                    root,
                     'E',
                     &format!("Installed files, but could not save update state: {error}"),
                 );
@@ -237,16 +311,116 @@ pub(crate) fn install_staged(root: &Path, staged: &Path) -> Result<(), String> {
             Ok(())
         }
         Err(error) => {
-            append_log(
-                root,
-                'E',
-                &format!("Update failed: {error}. Restoring backup"),
-            );
-            if let Err(rollback_error) = restore(&backup, root, &transaction_paths) {
-                append_log(root, 'E', &format!("Rollback failed: {rollback_error}"));
-                return Err(format!("{error}. Rollback also failed: {rollback_error}"));
-            }
-            Err(error)
+            rollback_failed_installation(root, &backup, &transaction_paths, &backup_entry, error)
         }
+    }
+}
+
+fn rollback_failed_installation(
+    root: &Path,
+    backup: &Path,
+    transaction_paths: &[String],
+    backup_entry: &Path,
+    error: String,
+) -> Result<(), String> {
+    append_log(
+        root,
+        'E',
+        &format!("Update failed: {error}. Restoring backup"),
+    );
+    super::scheduled::write_status(
+        root,
+        "restoring",
+        &format!("Update failed. Restoring the previous files: {error}"),
+    );
+    if let Err(rollback_error) = restore_with_progress(
+        backup,
+        root,
+        transaction_paths,
+        |completed, total, relative, copied, file_total| {
+            crate::write_update_status::write_file_progress(
+                root,
+                "restoring",
+                "Restoring previous files",
+                completed,
+                total,
+                relative,
+                copied,
+                file_total,
+            );
+            Ok(())
+        },
+    ) {
+        let detail = format!(
+            "{error}. Rollback also failed: {rollback_error}. The recovery copy remains at {}",
+            backup_entry.display()
+        );
+        append_log(root, 'E', &detail);
+        return Err(detail);
+    }
+    if crate::check_update_cancelled::check_update_cancelled(root)
+        .is_err_and(|cancel_error| cancel_error == "UPDATE_CANCELLED")
+    {
+        return Err("UPDATE_CANCELLED".into());
+    }
+    Err(error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn interrupted_installation_restores_its_backup_before_cancelling() {
+        let root = tempfile::tempdir().unwrap();
+        let program_file = root.path().join("shroudforge/example.dll");
+        fs::create_dir_all(program_file.parent().unwrap()).unwrap();
+        let version_file = root.path().join("shroudforge/version.json");
+        let old_manifest = serde_json::json!({
+            "version": "1.0.0",
+            "build": 1,
+            "managedPaths": ["shroudforge/example.dll", "shroudforge/version.json"]
+        });
+        let new_manifest = serde_json::json!({
+            "version": "2.0.0",
+            "build": 2,
+            "managedPaths": ["shroudforge/example.dll", "shroudforge/version.json"]
+        });
+        fs::write(&program_file, b"original program file").unwrap();
+        fs::write(&version_file, serde_json::to_vec(&old_manifest).unwrap()).unwrap();
+        let paths = vec![
+            "shroudforge/example.dll".to_owned(),
+            "shroudforge/version.json".to_owned(),
+        ];
+        let backup_entry = shroudforge_loader_config::paths::recycle_bin_dir(root.path())
+            .join("system-update-test");
+        let backup = crate::recycle_bin::preserve_update_files(
+            root.path(),
+            "system-update-test",
+            "System update test",
+            &paths,
+        )
+        .unwrap();
+
+        fs::write(&program_file, b"partially installed file").unwrap();
+        fs::write(&version_file, serde_json::to_vec(&new_manifest).unwrap()).unwrap();
+        let updates = shroudforge_loader_config::paths::updates_dir(root.path());
+        fs::create_dir_all(&updates).unwrap();
+        fs::write(updates.join("cancel-system-update"), b"cancel").unwrap();
+
+        let result = rollback_failed_installation(
+            root.path(),
+            &backup,
+            &paths,
+            &backup_entry,
+            "UPDATE_CANCELLED".into(),
+        );
+
+        assert_eq!(result.unwrap_err(), "UPDATE_CANCELLED");
+        assert_eq!(fs::read(&program_file).unwrap(), b"original program file");
+        assert_eq!(
+            fs::read(&version_file).unwrap(),
+            serde_json::to_vec(&old_manifest).unwrap()
+        );
     }
 }

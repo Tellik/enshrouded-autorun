@@ -1,10 +1,6 @@
 use crate::check_update_cancelled::check_update_cancelled;
 use crate::write_update_status::{write_download_progress, write_status};
-use std::{
-    fs,
-    io::{Read, Write},
-    path::Path,
-};
+use std::{fs, io::Write, path::Path};
 
 #[cfg(windows)]
 use std::os::windows::fs::MetadataExt;
@@ -12,7 +8,9 @@ const MAX_UPDATE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES: usize = 4096;
 
 pub(crate) fn stage_system_update(root: &Path, request: &serde_json::Value) -> Result<(), String> {
-    if !crate::update_check::updates_enabled(root) {
+    if request["installerAction"].as_bool() != Some(true)
+        && !crate::update_check::updates_enabled(root)
+    {
         return Err(crate::UPDATE_MODULE_DISABLED_MESSAGE.into());
     }
     let version = request["version"]
@@ -48,65 +46,62 @@ pub(crate) fn stage_system_update(root: &Path, request: &serde_json::Value) -> R
     let extraction = updates.join("pending-download");
     let pending = updates.join("pending");
     reset_extraction_directory(&extraction)?;
-    let client = reqwest::blocking::Client::builder()
+    let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(120))
+        .connect_timeout(std::time::Duration::from_secs(15))
         .user_agent(format!("ShroudForge/{version} updater"))
         .build()
         .map_err(|e| e.to_string())?;
-    let mut response = client
-        .get(url)
-        .send()
-        .map_err(|e| format!("download failed: {e}"))?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "release download returned HTTP {}",
-            response.status()
-        ));
-    }
-    let content_length = response.content_length();
-    if content_length.is_some_and(|length| length > MAX_UPDATE_BYTES) {
-        return Err("update package exceeds 2 GiB".into());
-    }
     let mut file = fs::File::create(&download).map_err(|e| e.to_string())?;
     let mut hasher = sha2::Sha256::new();
     use sha2::Digest;
     let mut total = 0u64;
     let mut last_progress = std::time::Instant::now();
     let mut last_bytes = 0u64;
-    write_download_progress(root, version, 0, content_length, Some(0));
-    // Keep the 1 MiB transfer buffer off the Windows worker's limited stack.
-    let mut buffer = vec![0u8; 1024 * 1024];
-    loop {
-        check_update_cancelled(root)?;
-        let count = response.read(&mut buffer).map_err(|e| e.to_string())?;
-        if count == 0 {
-            break;
-        }
-        total = total.saturating_add(count as u64);
-        if total > MAX_UPDATE_BYTES {
-            return Err("update package exceeds 2 GiB".into());
-        }
-        file.write_all(&buffer[..count])
-            .map_err(|e| e.to_string())?;
-        hasher.update(&buffer[..count]);
-        if last_progress.elapsed() >= std::time::Duration::from_millis(300) {
-            let elapsed = last_progress.elapsed().as_secs_f64().max(0.001);
-            let speed = ((total - last_bytes) as f64 / elapsed) as u64;
-            write_download_progress(root, version, total, content_length, Some(speed));
-            last_progress = std::time::Instant::now();
-            last_bytes = total;
-        }
-    }
+    write_download_progress(root, version, 0, None, Some(0));
+    let (_, content_length) = crate::download_response_body::download_response_body(
+        root,
+        client.get(url),
+        MAX_UPDATE_BYTES,
+        std::time::Duration::from_secs(30),
+        "release download",
+        "update package exceeds 2 GiB",
+        |reported_length| {
+            write_download_progress(root, version, 0, reported_length, Some(0));
+            Ok(())
+        },
+        |chunk, content_length| {
+            total = total.saturating_add(chunk.len() as u64);
+            file.write_all(chunk).map_err(|error| error.to_string())?;
+            hasher.update(chunk);
+            if last_progress.elapsed() >= std::time::Duration::from_millis(300) {
+                let elapsed = last_progress.elapsed().as_secs_f64().max(0.001);
+                let speed = ((total - last_bytes) as f64 / elapsed) as u64;
+                write_download_progress(root, version, total, content_length, Some(speed));
+                last_progress = std::time::Instant::now();
+                last_bytes = total;
+            }
+            Ok(())
+        },
+    )?;
     file.flush().map_err(|e| e.to_string())?;
-    write_download_progress(root, version, total, content_length, Some(0));
+    write_download_progress(
+        root,
+        version,
+        total,
+        content_length.or(Some(total)),
+        Some(0),
+    );
     write_status(
         root,
         "verifying",
         "Verifying the downloaded package checksum",
     );
+    check_update_cancelled(root)?;
     if format!("{:x}", hasher.finalize()) != checksum {
         return Err("update package SHA-256 checksum does not match".into());
     }
+    check_update_cancelled(root)?;
     write_status(root, "extracting", "Extracting and validating update files");
     let source = fs::File::open(&download).map_err(|e| e.to_string())?;
     let mut archive = zip::ZipArchive::new(source).map_err(|e| e.to_string())?;
@@ -139,10 +134,16 @@ pub(crate) fn stage_system_update(root: &Path, request: &serde_json::Value) -> R
                 fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
             let mut file = fs::File::create(&output).map_err(|e| e.to_string())?;
-            std::io::copy(&mut entry, &mut file).map_err(|e| e.to_string())?;
+            crate::apply_release_files::copy_reader_with_cancellation(
+                &mut entry,
+                &mut file,
+                root,
+                "update archive extraction",
+            )?;
             file.flush().map_err(|e| e.to_string())?;
         }
     }
+    check_update_cancelled(root)?;
     let manifest_path = extraction.join("shroudforge/version.json");
     let manifest: serde_json::Value = serde_json::from_slice(
         &fs::read(&manifest_path)
@@ -154,7 +155,11 @@ pub(crate) fn stage_system_update(root: &Path, request: &serde_json::Value) -> R
         .ok_or("update version manifest has no version")?;
     let manifest_build = manifest["build"]
         .as_u64()
-        .or_else(|| manifest["build"].as_str().and_then(|value| value.parse().ok()))
+        .or_else(|| {
+            manifest["build"]
+                .as_str()
+                .and_then(|value| value.parse().ok())
+        })
         .ok_or("update version manifest has no valid build number")?;
     if manifest_version.trim_start_matches('v') != expected_base_version.trim_start_matches('v')
         || manifest_build != expected_build
@@ -179,6 +184,7 @@ pub(crate) fn stage_system_update(root: &Path, request: &serde_json::Value) -> R
             return Err(format!("update package is missing {required}"));
         }
     }
+    check_update_cancelled(root)?;
     if updater_included
         && !extraction
             .join("shroudforge/shroudforge-updater.exe")
@@ -186,10 +192,13 @@ pub(crate) fn stage_system_update(root: &Path, request: &serde_json::Value) -> R
     {
         return Err("update package is missing shroudforge/shroudforge-updater.exe".into());
     }
+    check_update_cancelled(root)?;
     let _ = fs::remove_file(updates.join("pending.ready"));
+    check_update_cancelled(root)?;
     if pending.exists() {
         fs::remove_dir_all(&pending).map_err(|e| e.to_string())?;
     }
+    check_update_cancelled(root)?;
     fs::rename(&extraction, &pending)
         .map_err(|e| format!("could not promote verified update: {e}"))?;
     let ready = serde_json::json!({"version":version,"checksumAlgorithm":"SHA-256","checksum":checksum,"stagedAt":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()});
@@ -216,11 +225,17 @@ fn reset_extraction_directory(path: &Path) -> Result<(), String> {
             }
             if metadata.is_dir() {
                 fs::remove_dir_all(path).map_err(|error| {
-                    format!("could not clear old update staging {}: {error}", path.display())
+                    format!(
+                        "could not clear old update staging {}: {error}",
+                        path.display()
+                    )
                 })?;
             } else {
                 fs::remove_file(path).map_err(|error| {
-                    format!("could not remove old update staging {}: {error}", path.display())
+                    format!(
+                        "could not remove old update staging {}: {error}",
+                        path.display()
+                    )
                 })?;
             }
         }
@@ -233,6 +248,9 @@ fn reset_extraction_directory(path: &Path) -> Result<(), String> {
         }
     }
     fs::create_dir(path).map_err(|error| {
-        format!("could not create update staging {}: {error}", path.display())
+        format!(
+            "could not create update staging {}: {error}",
+            path.display()
+        )
     })
 }

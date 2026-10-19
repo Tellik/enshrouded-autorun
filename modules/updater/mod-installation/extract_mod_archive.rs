@@ -4,7 +4,8 @@ use std::{
     path::{Component, Path},
 };
 
-pub fn extract_zip(archive_path: &Path, target: &Path) -> Result<(), String> {
+pub fn extract_zip(root: &Path, archive_path: &Path, target: &Path) -> Result<(), String> {
+    crate::check_update_cancelled::check_update_cancelled(root)?;
     let file = File::open(archive_path).map_err(|error| error.to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|error| error.to_string())?;
     if archive.len() > MAX_ARCHIVE_ENTRIES {
@@ -12,6 +13,7 @@ pub fn extract_zip(archive_path: &Path, target: &Path) -> Result<(), String> {
     }
     let mut expanded = 0_u64;
     for index in 0..archive.len() {
+        crate::check_update_cancelled::check_update_cancelled(root)?;
         let mut entry = archive.by_index(index).map_err(|error| error.to_string())?;
         let Some(relative) = entry.enclosed_name() else {
             return Err(format!("Unsicherer Archivpfad: {}", entry.name()));
@@ -47,8 +49,14 @@ pub fn extract_zip(archive_path: &Path, target: &Path) -> Result<(), String> {
             fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
         let mut destination = File::create(output).map_err(|error| error.to_string())?;
-        std::io::copy(&mut entry, &mut destination).map_err(|error| error.to_string())?;
+        crate::apply_release_files::copy_reader_with_cancellation(
+            &mut entry,
+            &mut destination,
+            root,
+            "mod archive extraction",
+        )?;
     }
+    crate::check_update_cancelled::check_update_cancelled(root)?;
     Ok(())
 }
 

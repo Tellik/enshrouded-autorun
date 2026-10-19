@@ -5,6 +5,9 @@ use sha2::Digest;
 use shroudforge_loader_config::runtime_status::runtime_is_active;
 use std::{fs, path::Path};
 
+#[cfg(windows)]
+use std::os::windows::fs::MetadataExt;
+
 const DEFAULT_RETENTION_DAYS: u64 = 30;
 
 #[cfg(windows)]
@@ -87,6 +90,24 @@ pub(crate) fn preserve_update_files(
     reason: &str,
     paths: &[String],
 ) -> Result<std::path::PathBuf, String> {
+    preserve_update_files_with_progress_and_cancel(
+        root,
+        id,
+        reason,
+        paths,
+        None,
+        |_, _, _, _, _| Ok(()),
+    )
+}
+
+pub(crate) fn preserve_update_files_with_progress_and_cancel(
+    root: &Path,
+    id: &str,
+    reason: &str,
+    paths: &[String],
+    cancel_root: Option<&Path>,
+    mut progress: impl FnMut(usize, usize, &str, u64, u64) -> Result<(), String>,
+) -> Result<std::path::PathBuf, String> {
     validate_entry_id(id)?;
 
     let entry = shroudforge_loader_config::paths::recycle_bin_dir(root).join(id);
@@ -98,20 +119,42 @@ pub(crate) fn preserve_update_files(
     let result = (|| {
         fs::create_dir(&files).map_err(|error| error.to_string())?;
         let mut preserved = Vec::new();
-        for relative in paths {
+        for (index, relative) in paths.iter().enumerate() {
             validate_release_path(relative)?;
             let source = installed_path(root, relative);
-            if !source.exists() {
-                continue;
+            let metadata = match fs::symlink_metadata(&source) {
+                Ok(metadata) => metadata,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    progress(index + 1, paths.len(), "", 0, 0)?;
+                    continue;
+                }
+                Err(error) => {
+                    return Err(format!(
+                        "could not inspect update target {} before preserving it: {error}",
+                        source.display()
+                    ));
+                }
+            };
+            if is_reparse_point(&metadata) {
+                return Err(format!(
+                    "update target became a reparse point before it could be preserved: {relative}"
+                ));
             }
-            if !source.is_file() {
+            if !metadata.is_file() {
                 return Err(format!("update target is not a file: {relative}"));
             }
             let destination = files.join(validate_release_path(relative)?);
             if let Some(parent) = destination.parent() {
                 fs::create_dir_all(parent).map_err(|error| error.to_string())?;
             }
-            preserved.push(copy_verified_file(&source, &destination, relative)?);
+            preserved.push(copy_verified_file_with_progress_and_cancel(
+                &source,
+                &destination,
+                relative,
+                cancel_root,
+                |bytes, total| progress(index, paths.len(), relative, bytes, total),
+            )?);
+            progress(index + 1, paths.len(), "", 0, 0)?;
         }
         write_manifest(
             root,
@@ -128,10 +171,7 @@ pub(crate) fn preserve_update_files(
         )?;
         Ok(files.clone())
     })();
-    if result.is_err() {
-        let _ = fs::remove_dir_all(&entry);
-    }
-    result
+    result.map_err(|error| remove_failed_entry(Some(root), &entry, error))
 }
 
 pub(crate) fn preserve_directory(
@@ -140,7 +180,7 @@ pub(crate) fn preserve_directory(
     id: &str,
     reason: &str,
 ) -> Result<std::path::PathBuf, String> {
-    preserve_directory_with_restore(root, source, id, reason, None, None)
+    preserve_directory_with_restore(root, source, id, reason, None, None, None)
 }
 
 pub(crate) fn preserve_mod_directory(
@@ -151,10 +191,30 @@ pub(crate) fn preserve_mod_directory(
     mod_id: &str,
     catalog_entry: Option<(String, String)>,
 ) -> Result<std::path::PathBuf, String> {
+    preserve_mod_directory_with_cancellation(root, source, id, reason, mod_id, catalog_entry, None)
+}
+
+pub(crate) fn preserve_mod_directory_with_cancellation(
+    root: &Path,
+    source: &Path,
+    id: &str,
+    reason: &str,
+    mod_id: &str,
+    catalog_entry: Option<(String, String)>,
+    cancel_root: Option<&Path>,
+) -> Result<std::path::PathBuf, String> {
     if !shroudforge_package::package_lookup::valid_identifier(mod_id) {
         return Err("invalid mod id for recycle-bin entry".into());
     }
-    preserve_directory_with_restore(root, source, id, reason, Some(mod_id), catalog_entry)
+    preserve_directory_with_restore(
+        root,
+        source,
+        id,
+        reason,
+        Some(mod_id),
+        catalog_entry,
+        cancel_root,
+    )
 }
 
 fn preserve_directory_with_restore(
@@ -164,6 +224,7 @@ fn preserve_directory_with_restore(
     reason: &str,
     restore_mod_id: Option<&str>,
     catalog_entry: Option<(String, String)>,
+    cancel_root: Option<&Path>,
 ) -> Result<std::path::PathBuf, String> {
     validate_entry_id(id)?;
     let source_kind = fs::symlink_metadata(source).map_err(|error| error.to_string())?;
@@ -181,7 +242,7 @@ fn preserve_directory_with_restore(
         .map_err(|error| format!("could not create recycle-bin entry {id}: {error}"))?;
     let result = (|| {
         fs::create_dir(&files).map_err(|error| error.to_string())?;
-        let records = copy_backup_tree(source, source, &files)?;
+        let records = copy_backup_tree_with_cancel(source, source, &files, cancel_root)?;
         if records != read_file_records(source)? {
             return Err(format!("recycle-bin copy verification failed for {id}"));
         }
@@ -200,13 +261,18 @@ fn preserve_directory_with_restore(
         )?;
         Ok(files.clone())
     })();
-    if result.is_err() {
-        let _ = fs::remove_dir_all(&entry);
-    }
-    result
+    result.map_err(|error| remove_failed_entry(Some(root), &entry, error))
 }
 
 pub(crate) fn restore_directory(saved: &Path, destination: &Path) -> Result<(), String> {
+    restore_directory_with_cancellation(saved, destination, None)
+}
+
+pub(crate) fn restore_directory_with_cancellation(
+    saved: &Path,
+    destination: &Path,
+    cancel_root: Option<&Path>,
+) -> Result<(), String> {
     let saved_kind = fs::symlink_metadata(saved).map_err(|error| error.to_string())?;
     if saved_kind.file_type().is_symlink() || !saved_kind.is_dir() {
         return Err(format!(
@@ -224,7 +290,7 @@ pub(crate) fn restore_directory(saved: &Path, destination: &Path) -> Result<(), 
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
     let result = (|| {
-        let copied_records = copy_backup_tree(saved, saved, destination)?;
+        let copied_records = copy_backup_tree_with_cancel(saved, saved, destination, cancel_root)?;
         if read_file_records(saved)? != copied_records {
             return Err(format!(
                 "restored package verification failed: {}",
@@ -233,10 +299,38 @@ pub(crate) fn restore_directory(saved: &Path, destination: &Path) -> Result<(), 
         }
         Ok(())
     })();
-    if result.is_err() {
-        let _ = fs::remove_dir_all(destination);
+    result.map_err(|error| remove_failed_entry(None, destination, error))
+}
+
+fn remove_failed_entry(root: Option<&Path>, entry: &Path, operation_error: String) -> String {
+    match fs::remove_dir_all(entry) {
+        Ok(()) => operation_error,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => operation_error,
+        Err(cleanup_error) => {
+            let detail = format!(
+                "{operation_error}. Could not clean up partial data at {}: {cleanup_error}",
+                entry.display()
+            );
+            if let Some(root) = root {
+                let _ = shroudforge_logging::append(root, 'E', "updater", &detail);
+            }
+            detail
+        }
     }
-    result
+}
+
+fn is_reparse_point(metadata: &fs::Metadata) -> bool {
+    if metadata.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        metadata.file_attributes() & 0x400 != 0
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
 }
 
 pub(crate) fn migrate_legacy_backups(root: &Path) -> Result<usize, String> {
@@ -269,6 +363,7 @@ pub(crate) fn migrate_legacy_backups(root: &Path) -> Result<usize, String> {
     ];
     let mut migrated = 0;
     for (source_root, prefix, reason) in sources {
+        crate::check_update_cancelled(root)?;
         migrated += migrate_legacy_directory(root, &source_root, prefix, reason)?;
     }
     Ok(migrated)
@@ -290,6 +385,7 @@ fn migrate_legacy_directory(
     entries.sort_by_key(|entry| entry.file_name());
     let mut migrated = 0;
     for entry in entries {
+        crate::check_update_cancelled(root)?;
         let source = entry.path();
         let kind = entry.file_type().map_err(|error| error.to_string())?;
         if kind.is_symlink() {
@@ -314,8 +410,9 @@ fn migrate_legacy_directory(
                 &fs::read(&manifest_path).map_err(|error| error.to_string())?,
             )
             .map_err(|error| format!("invalid migrated backup manifest {id}: {error}"))?;
-            let source_records = records_for_source(&source)?;
-            let stored_records = read_file_records(&target.join("files"))?;
+            let source_records = records_for_source(&source, Some(root))?;
+            let stored_records =
+                read_file_records_with_cancellation(&target.join("files"), Some(root))?;
             if manifest.schema_version != 1
                 || manifest.id != id
                 || source_records != manifest.files
@@ -323,7 +420,13 @@ fn migrate_legacy_directory(
             {
                 return Err(format!("migrated backup manifest does not match {id}"));
             }
-            remove_legacy_source(&source, kind.is_dir(), &name)?;
+            remove_legacy_source_with_cancellation(
+                root,
+                &source,
+                kind.is_dir(),
+                &name,
+                &target.join("files"),
+            )?;
             migrated += 1;
             continue;
         }
@@ -345,16 +448,22 @@ fn migrate_legacy_directory(
         let result = (|| {
             fs::create_dir(&files).map_err(|error| error.to_string())?;
             let records = if kind.is_dir() {
-                copy_backup_tree(&source, &source, &files)?
+                copy_backup_tree_with_cancel(&source, &source, &files, Some(root))?
             } else {
                 let name = source
                     .file_name()
                     .ok_or("legacy file has no name")?
                     .to_string_lossy()
                     .into_owned();
-                vec![copy_verified_file(&source, &files.join(&name), &name)?]
+                vec![copy_verified_file_with_progress_and_cancel(
+                    &source,
+                    &files.join(&name),
+                    &name,
+                    Some(root),
+                    |_, _| Ok(()),
+                )?]
             };
-            let source_records = records_for_source(&source)?;
+            let source_records = records_for_source(&source, Some(root))?;
             if records != source_records {
                 return Err(format!("legacy storage verification failed: {name}"));
             }
@@ -371,7 +480,7 @@ fn migrate_legacy_directory(
                     paths: None,
                 },
             )?;
-            remove_legacy_source(&source, kind.is_dir(), &name)?;
+            remove_legacy_source_with_cancellation(root, &source, kind.is_dir(), &name, &files)?;
             Ok(())
         })();
         if let Err(error) = result {
@@ -523,13 +632,14 @@ pub(crate) fn recycle_mod_directory(
             .as_nanos()
     );
     let previous_catalog = catalog_entry_for_mod(root, mod_id);
-    let saved = match preserve_mod_directory(
+    let saved = match preserve_mod_directory_with_cancellation(
         root,
         source,
         &id,
         reason,
         mod_id,
         previous_catalog.clone(),
+        Some(root),
     ) {
         Ok(saved) => saved,
         Err(error) => {
@@ -541,7 +651,25 @@ pub(crate) fn recycle_mod_directory(
             ));
         }
     };
-    if let Err(error) = fs::remove_dir_all(source) {
+    if let Err(error) = crate::check_update_cancelled(root) {
+        let cleanup = saved
+            .parent()
+            .ok_or_else(|| "recycle-bin entry has no parent".to_owned())
+            .and_then(|entry| fs::remove_dir_all(entry).map_err(|error| error.to_string()));
+        let error = match cleanup {
+            Ok(()) => error,
+            Err(cleanup_error) => {
+                format!("{error}. Could not remove the prepared recycle-bin copy: {cleanup_error}")
+            }
+        };
+        return Err(reload_runtime_after_remove_prepare(
+            root,
+            mod_id,
+            live_runtime,
+            error,
+        ));
+    }
+    if let Err(error) = remove_directory_with_cancellation(root, source) {
         let rollback = restore_removed_mod(
             root,
             source,
@@ -551,6 +679,7 @@ pub(crate) fn recycle_mod_directory(
             live_runtime,
         );
         return Err(match rollback {
+            Ok(()) if error == "UPDATE_CANCELLED" => error,
             Ok(()) => format!(
                 "could not remove mod package: {error}. Save your work, close Enshrouded, ShroudEdit, or any editor window using this package, then retry."
             ),
@@ -827,8 +956,11 @@ fn rollback_mod_restore(
             None => crate::mod_installation::catalog::forget_catalog_install(root, mod_id)?,
         }
         if reload_runtime {
-            shroudforge_updater::request_runtime_mod_reload(root, &[mod_id.to_owned()])
-                .map_err(|error| format!("previous package was restored but runtime recovery failed: {error}"))?;
+            shroudforge_updater::request_runtime_mod_reload(root, &[mod_id.to_owned()]).map_err(
+                |error| {
+                    format!("previous package was restored but runtime recovery failed: {error}")
+                },
+            )?;
         }
         if let Some(saved) = rollback {
             fs::remove_dir_all(saved.parent().ok_or("rollback entry has no parent")?)
@@ -1005,26 +1137,112 @@ fn ensure_queue_idle(root: &Path, message: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn remove_legacy_source(source: &Path, is_directory: bool, name: &str) -> Result<(), String> {
-    let result = if is_directory {
-        fs::remove_dir_all(source)
-    } else {
-        fs::remove_file(source)
-    };
-    result
-        .map_err(|error| format!("migrated legacy entry {name} remains in its old folder: {error}"))
+fn remove_legacy_source_with_cancellation(
+    root: &Path,
+    source: &Path,
+    is_directory: bool,
+    name: &str,
+    backup_files: &Path,
+) -> Result<(), String> {
+    let mut check_cancelled = || crate::check_update_cancelled(root);
+    remove_legacy_source_with_check(
+        source,
+        is_directory,
+        name,
+        backup_files,
+        &mut check_cancelled,
+    )
 }
 
-fn records_for_source(source: &Path) -> Result<Vec<StoredFile>, String> {
-    if source.is_dir() {
-        read_file_records(source)
+fn remove_legacy_source_with_check(
+    source: &Path,
+    is_directory: bool,
+    name: &str,
+    backup_files: &Path,
+    check_cancelled: &mut dyn FnMut() -> Result<(), String>,
+) -> Result<(), String> {
+    check_cancelled()?;
+    let removal = if is_directory {
+        remove_directory_with_check(source, check_cancelled)
     } else {
-        Ok(vec![stored_file(
+        fs::remove_file(source).map_err(|error| error.to_string())
+    };
+    if let Err(error) = removal {
+        if is_directory && error == "UPDATE_CANCELLED" {
+            if let Err(restore_error) = restore_legacy_directory(source, backup_files) {
+                return Err(format!(
+                    "UPDATE_CANCELLED. Legacy folder recovery failed for {}: {restore_error}",
+                    source.display()
+                ));
+            }
+            return Err(error);
+        }
+        return Err(format!(
+            "migrated legacy entry {name} remains in its old folder: {error}"
+        ));
+    }
+    Ok(())
+}
+
+fn remove_directory_with_cancellation(root: &Path, directory: &Path) -> Result<(), String> {
+    let mut check_cancelled = || crate::check_update_cancelled(root);
+    remove_directory_with_check(directory, &mut check_cancelled)
+}
+
+fn remove_directory_with_check(
+    directory: &Path,
+    check_cancelled: &mut dyn FnMut() -> Result<(), String>,
+) -> Result<(), String> {
+    check_cancelled()?;
+    for entry in fs::read_dir(directory).map_err(|error| error.to_string())? {
+        check_cancelled()?;
+        let entry = entry.map_err(|error| error.to_string())?;
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
+        if is_reparse_point(&metadata) {
+            if metadata.is_dir() {
+                fs::remove_dir(&path).map_err(|error| error.to_string())?;
+            } else {
+                fs::remove_file(&path).map_err(|error| error.to_string())?;
+            }
+        } else if metadata.is_dir() {
+            remove_directory_with_check(&path, check_cancelled)?;
+        } else {
+            fs::remove_file(&path).map_err(|error| error.to_string())?;
+        }
+    }
+    check_cancelled()?;
+    fs::remove_dir(directory).map_err(|error| error.to_string())
+}
+
+fn restore_legacy_directory(source: &Path, backup_files: &Path) -> Result<(), String> {
+    if source.exists() {
+        fs::remove_dir_all(source).map_err(|error| {
+            format!("could not clear the partially removed legacy folder: {error}")
+        })?;
+    }
+    fs::create_dir_all(source).map_err(|error| error.to_string())?;
+    copy_backup_tree_with_cancel(backup_files, backup_files, source, None)?;
+    if read_file_records(source)? != read_file_records(backup_files)? {
+        return Err("restored legacy folder does not match its verified backup".into());
+    }
+    Ok(())
+}
+
+fn records_for_source(
+    source: &Path,
+    cancel_root: Option<&Path>,
+) -> Result<Vec<StoredFile>, String> {
+    if source.is_dir() {
+        read_file_records_with_cancellation(source, cancel_root)
+    } else {
+        Ok(vec![stored_file_with_cancellation(
             source,
             &source
                 .file_name()
                 .ok_or("legacy file has no name")?
                 .to_string_lossy(),
+            cancel_root,
         )?])
     }
 }
@@ -1058,10 +1276,7 @@ fn write_manifest(
         restore_paths,
         restore_mod_id: restore.mod_id,
         restore_root_files: restore.root_files,
-        catalog_project_id: restore
-            .catalog_entry
-            .as_ref()
-            .map(|entry| entry.0.clone()),
+        catalog_project_id: restore.catalog_entry.as_ref().map(|entry| entry.0.clone()),
         catalog_version_id: restore.catalog_entry.map(|entry| entry.1),
     };
     let manifest = serde_json::to_value(manifest).map_err(|error| error.to_string())?;
@@ -1077,6 +1292,7 @@ pub(crate) fn purge_expired(root: &Path) -> Result<usize, String> {
         .as_secs();
     let mut removed = 0;
     for entry in list_entries(root)? {
+        crate::check_update_cancelled(root)?;
         if entry["expiresAt"].as_u64().unwrap_or(u64::MAX) > now {
             continue;
         }
@@ -1084,6 +1300,7 @@ pub(crate) fn purge_expired(root: &Path) -> Result<usize, String> {
         fs::remove_dir_all(directory.join(id))
             .map_err(|error| format!("could not remove expired recycle-bin entry {id}: {error}"))?;
         removed += 1;
+        crate::check_update_cancelled(root)?;
         log(
             root,
             'I',
@@ -1105,13 +1322,20 @@ fn validate_entry_id(id: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn copy_backup_tree(
+fn copy_backup_tree_with_cancel(
     source_root: &Path,
     source: &Path,
     target_root: &Path,
+    cancel_root: Option<&Path>,
 ) -> Result<Vec<StoredFile>, String> {
+    if let Some(root) = cancel_root {
+        crate::check_update_cancelled(root)?;
+    }
     let mut records = Vec::new();
     for entry in fs::read_dir(source).map_err(|error| error.to_string())? {
+        if let Some(root) = cancel_root {
+            crate::check_update_cancelled(root)?;
+        }
         let entry = entry.map_err(|error| error.to_string())?;
         let path = entry.path();
         let kind = entry.file_type().map_err(|error| error.to_string())?;
@@ -1127,20 +1351,27 @@ fn copy_backup_tree(
         }
         if kind.is_dir() {
             fs::create_dir_all(&destination).map_err(|error| error.to_string())?;
-            records.extend(copy_backup_tree(source_root, &path, target_root)?);
+            records.extend(copy_backup_tree_with_cancel(
+                source_root,
+                &path,
+                target_root,
+                cancel_root,
+            )?);
         } else if kind.is_file() {
             if let Some(parent) = destination.parent() {
                 fs::create_dir_all(parent).map_err(|error| error.to_string())?;
             }
-            fs::copy(&path, &destination).map_err(|error| {
-                format!(
-                    "could not preserve {} in the recycle bin: {error}",
-                    path.display()
-                )
-            })?;
-            records.push(stored_file(
+            copy_verified_file_with_progress_and_cancel(
+                &path,
                 &destination,
                 &relative.to_string_lossy().replace('\\', "/"),
+                cancel_root,
+                |_, _| Ok(()),
+            )?;
+            records.push(stored_file_with_cancellation(
+                &destination,
+                &relative.to_string_lossy().replace('\\', "/"),
+                cancel_root,
             )?);
         }
     }
@@ -1153,10 +1384,31 @@ fn copy_verified_file(
     destination: &Path,
     relative: &str,
 ) -> Result<StoredFile, String> {
-    fs::copy(source, destination)
-        .map_err(|error| format!("could not preserve {relative} in the recycle bin: {error}"))?;
-    let source_record = stored_file(source, relative)?;
-    let copied_record = stored_file(destination, relative)?;
+    copy_verified_file_with_progress_and_cancel(source, destination, relative, None, |_, _| Ok(()))
+}
+
+fn copy_verified_file_with_progress_and_cancel(
+    source: &Path,
+    destination: &Path,
+    relative: &str,
+    cancel_root: Option<&Path>,
+    progress: impl FnMut(u64, u64) -> Result<(), String>,
+) -> Result<StoredFile, String> {
+    crate::apply_release_files::copy_file_with_progress_and_cancel(
+        source,
+        destination,
+        cancel_root,
+        progress,
+    )
+    .map_err(|error| {
+        if error == "UPDATE_CANCELLED" {
+            error
+        } else {
+            format!("could not preserve {relative} in the recycle bin: {error}")
+        }
+    })?;
+    let source_record = stored_file_with_cancellation(source, relative, cancel_root)?;
+    let copied_record = stored_file_with_cancellation(destination, relative, cancel_root)?;
     if source_record != copied_record {
         return Err(format!("recycle-bin copy verification failed: {relative}"));
     }
@@ -1164,8 +1416,15 @@ fn copy_verified_file(
 }
 
 fn read_file_records(root: &Path) -> Result<Vec<StoredFile>, String> {
+    read_file_records_with_cancellation(root, None)
+}
+
+fn read_file_records_with_cancellation(
+    root: &Path,
+    cancel_root: Option<&Path>,
+) -> Result<Vec<StoredFile>, String> {
     let mut records = Vec::new();
-    collect_file_records(root, root, &mut records)?;
+    collect_file_records(root, root, &mut records, cancel_root)?;
     records.sort_by(|left, right| left.path.cmp(&right.path));
     Ok(records)
 }
@@ -1174,8 +1433,15 @@ fn collect_file_records(
     root: &Path,
     directory: &Path,
     records: &mut Vec<StoredFile>,
+    cancel_root: Option<&Path>,
 ) -> Result<(), String> {
+    if let Some(root) = cancel_root {
+        crate::check_update_cancelled(root)?;
+    }
     for entry in fs::read_dir(directory).map_err(|error| error.to_string())? {
+        if let Some(root) = cancel_root {
+            crate::check_update_cancelled(root)?;
+        }
         let entry = entry.map_err(|error| error.to_string())?;
         let path = entry.path();
         let kind = entry.file_type().map_err(|error| error.to_string())?;
@@ -1186,20 +1452,28 @@ fn collect_file_records(
             ));
         }
         if kind.is_dir() {
-            collect_file_records(root, &path, records)?;
+            collect_file_records(root, &path, records, cancel_root)?;
         } else if kind.is_file() {
             let relative = path
                 .strip_prefix(root)
                 .map_err(|error| error.to_string())?
                 .to_string_lossy()
                 .replace('\\', "/");
-            records.push(stored_file(&path, &relative)?);
+            records.push(stored_file_with_cancellation(
+                &path,
+                &relative,
+                cancel_root,
+            )?);
         }
     }
     Ok(())
 }
 
-fn stored_file(path: &Path, relative: &str) -> Result<StoredFile, String> {
+fn stored_file_with_cancellation(
+    path: &Path,
+    relative: &str,
+    cancel_root: Option<&Path>,
+) -> Result<StoredFile, String> {
     use sha2::Digest;
     use std::io::Read;
 
@@ -1208,6 +1482,9 @@ fn stored_file(path: &Path, relative: &str) -> Result<StoredFile, String> {
     let mut hasher = sha2::Sha256::new();
     let mut buffer = [0u8; 64 * 1024];
     loop {
+        if let Some(root) = cancel_root {
+            crate::check_update_cancelled(root)?;
+        }
         let count = file.read(&mut buffer).map_err(|error| error.to_string())?;
         if count == 0 {
             break;
@@ -1225,4 +1502,39 @@ fn log(root: &Path, level: char, message: &str) -> Result<(), String> {
     shroudforge_logging::append(root, level, "updater", message)
         .map(|_| ())
         .map_err(|error| format!("could not write ShroudForge log: {error}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancellation_during_legacy_folder_removal_restores_the_source() {
+        let temporary = tempfile::tempdir().unwrap();
+        let source = temporary.path().join("legacy");
+        let backup = temporary.path().join("recycle-entry").join("files");
+        fs::create_dir_all(&source).unwrap();
+        fs::create_dir_all(&backup).unwrap();
+        fs::write(source.join("one.bin"), b"first").unwrap();
+        fs::write(source.join("two.bin"), b"second").unwrap();
+        fs::write(backup.join("one.bin"), b"first").unwrap();
+        fs::write(backup.join("two.bin"), b"second").unwrap();
+
+        let mut checks = 0;
+        let mut check_cancelled = || {
+            checks += 1;
+            if checks == 4 {
+                Err("UPDATE_CANCELLED".to_owned())
+            } else {
+                Ok(())
+            }
+        };
+        let result =
+            remove_legacy_source_with_check(&source, true, "legacy", &backup, &mut check_cancelled);
+
+        assert_eq!(result.unwrap_err(), "UPDATE_CANCELLED");
+        assert_eq!(fs::read(source.join("one.bin")).unwrap(), b"first");
+        assert_eq!(fs::read(source.join("two.bin")).unwrap(), b"second");
+        assert!(read_file_records(&source).unwrap() == read_file_records(&backup).unwrap());
+    }
 }

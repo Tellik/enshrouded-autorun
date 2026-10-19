@@ -10,9 +10,6 @@ pub fn start_update_queue(
     wait_for_game: bool,
     show_window: bool,
 ) -> Result<(), String> {
-    if !crate::update_check::updates_enabled(root) {
-        return Err(crate::UPDATE_MODULE_DISABLED_MESSAGE.into());
-    }
     let _start_lock = crate::acquire_queue_worker_mutex(root)?
         .ok_or("an update or recovery action is already running")?;
     ensure_gamefiles_restore_idle(root)?;
@@ -54,6 +51,36 @@ pub fn start_update_queue(
                 selected_ids.insert(0, id);
             }
         }
+        let only_installer_work = !selected_ids.is_empty()
+            && selected_ids.iter().all(|id| {
+                items
+                    .iter()
+                    .find(|item| item["id"].as_str() == Some(id.as_str()))
+                    .is_some_and(|item| {
+                        matches!(item["kind"].as_str(), Some("installer" | "maintenance"))
+                    })
+            });
+        if !crate::update_check::updates_enabled(root) && !only_installer_work {
+            return Err(crate::UPDATE_MODULE_DISABLED_MESSAGE.into());
+        }
+        let uninstall_selected = selected_ids.iter().any(|id| {
+            items.iter().any(|item| {
+                item["id"].as_str() == Some(id.as_str())
+                    && item["kind"] == "installer"
+                    && item["operation"] == "uninstall"
+            })
+        });
+        let other_work_selected = selected_ids.iter().any(|id| {
+            items.iter().any(|item| {
+                item["id"].as_str() == Some(id.as_str())
+                    && item["kind"] != "maintenance"
+                    && !(item["kind"] == "installer" && item["operation"] == "uninstall")
+            })
+        });
+        if uninstall_selected && other_work_selected {
+            return Err("uninstallation cannot be combined with other update or mod tasks".into());
+        }
+        let run_wait_for_game = wait_for_game || uninstall_selected;
         for id in &selected_ids {
             let item = items
                 .iter_mut()
@@ -64,7 +91,7 @@ pub fn start_update_queue(
             }
             item["state"] = serde_json::Value::String("queued".into());
             item["selected"] = serde_json::Value::Bool(true);
-            item["waitForGame"] = serde_json::Value::Bool(wait_for_game);
+            item["waitForGame"] = serde_json::Value::Bool(run_wait_for_game);
         }
         let wait_pid = selected_ids
             .iter()
@@ -74,7 +101,7 @@ pub fn start_update_queue(
                     .find(|item| item["id"].as_str() == Some(id.as_str()))
                     .and_then(|item| item["payload"]["waitPid"].as_u64())
             })
-            .unwrap_or_else(|| std::process::id() as u64);
+            .unwrap_or_else(default_queue_wait_pid);
         let cancel_path =
             shroudforge_loader_config::paths::updates_dir(root).join("cancel-system-update");
         match std::fs::remove_file(cancel_path) {
@@ -86,7 +113,21 @@ pub fn start_update_queue(
                 ));
             }
         }
-        queue["run"] = serde_json::json!({"state":"running","waitForGame":wait_for_game,"waitPid":wait_pid,"showWindow":show_window,"itemIds":selected_ids,"startedAt":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()});
+        queue["run"] = serde_json::json!({
+            "state": "running",
+            "runId": crate::update_queue_storage::new_update_queue_run_id(),
+            "waitForGame": run_wait_for_game,
+            "waitPid": wait_pid,
+            "showWindow": show_window,
+            "itemIds": selected_ids,
+            "installing": false,
+            "cancelable": true,
+            "cancelRequested": false,
+            "startedAt": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+        });
         scheduled::write_status(root, "queued", "Selected updates are queued");
         Ok(selected_ids)
     })?;
@@ -110,6 +151,17 @@ pub fn start_update_queue(
         return Err(error);
     }
     Ok(())
+}
+
+#[cfg(windows)]
+fn default_queue_wait_pid() -> u64 {
+    let args = std::env::args_os().collect::<Vec<_>>();
+    let persistent_window = args.len() == 1 || args.iter().any(|arg| arg == "--open-window");
+    if persistent_window {
+        0
+    } else {
+        std::process::id() as u64
+    }
 }
 
 #[cfg(windows)]

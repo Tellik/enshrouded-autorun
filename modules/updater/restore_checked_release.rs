@@ -23,13 +23,7 @@ pub(crate) fn restore_persisted_update_result_from_config(
         return;
     };
     if let Some(latest) = latest.filter(|latest| latest.is_object())
-        && let (
-            Some(version),
-            Some(base_version),
-            Some(build),
-            Some(download_url),
-            Some(checksum),
-        ) = (
+        && let (Some(version), Some(base_version), Some(build), Some(download_url), Some(checksum)) = (
             latest["version"].as_str(),
             latest["baseVersion"].as_str(),
             latest["build"].as_u64(),

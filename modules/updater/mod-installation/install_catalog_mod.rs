@@ -24,8 +24,10 @@ pub fn install_mod_from_catalog(
     if provider.kind != "shroudedit" {
         return Err("unsupported catalog provider".into());
     }
+    shroudforge_updater::check_update_cancelled(root)?;
     let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(60))
+        .timeout(Duration::from_secs(30))
+        .connect_timeout(Duration::from_secs(10))
         .user_agent(format!(
             "ShroudForge/{} (mod-installer)",
             env!("CARGO_PKG_VERSION")
@@ -51,6 +53,7 @@ pub fn install_mod_from_catalog(
         .map(|projects| projects.keys().cloned().collect::<Vec<_>>())
         .unwrap_or_default();
     let plan = resolve_catalog_project(&client, provider, project_id, &existing_project_ids)?;
+    shroudforge_updater::check_update_cancelled(root)?;
     let mut resolved = plan.dependencies;
     resolved.push(plan.primary);
     let mut installed_paths = Vec::new();
@@ -60,6 +63,7 @@ pub fn install_mod_from_catalog(
     let mut refresh_runtime_after_cleanup = false;
     let result = (|| {
         for item in resolved {
+            shroudforge_updater::check_update_cancelled(root)?;
             let is_primary_update = update_mod_id.is_some() && item.project_id == project_id;
             if is_primary_update {
                 let staged = download_catalog_version(
@@ -86,6 +90,7 @@ pub fn install_mod_from_catalog(
             )?;
             installed.push(installed_mod.0);
         }
+        shroudforge_updater::check_update_cancelled(root)?;
         runtime_dependency_ids = installed
             .iter()
             .filter(|id| Some(id.as_str()) != update_mod_id)
@@ -107,6 +112,7 @@ pub fn install_mod_from_catalog(
                 runtime_is_active(root) && !runtime_dependency_ids.is_empty();
             let mod_id = update_mod_id.expect("staged update has target");
             let destination = shroudforge_loader_config::paths::mods_dir(root).join(mod_id);
+            shroudforge_updater::check_update_cancelled(root)?;
             replace_catalog_mod_with_runtime_dependencies(
                 root,
                 mod_id,
@@ -117,8 +123,10 @@ pub fn install_mod_from_catalog(
                 &runtime_dependency_ids,
             )?;
         } else if runtime_is_active(root) && !runtime_dependency_ids.is_empty() {
+            shroudforge_updater::check_update_cancelled(root)?;
             shroudforge_updater::request_runtime_mod_reload(root, &runtime_dependency_ids)
                 .map_err(|error| format!("catalog package installed, but its runtime modules could not be loaded in the running game: {error}"))?;
+            shroudforge_updater::check_update_cancelled(root)?;
         }
         Ok(())
     })();

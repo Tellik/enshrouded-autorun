@@ -479,6 +479,16 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                                 "Add system update to queue",
                                 "updates.queue.added",
                             ),
+                            "queue-latest-installation" => (
+                                "Updates",
+                                "Queue latest ShroudForge installation",
+                                "updater.installation.queued",
+                            ),
+                            "queue-uninstall" => (
+                                "Updates",
+                                "Queue ShroudForge uninstallation",
+                                "updater.uninstall.queued",
+                            ),
                             "select-update-queue-items" => (
                                 "Updates",
                                 "Change update selection",

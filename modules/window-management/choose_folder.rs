@@ -1,14 +1,22 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
     CoTaskMemFree, CoUninitialize,
 };
 use windows::Win32::UI::Shell::{
-    FOS_FORCEFILESYSTEM, FOS_PICKFOLDERS, FileOpenDialog, IFileOpenDialog, SIGDN_FILESYSPATH,
+    FOS_FORCEFILESYSTEM, FOS_PICKFOLDERS, FileOpenDialog, IFileOpenDialog, IShellItem,
+    SHCreateItemFromParsingName, SIGDN_FILESYSPATH,
 };
 use windows::core::PCWSTR;
 
 pub fn choose_folder(title: &str) -> Result<Option<PathBuf>, String> {
+    choose_folder_from(title, None)
+}
+
+pub fn choose_folder_from(
+    title: &str,
+    initial_folder: Option<&Path>,
+) -> Result<Option<PathBuf>, String> {
     let initialized = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
     initialized
         .ok()
@@ -31,6 +39,16 @@ pub fn choose_folder(title: &str) -> Result<Option<PathBuf>, String> {
             .SetTitle(PCWSTR(title.as_ptr()))
             .and_then(|()| dialog.SetOptions(FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM))
             .map_err(|error| format!("could not configure the Windows folder picker: {error}"))?;
+    }
+    if let Some(path) = initial_folder.filter(|path| path.is_dir()) {
+        use std::os::windows::ffi::OsStrExt;
+
+        let path: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        if let Ok(folder) = unsafe {
+            SHCreateItemFromParsingName::<_, _, IShellItem>(PCWSTR(path.as_ptr()), None)
+        } {
+            let _ = unsafe { dialog.SetDefaultFolder(&folder) };
+        }
     }
     if unsafe { dialog.Show(None) }.is_err() {
         return Ok(None);

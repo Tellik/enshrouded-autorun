@@ -1,4 +1,7 @@
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 #[cfg(windows)]
 use std::os::windows::fs::MetadataExt;
@@ -16,11 +19,17 @@ pub(crate) fn stage_mod_in_storage(
     }
     let mods = shroudforge_loader_config::paths::mods_dir(root);
     fs::create_dir_all(&mods).map_err(|error| {
-        format!("could not create configured mod storage {}: {error}", mods.display())
+        format!(
+            "could not create configured mod storage {}: {error}",
+            mods.display()
+        )
     })?;
     let staging_root = mods.join(".shroudforge-staging");
     fs::create_dir_all(&staging_root).map_err(|error| {
-        format!("could not prepare temporary mod storage {}: {error}", staging_root.display())
+        format!(
+            "could not prepare temporary mod storage {}: {error}",
+            staging_root.display()
+        )
     })?;
     let metadata = fs::symlink_metadata(&staging_root).map_err(|error| error.to_string())?;
     if metadata.file_type().is_symlink() {
@@ -48,8 +57,18 @@ pub(crate) fn stage_mod_in_storage(
         .unwrap_or_default()
         .as_nanos();
     let local_staging = staging_root.join(format!("{}-{}-{id}", std::process::id(), mod_id));
-    crate::recycle_bin::restore_directory(package, &local_staging).map_err(|error| {
-        format!("could not verify the package copy in configured mod storage: {error}")
+    let cancel_path = crate::check_update_cancelled::cancel_path(root);
+    crate::recycle_bin::restore_directory_with_cancellation(
+        package,
+        &local_staging,
+        Some(&cancel_path),
+    )
+    .map_err(|error| {
+        if error == "UPDATE_CANCELLED" {
+            error
+        } else {
+            format!("could not verify the package copy in configured mod storage: {error}")
+        }
     })?;
     Ok(LocalModStage {
         path: local_staging,

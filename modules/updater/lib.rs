@@ -14,9 +14,15 @@ pub use system_updates_headless_check::*;
 mod system_updates_requests;
 pub use system_updates_requests::*;
 
+#[path = "system-updates/queue_installation.rs"]
+mod queue_installation;
+pub use queue_installation::{queue_latest_installation, queue_uninstall};
+
 #[path = "mod-installation/requests.rs"]
 mod mod_installation_requests;
 pub use mod_installation_requests::*;
+
+mod download_response_body;
 
 #[path = "windows/entry.rs"]
 mod windows_entry;
@@ -37,6 +43,10 @@ mod restore_worker;
 #[cfg(windows)]
 #[path = "system-updates/install_system_update.rs"]
 mod system_install;
+
+#[cfg(windows)]
+#[path = "system-updates/uninstall_system.rs"]
+mod system_uninstall;
 
 #[cfg(windows)]
 #[path = "system-updates/stage_system_update.rs"]
@@ -129,7 +139,11 @@ pub fn run_request(
         .and_then(serde_json::Value::as_str)
         .map(|id| format!(" {id}"))
         .unwrap_or_default();
-    if let Err(error) = updates_module_status(root) {
+    if !matches!(
+        command,
+        "queue-latest-installation" | "queue-uninstall" | "start-update-queue"
+    ) && let Err(error) = updates_module_status(root)
+    {
         let disabled = error == UPDATE_MODULE_DISABLED_MESSAGE;
         let _ = shroudforge_logging::append(
             root,
@@ -233,12 +247,7 @@ pub fn run_request(
                 .get("title")
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or(project_id);
-            request_mod_install(
-                root,
-                project_id,
-                title,
-                provider,
-            )?;
+            request_mod_install(root, project_id, title, provider)?;
             Ok(
                 serde_json::json!({"message":format!("Mod installation for {project_id} added to the update queue.")}),
             )
@@ -254,13 +263,7 @@ pub fn run_request(
                 .unwrap_or(mod_id);
             let project_id = mod_installation::catalog::catalog_project_for_mod(root, mod_id)
                 .ok_or("This mod is not registered as a ShroudEdit installation.")?;
-            request_mod_update(
-                root,
-                &project_id,
-                mod_id,
-                title,
-                provider,
-            )?;
+            request_mod_update(root, &project_id, mod_id, title, provider)?;
             Ok(serde_json::json!({"message":format!("Update queued for {mod_id}.")}))
         })(),
         "stage-system-update" => (|| {
@@ -283,6 +286,13 @@ pub fn run_request(
         "enqueue-system-update" => checked_system_release(root)
             .and_then(|release| enqueue_system_update(root, release))
             .map(|()| serde_json::json!({"queued":true})),
+        "queue-latest-installation" => queue_latest_installation(root),
+        "queue-uninstall" => queue_uninstall(
+            root,
+            request["removeMods"].as_bool() == Some(true),
+            request["resetUserSettings"].as_bool() == Some(true),
+            request["purgeData"].as_bool() == Some(true),
+        ),
         "select-update-queue-items" => (|| {
             let ids = request
                 .get("ids")
@@ -306,31 +316,29 @@ pub fn run_request(
             let id = request_string(request, "id")?;
             remove_update_queue_item(root, id).map(|()| serde_json::json!({"removed":true}))
         }
-        "start-update-queue" => {
-            (|| {
-                let ids = match request.get("ids") {
-                    Some(value) => value
-                        .as_array()
-                        .ok_or("update queue IDs must be an array")?
-                        .iter()
-                        .map(|value| {
-                            value
-                                .as_str()
-                                .map(str::to_owned)
-                                .ok_or("update queue IDs must be strings")
-                        })
-                        .collect::<Result<Vec<_>, _>>()?,
-                    None => Vec::new(),
-                };
-                start_update_queue(
-                    root,
-                    &ids,
-                    request["waitForGame"].as_bool().unwrap_or(true),
-                    request["showWindow"].as_bool().unwrap_or(true),
-                )?;
-                Ok(serde_json::json!({"started":true}))
-            })()
-        }
+        "start-update-queue" => (|| {
+            let ids = match request.get("ids") {
+                Some(value) => value
+                    .as_array()
+                    .ok_or("update queue IDs must be an array")?
+                    .iter()
+                    .map(|value| {
+                        value
+                            .as_str()
+                            .map(str::to_owned)
+                            .ok_or("update queue IDs must be strings")
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+                None => Vec::new(),
+            };
+            start_update_queue(
+                root,
+                &ids,
+                request["waitForGame"].as_bool().unwrap_or(true),
+                request["showWindow"].as_bool().unwrap_or(true),
+            )?;
+            Ok(serde_json::json!({"started":true}))
+        })(),
         "clear-update-queue" => {
             clear_update_queue(root).map(|()| serde_json::json!({"cleared":true}))
         }
@@ -502,6 +510,7 @@ mod github_release;
 #[path = "queue/update_queue_storage.rs"]
 mod update_queue_storage;
 pub(crate) use update_queue_storage::read_update_queue_value;
+pub(crate) use update_queue_storage::try_read_update_queue_value;
 
 #[path = "queue/read_update_queue.rs"]
 mod read_update_queue;

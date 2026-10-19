@@ -119,7 +119,8 @@ pub(crate) fn prepare_release_file_locks(
             "updater",
             &format!(
                 "Asked {} ShroudForge process(es) to close before replacing update files ({} window close request(s))",
-                owned.len(), close_requests
+                owned.len(),
+                close_requests
             ),
         );
         let started = std::time::Instant::now();
@@ -172,6 +173,54 @@ pub(crate) fn prepare_release_file_locks(
     })();
     unsafe { RmEndSession(session) };
     result
+}
+
+pub(crate) fn prepare_shroudforge_data_purge_locks(root: &Path) -> Result<(), String> {
+    let data = shroudforge_loader_config::paths::data_dir(root);
+    let mut paths = Vec::new();
+    collect_purge_lock_paths(root, &data, &mut paths)?;
+    paths.sort();
+    paths.dedup();
+    prepare_release_file_locks(root, &paths)
+}
+
+fn collect_purge_lock_paths(
+    root: &Path,
+    directory: &Path,
+    paths: &mut Vec<String>,
+) -> Result<(), String> {
+    use std::os::windows::fs::MetadataExt;
+
+    for entry in fs::read_dir(directory).map_err(|error| {
+        format!(
+            "could not inspect ShroudForge data before purge: {}: {error}",
+            directory.display()
+        )
+    })? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path).map_err(|error| {
+            format!(
+                "could not inspect ShroudForge data before purge: {}: {error}",
+                path.display()
+            )
+        })?;
+        if metadata.file_type().is_symlink() || metadata.file_attributes() & 0x400 != 0 {
+            continue;
+        }
+        if metadata.is_dir() {
+            collect_purge_lock_paths(root, &path, paths)?;
+        } else if metadata.is_file() {
+            let relative = path
+                .strip_prefix(root)
+                .map_err(|error| error.to_string())?
+                .to_str()
+                .ok_or("ShroudForge data contains a path that cannot be checked safely")?
+                .replace('\\', "/");
+            paths.push(relative);
+        }
+    }
+    Ok(())
 }
 
 fn restart_manager_processes(
@@ -268,7 +317,11 @@ fn is_owned_shroudforge_process(root: &Path, image: &Path) -> bool {
             .canonicalize()
             .ok()
             .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
-            .zip(shroudforge_loader_config::paths::updates_dir(root).canonicalize().ok())
+            .zip(
+                shroudforge_loader_config::paths::updates_dir(root)
+                    .canonicalize()
+                    .ok(),
+            )
             .is_some_and(|(parent, updates)| parent == updates);
     }
     let module_dir = shroudforge_loader_config::paths::data_dir(root);
@@ -318,9 +371,7 @@ fn request_process_close(pids: &HashSet<u32>) -> Result<usize, String> {
         let requests = unsafe { &mut *(context as *mut CloseRequests<'_>) };
         let mut pid = 0;
         unsafe { GetWindowThreadProcessId(window, &mut pid) };
-        if requests.pids.contains(&pid)
-            && unsafe { PostMessageW(window, WM_CLOSE, 0, 0) } != 0
-        {
+        if requests.pids.contains(&pid) && unsafe { PostMessageW(window, WM_CLOSE, 0, 0) } != 0 {
             requests.posted += 1;
         }
         1
@@ -535,20 +586,29 @@ pub(crate) fn wait_for_process_id(root: &Path, pid: u32) -> Result<(), String> {
 
 pub fn open_update_window(root: &Path) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
-    let executable = shroudforge_loader_config::paths::updater_executable(root);
-    if !executable.is_file() {
+    let installed = shroudforge_loader_config::paths::updater_executable(root);
+    if !installed.is_file() {
         return Err(format!(
             "ShroudForge updater executable is missing: {}",
-            executable.display()
+            installed.display()
         ));
     }
-    Command::new(executable)
+    // The update window must not keep a managed updater executable open while
+    // the queue worker replaces the installed program files.
+    let executable = crate::windows::prepare_independent_worker(root, &installed)?;
+    let result = Command::new(&executable)
         .args(["--open-window", "--root"])
         .arg(root)
+        .arg("--ephemeral-worker")
         .creation_flags(0x0800_0000)
-        .spawn()
-        .map_err(|error| format!("could not open standalone updater window: {error}"))?;
-    Ok(())
+        .spawn();
+    match result {
+        Ok(_) => Ok(()),
+        Err(error) => {
+            let _ = fs::remove_file(executable);
+            Err(format!("could not open standalone updater window: {error}"))
+        }
+    }
 }
 
 pub fn start_system_waiter(root: &Path) -> Result<(), String> {

@@ -1,4 +1,4 @@
-use crate::validate_update_paths::validate_release_path;
+use crate::validate_update_paths::{mod_relative_path, validate_release_path};
 use std::{fs, path::Path};
 
 pub(crate) fn managed_paths(source: &Path) -> Result<Vec<String>, String> {
@@ -44,7 +44,8 @@ pub(crate) fn obsolete_managed_paths(
         let Some(relative) = entry.as_str() else {
             return Err("installed version has an invalid managed path".into());
         };
-        let obsolete_mod = relative.starts_with("mods/");
+        let mod_relative = mod_relative_path(relative);
+        let obsolete_mod = mod_relative.is_some();
         let obsolete_updater = relative.eq_ignore_ascii_case("shroudforge/shroudforge-updater.exe");
         if (!obsolete_mod && !obsolete_updater)
             || current
@@ -54,7 +55,7 @@ pub(crate) fn obsolete_managed_paths(
             continue;
         }
         if obsolete_mod {
-            let mod_relative = relative.strip_prefix("mods/").unwrap_or_default();
+            let mod_relative = mod_relative.unwrap_or_default();
             let path = Path::new(mod_relative);
             if mod_relative.is_empty()
                 || relative.contains('\\')

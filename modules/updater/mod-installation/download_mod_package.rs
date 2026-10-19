@@ -6,9 +6,9 @@ use crate::verify_mod_checksum::ModHashVerifier;
 use shroudforge_package::package_lookup::find_mod_package;
 use std::{
     fs,
-    io::{Read, Write},
+    io::Write,
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 struct TemporaryDownload {
@@ -62,6 +62,7 @@ pub fn download_catalog_version(
     update_mod_id: Option<&str>,
     queue_item_id: &str,
 ) -> Result<(String, PathBuf), String> {
+    shroudforge_updater::check_update_cancelled(root)?;
     shroudforge_updater::set_active_queue_item_state(
         root,
         queue_item_id,
@@ -76,6 +77,7 @@ pub fn download_catalog_version(
         ))
         .send()
         .map_err(|error| format!("Could not load version metadata: {error}"))?;
+    shroudforge_updater::check_update_cancelled(root)?;
     if !response.status().is_success() {
         return Err(format!(
             "Version metadata endpoint returned HTTP {}",
@@ -100,19 +102,15 @@ pub fn download_catalog_version(
     {
         return Err("Mod package is not a valid ZIP archive".into());
     }
-    let response = client
-        .get(&file.url)
-        .send()
-        .map_err(|error| format!("Could not read mod package: {error}"))?;
-    if !response.status().is_success() {
-        return Err(format!("Mod download returned HTTP {}", response.status()));
-    }
-    if response
-        .content_length()
-        .is_some_and(|length| length > MAX_MOD_BYTES)
-    {
-        return Err("Mod package exceeds 512 MiB".into());
-    }
+    let download_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .connect_timeout(Duration::from_secs(15))
+        .user_agent(format!(
+            "ShroudForge/{} (mod-installer)",
+            env!("CARGO_PKG_VERSION")
+        ))
+        .build()
+        .map_err(|error| error.to_string())?;
     let downloads = shroudforge_loader_config::paths::ui_data_dir(root).join("downloads");
     fs::create_dir_all(&downloads).map_err(|error| error.to_string())?;
     let temporary = downloads.join(format!(
@@ -123,27 +121,23 @@ pub fn download_catalog_version(
     ));
     let mut download = TemporaryDownload::create(temporary.clone())?;
     let mut hasher = ModHashVerifier::new(&file.hashes)?;
-    let mut response = response.take(MAX_MOD_BYTES + 1);
-    let mut buffer = vec![0u8; 1024 * 1024];
-    let mut total = 0u64;
-    loop {
-        shroudforge_updater::check_update_cancelled(root)?;
-        let count = response
-            .read(&mut buffer)
-            .map_err(|error| error.to_string())?;
-        if count == 0 {
-            break;
-        }
-        total = total.saturating_add(count as u64);
-        if total > MAX_MOD_BYTES {
-            return Err("Mod package exceeds 512 MiB".into());
-        }
-        download
-            .file_mut()
-            .write_all(&buffer[..count])
-            .map_err(|error| error.to_string())?;
-        hasher.update(&buffer[..count]);
-    }
+    crate::download_response_body::download_response_body(
+        root,
+        download_client.get(&file.url),
+        MAX_MOD_BYTES,
+        Duration::from_secs(30),
+        "Mod download",
+        "Mod package exceeds 512 MiB",
+        |_| Ok(()),
+        |chunk, _| {
+            download
+                .file_mut()
+                .write_all(chunk)
+                .map_err(|error| error.to_string())?;
+            hasher.update(chunk);
+            Ok(())
+        },
+    )?;
     shroudforge_updater::check_update_cancelled(root)?;
     download
         .file_mut()
@@ -151,6 +145,7 @@ pub fn download_catalog_version(
         .map_err(|error| error.to_string())?;
     download.close();
     hasher.verify()?;
+    shroudforge_updater::check_update_cancelled(root)?;
     shroudforge_updater::set_active_queue_item_state(
         root,
         queue_item_id,
@@ -200,7 +195,9 @@ pub fn download_catalog_version(
         path: staging.clone(),
         keep: false,
     };
-    extract_zip(&temporary, &staging)?;
+    shroudforge_updater::check_update_cancelled(root)?;
+    extract_zip(root, &temporary, &staging)?;
+    shroudforge_updater::check_update_cancelled(root)?;
     let extracted = shroudforge_package::config::read_manifest_path(root, &staging)?;
     if extracted.id != manifest.id || !staging.join("src/mod.lua").is_file() {
         return Err("extracted mod must have the same id and a src/mod.lua entrypoint".into());
@@ -216,6 +213,7 @@ pub fn download_catalog_version(
         if destination.exists() {
             return Err("mod destination already exists".into());
         }
+        shroudforge_updater::check_update_cancelled(root)?;
         crate::stage_mod_in_storage::stage_mod_in_storage(root, &staging, &manifest.id)?
             .commit(&destination)?;
         Ok((manifest.id, destination))

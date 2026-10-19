@@ -70,6 +70,7 @@ export function Page({
         data={{
           mode: data.mode,
           release: data.release,
+          installationRootSelected: true,
           enabled: data.settings.modulePreferences?.updates?.enabled === true,
           updateQueue: data.updateQueue,
           modUpdates:

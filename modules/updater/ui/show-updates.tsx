@@ -8,6 +8,7 @@ import { SystemUpdate } from './show-system-update'
 import { UpdateQueuePanel } from './show-update-queue'
 import type { UpdaterCommand, UpdaterViewData } from './update-types'
 import { UpdaterAvailability } from './show-updater-availability'
+import { SystemInstallationActions } from './show-system-installation-actions'
 
 export function Updates({
   data,
@@ -30,6 +31,12 @@ export function Updates({
   const updaterAvailable = data.release.updaterAvailable === true
   const enabled = data.enabled === true
   const actionsEnabled = updaterAvailable && enabled
+  const installerQueuePending = queue.items.some(
+    (item) =>
+      item.kind === 'installer' &&
+      !['complete', 'cancelled', 'error'].includes(item.state),
+  )
+  const queueActionsEnabled = updaterAvailable && (enabled || installerQueuePending)
   const moduleUnavailable =
     !!commandError &&
     /disabled in Settings|is disabled in module settings/i.test(
@@ -112,7 +119,7 @@ export function Updates({
           queue={queue}
           mode={data.mode}
           release={data.release}
-          disabled={!actionsEnabled}
+          disabled={!queueActionsEnabled}
           onCommand={onCommand}
         />
       )}
@@ -178,12 +185,22 @@ export function Updates({
           icon="activity"
         />
       ) : (
-        <SystemUpdate
-          release={systemRelease}
-          queued={queuedSystem}
-          disabled={!actionsEnabled}
-          onCommand={onCommand}
-        />
+        <>
+          <SystemInstallationActions
+            selectedRoot={data.installationRoot || ''}
+            rootSelected={data.installationRootSelected !== false}
+            updaterAvailable={updaterAvailable}
+            installationDetected={data.release.installationDetected === true}
+            queue={queue}
+            onCommand={onCommand}
+          />
+          <SystemUpdate
+            release={systemRelease}
+            queued={queuedSystem}
+            disabled={!actionsEnabled}
+            onCommand={onCommand}
+          />
+        </>
       )}
     </>
   )

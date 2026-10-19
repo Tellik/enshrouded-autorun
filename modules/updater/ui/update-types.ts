@@ -1,5 +1,6 @@
 export type Release = {
   currentVersion: string
+  installationDetected?: boolean
   updaterAvailable?: boolean
   latestVersion?: string
   updateAvailable: boolean
@@ -12,11 +13,16 @@ export type Release = {
   downloadedBytes?: number
   totalBytes?: number
   bytesPerSecond?: number
+  completedFiles?: number
+  totalFiles?: number
+  currentFile?: string
+  currentFileBytes?: number
+  currentFileTotalBytes?: number
 }
 
 export type UpdateQueueItem = {
   id: string
-  kind: 'system' | 'mod' | 'maintenance'
+  kind: 'system' | 'mod' | 'maintenance' | 'installer'
   operation?: string
   title: string
   version?: string
@@ -26,6 +32,11 @@ export type UpdateQueueItem = {
   required?: boolean
   message?: string
   releaseUrl?: string
+  payload?: {
+    removeMods?: boolean
+    resetUserSettings?: boolean
+    purgeData?: boolean
+  }
 }
 
 export type UpdateQueue = {
@@ -34,6 +45,10 @@ export type UpdateQueue = {
   run?: {
     state: string
     waitForGame?: boolean
+    installing?: boolean
+    cancelable?: boolean
+    cancelRequested?: boolean
+    activeItemId?: string | null
     itemIds?: string[]
     error?: string
   } | null
@@ -75,6 +90,8 @@ export type ModUpdateCheckResult = {
 export type UpdaterViewData = {
   mode: string
   release: Release
+  installationRoot?: string
+  installationRootSelected?: boolean
   enabled?: boolean
   updateQueue?: UpdateQueue
   modUpdates?: ModUpdate[]

@@ -11,9 +11,7 @@ pub(crate) struct ModHashVerifier {
 }
 
 impl ModHashVerifier {
-    pub(crate) fn new(
-        hashes: &std::collections::HashMap<String, String>,
-    ) -> Result<Self, String> {
+    pub(crate) fn new(hashes: &std::collections::HashMap<String, String>) -> Result<Self, String> {
         let expected = hashes
             .get("sha512")
             .map(|value| ("sha512", value))

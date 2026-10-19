@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "id": "migration.legacy-update-files",
-  "revision": 2,
-  "name": "Migrate legacy updater requests",
-  "description": "Removes the previous scheduled task and finishes pending requests from older updater versions.",
+  "revision": 3,
+  "name": "Migrate legacy updater files",
+  "description": "Removes the previous scheduled task and its per-installation AppData cache, then finishes pending requests from older updater versions.",
   "trigger": "before-update",
   "repeatable": false,
   "action": "migrate-legacy-update-files"

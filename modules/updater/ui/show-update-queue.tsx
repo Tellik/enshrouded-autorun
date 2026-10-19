@@ -27,6 +27,19 @@ export function UpdateQueuePanel({
     .map((item) => item.id)
   const selectable = actionable.filter((item) => !item.required)
   const running = queue.run?.state === 'running'
+  const runItemIds = new Set(queue.run?.itemIds || [])
+  const isSystemInstall = (item: (typeof queue.items)[number] | undefined) =>
+    item?.kind === 'system' ||
+    (item?.kind === 'installer' && item.operation === 'install-latest')
+  const activeSystemInstall = isSystemInstall(
+    queue.items.find((item) => item.id === queue.run?.activeItemId) ||
+      queue.items.find((item) => runItemIds.has(item.id) && isSystemInstall(item)),
+  )
+  const showProgress =
+    (running && activeSystemInstall) ||
+    (queue.run?.state === 'complete' &&
+      activeSystemInstall &&
+      release.state === 'installed')
   const queueError = queue.error || queue.run?.error
   const displayedMessages = new Set(queueError ? [queueError] : [])
   const desktopMode = mode === 'DESKTOP'
@@ -57,6 +70,10 @@ export function UpdateQueuePanel({
   const installing =
     release.state === 'installing' ||
     items.some((item) => item.state === 'installing')
+  const cancellationPending =
+    release.state === 'cancelled' || queue.run?.cancelRequested === true
+  const cancellationBlocked =
+    queue.run?.installing === true && queue.run.cancelable !== true
   const clear = () => {
     if (window.confirm(t('updates.queue.clearConfirm')))
       onCommand('clear-update-queue')
@@ -78,12 +95,29 @@ export function UpdateQueuePanel({
           </button>
         )}
       </div>
+      {showProgress && <UpdateProgress release={release} />}
       {items.length === 0 ? (
         <p className="hint">{t('updates.queue.empty')}</p>
       ) : (
         <div className="update-queue-list">
           {items.map((item) => {
-            const hasProgress = item.state === 'downloading' && item.kind === 'system'
+            const uninstallTitleKey = item.payload?.purgeData
+              ? item.payload?.removeMods
+                ? 'updater.uninstall.queuePurgeModsTitle'
+                : 'updater.uninstall.queuePurgeTitle'
+              : item.payload?.removeMods
+                ? item.payload?.resetUserSettings
+                  ? 'updater.uninstall.queueAllTitle'
+                  : 'updater.uninstall.queueModsTitle'
+                : item.payload?.resetUserSettings
+                  ? 'updater.uninstall.queueSettingsTitle'
+                  : 'updater.uninstall.queueTitle'
+            const title =
+              item.kind === 'installer' && item.operation === 'uninstall'
+                ? t(uninstallTitleKey)
+                : item.kind === 'installer'
+                  ? t('updater.installation.queueTitle')
+                  : item.title
             const itemMessage =
               item.message && !displayedMessages.has(item.message)
                 ? item.message
@@ -107,7 +141,7 @@ export function UpdateQueuePanel({
                   />
                   <span>
                     <strong>
-                      {item.title}
+                      {title}
                       {item.prerelease && (
                         <em className="release-channel-chip">
                           {t('updates.prerelease.badge')}
@@ -116,12 +150,11 @@ export function UpdateQueuePanel({
                     </strong>
                     <small>
                       {item.version || item.operation || item.kind}
-                      {!hasProgress && <> · {stateLabel(item.state)}</>}
+                      <> · {stateLabel(item.state)}</>
                     </small>
                     {itemMessage && <small>{itemMessage}</small>}
                   </span>
                 </label>
-                {hasProgress && <UpdateProgress release={release} />}
                 <button
                   className="button ghost"
                   disabled={
@@ -161,10 +194,12 @@ export function UpdateQueuePanel({
         {running && (
           <button
             className="button danger"
-            disabled={disabled || installing}
+            disabled={disabled || cancellationPending || cancellationBlocked}
             onClick={() => onCommand('cancel-update')}
           >
-            {t('updater.cancel')}
+            {cancellationBlocked || (installing && queue.run?.cancelable !== true)
+              ? t('updater.installing')
+              : t('updater.cancel')}
           </button>
         )}
         {items.length > 0 && !running && (

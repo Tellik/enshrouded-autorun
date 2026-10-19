@@ -5,6 +5,7 @@ use std::{
     sync::{Arc, Mutex, mpsc},
     time::{Duration, Instant},
 };
+use tao::platform::windows::WindowBuilderExtWindows;
 use tao::{
     dpi::LogicalSize,
     event::{Event, StartCause, WindowEvent},
@@ -14,34 +15,37 @@ use tao::{
 use wry::{WebContext, WebViewBuilder};
 
 pub fn run(root: Option<PathBuf>) -> Result<(), String> {
-    let selected = root.or_else(installed_root);
-    let selected = match selected {
-        Some(path) if is_game_root(&path) => path,
-        Some(_) => return Err("the updater root is not an Enshrouded installation".into()),
-        None => shroudforge_window_management::choose_folder(
-            "Choose the Enshrouded installation folder",
-        )?
-        .ok_or_else(|| "no installation folder was selected".to_owned())?,
+    let selected = root
+        .filter(|path| is_game_root(path))
+        .or_else(installed_root);
+    let mut window_mutex = if let Some(selected) = selected.as_ref() {
+        shroudforge_loader_config::config::initialize_loader_config(selected)?;
+        shroudforge_loader_config::config::request_window_visibility(selected, "updates", true)?;
+        let Some(mutex) = acquire_window_mutex(selected)? else {
+            return Ok(());
+        };
+        Some((selected.clone(), mutex))
+    } else {
+        None
     };
-    if !is_game_root(&selected) {
-        return Err("the selected folder is not an Enshrouded installation".into());
-    }
-    shroudforge_loader_config::config::initialize_loader_config(&selected)?;
-    shroudforge_loader_config::config::request_window_visibility(&selected, "updates", true)?;
-    let Some(window_mutex) = acquire_window_mutex(&selected)? else {
-        return Ok(());
-    };
-    let initial_window_state = shroudforge_loader_config::config::window_state(&selected);
-    let mut visibility_request_id = initial_window_state["updates"]["requestId"]
-        .as_u64()
+    let mut visibility_request_id = selected
+        .as_ref()
+        .map(|path| shroudforge_loader_config::config::window_state(path))
+        .and_then(|state| state["updates"]["requestId"].as_u64())
         .unwrap_or(0);
-    let root = Arc::new(Mutex::new(Some(selected)));
+    let root = Arc::new(Mutex::new(selected.clone()));
     let (command_sender, command_receiver) = mpsc::channel::<serde_json::Value>();
     let (result_sender, result_receiver) = mpsc::channel::<serde_json::Value>();
     let check_state = Arc::new(Mutex::new(String::new()));
     let mod_check_running = Arc::new(Mutex::new(false));
     let event_loop = EventLoopBuilder::<()>::with_user_event().build();
+    let (icon_rgba, icon_width, icon_height) =
+        shroudforge_ui_resources::rgba().map_err(|error| error.to_string())?;
+    let icon = tao::window::Icon::from_rgba(icon_rgba, icon_width, icon_height)
+        .map_err(|error| error.to_string())?;
     let window = WindowBuilder::new()
+        .with_window_icon(Some(icon.clone()))
+        .with_taskbar_icon(Some(icon))
         .with_title("ShroudForge Updater")
         .with_resizable(true)
         .with_inner_size(LogicalSize::new(960.0, 720.0))
@@ -73,22 +77,42 @@ pub fn run(root: Option<PathBuf>) -> Result<(), String> {
         .build(&window)
         .map_err(|error| error.to_string())?;
     if let Some(root) = root.lock().ok().and_then(|root| root.clone()) {
-        let _ = shroudforge_loader_config::config::publish_window_visibility(
-            &root, "updates", true,
-        );
+        let _ =
+            shroudforge_loader_config::config::publish_window_visibility(&root, "updates", true);
     }
 
     let mut next_refresh = Instant::now();
     let mut next_visibility_poll = Instant::now();
     event_loop.run(move |event, _, control_flow| {
-        let _keep_window_mutex = &window_mutex;
         *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(100));
         if let Event::WindowEvent {
             event: WindowEvent::CloseRequested,
             ..
         } = event
         {
-            if let Some(root) = root.lock().ok().and_then(|root| root.clone()) {
+            let selected_root = match root.lock() {
+                Ok(root) => root.clone(),
+                Err(poisoned) => poisoned.into_inner().clone(),
+            };
+            if let Some(root) = selected_root {
+                if let Err(error) = cancel_running_queue_before_close(&root) {
+                    let message = format!(
+                        "The update queue could not be cancelled safely. The updater window stayed open: {error}"
+                    );
+                    let _ = shroudforge_logging::append(
+                        &root,
+                        'E',
+                        "updater",
+                        &message,
+                    );
+                    send_event(
+                        &webview,
+                        "__shroudforgeUpdaterResult",
+                        &serde_json::json!({"error": message}),
+                    );
+                    *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(100));
+                    return;
+                }
                 let _ = shroudforge_loader_config::config::publish_window_visibility(
                     &root, "updates", false,
                 );
@@ -104,6 +128,8 @@ pub fn run(root: Option<PathBuf>) -> Result<(), String> {
                 let exit = handle_command(
                     &command,
                     &root,
+                    &mut window_mutex,
+                    &mut visibility_request_id,
                     &check_state,
                     &mod_check_running,
                     &result_sender,
@@ -158,8 +184,10 @@ pub fn run(root: Option<PathBuf>) -> Result<(), String> {
                 } else {
                     let snapshot = serde_json::json!({
                         "root": "",
+                        "suggestedRoot": default_game_root().to_string_lossy(),
+                        "installationRootSelected": false,
                         "version": env!("CARGO_PKG_VERSION"),
-                        "release": {"currentVersion": env!("CARGO_PKG_VERSION"), "state":"idle", "message":"Select the Enshrouded installation folder to continue."},
+                        "release": {"currentVersion": env!("CARGO_PKG_VERSION"), "installationDetected": false, "state":"idle", "message":"Select the Enshrouded installation folder to continue."},
                         "queue": {"items": [], "run": null},
                     });
                     send_event(&webview, "__shroudforgeUpdaterSnapshot", &snapshot);
@@ -168,6 +196,40 @@ pub fn run(root: Option<PathBuf>) -> Result<(), String> {
             }
         }
     });
+}
+
+fn cancel_running_queue_before_close(root: &Path) -> Result<bool, String> {
+    let queue = crate::try_read_update_queue_value(root);
+    if queue
+        .as_ref()
+        .is_ok_and(|queue| queue["run"]["state"] != "running")
+    {
+        return Ok(false);
+    }
+    let run_token = queue
+        .as_ref()
+        .ok()
+        .and_then(|queue| crate::update_queue_storage::update_queue_run_token(&queue["run"]));
+    // Signal through the cancellation file before touching the queue lock.
+    // The independent worker polls this file in downloads, extraction, copies,
+    // installation and rollback. The window must stay responsive if a worker
+    // is currently waiting on the shared installation lock.
+    crate::scheduled::clear_system_update(root, run_token.as_deref())?;
+    let (level, message) = match queue {
+        Ok(_) => (
+            'I',
+            "Updater window close requested. Active update queue cancellation was signalled"
+                .to_owned(),
+        ),
+        Err(error) => (
+            'W',
+            format!(
+                "Updater window close requested. The update queue could not be read ({error}), but cancellation was signalled"
+            ),
+        ),
+    };
+    let _ = shroudforge_logging::append(root, level, "updater", &message);
+    Ok(true)
 }
 
 struct UpdaterWindowMutex(windows_sys::Win32::Foundation::HANDLE);
@@ -211,16 +273,61 @@ fn acquire_window_mutex(root: &Path) -> Result<Option<UpdaterWindowMutex>, Strin
 fn handle_command(
     command: &serde_json::Value,
     root: &Arc<Mutex<Option<PathBuf>>>,
+    window_mutex: &mut Option<(PathBuf, UpdaterWindowMutex)>,
+    visibility_request_id: &mut u64,
     check_state: &Arc<Mutex<String>>,
     mod_check_running: &Arc<Mutex<bool>>,
     results: &mpsc::Sender<serde_json::Value>,
 ) -> bool {
     let action = command["command"].as_str().unwrap_or_default();
     if action == "choose-root" {
-        match shroudforge_window_management::choose_folder(
+        let initial_folder = suggested_game_picker_folder();
+        match shroudforge_window_management::choose_folder_from(
             "Choose the Enshrouded installation folder",
+            Some(&initial_folder),
         ) {
             Ok(Some(path)) if is_game_root(&path) => {
+                let same_root = root
+                    .lock()
+                    .ok()
+                    .and_then(|selected| {
+                        selected.as_ref().map(|selected| same_path(selected, &path))
+                    })
+                    .unwrap_or(false);
+                let new_mutex = if same_root {
+                    None
+                } else {
+                    match acquire_window_mutex(&path) {
+                        Ok(Some(mutex)) => Some(mutex),
+                        Ok(None) => {
+                            let _ = results.send(serde_json::json!({"error":"The updater window is already open for this game folder."}));
+                            return false;
+                        }
+                        Err(error) => {
+                            let _ = results.send(serde_json::json!({"error":error}));
+                            return false;
+                        }
+                    }
+                };
+                if let Err(error) = shroudforge_loader_config::config::initialize_loader_config(
+                    &path,
+                )
+                .and_then(|()| {
+                    shroudforge_loader_config::config::request_window_visibility(
+                        &path, "updates", true,
+                    )
+                }) {
+                    let _ = results.send(serde_json::json!({"error":error}));
+                    return false;
+                }
+                let state = shroudforge_loader_config::config::window_state(&path);
+                *visibility_request_id = state["updates"]["requestId"].as_u64().unwrap_or(0);
+                if let Some(mutex) = new_mutex {
+                    *window_mutex = Some((path.clone(), mutex));
+                }
+                let _ = shroudforge_loader_config::config::publish_window_visibility(
+                    &path, "updates", true,
+                );
                 if let Ok(mut selected) = root.lock() {
                     *selected = Some(path.clone());
                 }
@@ -252,7 +359,8 @@ fn handle_command(
             let results = results.clone();
             let root = root_path.clone();
             let Ok(mut value) = check_state.lock() else {
-                let _ = results.send(serde_json::json!({"error":"Could not update the system check status."}));
+                let _ = results
+                    .send(serde_json::json!({"error":"Could not update the system check status."}));
                 return false;
             };
             if *value == "checking" {
@@ -281,7 +389,8 @@ fn handle_command(
             let results = results.clone();
             let root = root_path.clone();
             let Ok(mut value) = running.lock() else {
-                let _ = results.send(serde_json::json!({"error":"Could not update the mod check status."}));
+                let _ = results
+                    .send(serde_json::json!({"error":"Could not update the mod check status."}));
                 return false;
             };
             if *value {
@@ -305,6 +414,20 @@ fn handle_command(
             });
             Ok(())
         }
+        "cancel-update" => {
+            let root = root_path.clone();
+            let results = results.clone();
+            std::thread::spawn(move || {
+                let result =
+                    crate::run_request(&root, &serde_json::json!({"command":"cancel-update"}));
+                let message = match result {
+                    Ok(value) => value,
+                    Err(error) => serde_json::json!({"error":error}),
+                };
+                let _ = results.send(message);
+            });
+            Ok(())
+        }
         "open-url" => command["url"]
             .as_str()
             .ok_or_else(|| "updater link request is missing its URL".to_owned())
@@ -317,9 +440,7 @@ fn handle_command(
         }
     };
     match result {
-        Ok(()) => {
-            action == "start-update-queue"
-        }
+        Ok(()) => false,
         Err(error) => {
             let _ = results.send(serde_json::json!({"error":error}));
             false
@@ -398,6 +519,8 @@ fn read_snapshot(
             .join("pending.ready")
             .is_file(),
     );
+    release.installation_detected =
+        shroudforge_loader_config::paths::shroudforge_program_files_present(root);
     let state = Arc::new(Mutex::new(release.clone()));
     crate::restore_checked_release::restore_persisted_update_result_from_config(&config, &state);
     if let Ok(value) = state.lock() {
@@ -414,13 +537,18 @@ fn read_snapshot(
         && let Some(state) = status["status"].as_str()
         && matches!(
             state,
-            "downloading"
+            "queued"
+                | "downloading"
                 | "verifying"
                 | "extracting"
                 | "waitingForGame"
                 | "installing"
+                | "restoring"
+                | "uninstalling"
+                | "cancelled"
                 | "error"
                 | "installed"
+                | "uninstalled"
         )
     {
         release.state = state.to_owned();
@@ -428,6 +556,15 @@ fn read_snapshot(
         release.downloaded_bytes = status["downloadedBytes"].as_u64().unwrap_or_default();
         release.total_bytes = status["totalBytes"].as_u64();
         release.bytes_per_second = status["bytesPerSecond"].as_u64();
+        release.completed_files = status["completedFiles"]
+            .as_u64()
+            .and_then(|value| usize::try_from(value).ok());
+        release.total_files = status["totalFiles"]
+            .as_u64()
+            .and_then(|value| usize::try_from(value).ok());
+        release.current_file = status["currentFile"].as_str().map(str::to_owned);
+        release.current_file_bytes = status["currentFileBytes"].as_u64();
+        release.current_file_total_bytes = status["currentFileTotalBytes"].as_u64();
     }
     if release.update_available
         && let Some(notes) = config
@@ -438,6 +575,8 @@ fn read_snapshot(
     }
     serde_json::json!({
         "root": root.to_string_lossy(),
+        "suggestedRoot": default_game_root().to_string_lossy(),
+        "installationRootSelected": true,
         "version": release.current_version,
         "release": release,
         "queue": crate::read_update_queue(root),
@@ -463,10 +602,127 @@ fn installed_root() -> Option<PathBuf> {
     is_game_root(root).then(|| root.to_path_buf())
 }
 
-fn is_game_root(root: &Path) -> bool {
+pub(crate) fn is_game_root(root: &Path) -> bool {
     root.join("enshrouded.exe").is_file()
         || root.join("enshrouded_server.exe").is_file()
         || root.join("enshrouded_server").is_file()
         || root.join("enshrouded_server.x86_64").is_file()
-        || root.join("shroudforge/version.json").is_file()
+}
+
+fn default_game_root() -> PathBuf {
+    let program_files = std::env::var_os("ProgramFiles(x86)")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\Program Files (x86)"));
+    program_files.join("Steam/steamapps/common/Enshrouded")
+}
+
+fn suggested_game_picker_folder() -> PathBuf {
+    let mut candidate = default_game_root();
+    while !candidate.is_dir() {
+        if !candidate.pop() {
+            return PathBuf::from(r"C:\");
+        }
+    }
+    candidate
+}
+
+fn same_path(left: &Path, right: &Path) -> bool {
+    let left = left.canonicalize().unwrap_or_else(|_| left.to_path_buf());
+    let right = right.canonicalize().unwrap_or_else(|_| right.to_path_buf());
+    left.to_string_lossy()
+        .replace('/', "\\")
+        .eq_ignore_ascii_case(&right.to_string_lossy().replace('/', "\\"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temporary_root(label: &str) -> PathBuf {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "shroudforge-updater-close-{label}-{}-{stamp}",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn closing_during_irreversible_install_signals_cancellation() {
+        let root = temporary_root("installing");
+        let updates = shroudforge_loader_config::paths::updates_dir(&root);
+        std::fs::create_dir_all(&updates).unwrap();
+        shroudforge_loader_config::config::write_json(
+            &updates.join("update-queue.json"),
+            &serde_json::json!({
+                "schemaVersion": 1,
+                "items": [{"id":"system:test","kind":"system","state":"installing"}],
+                "run": {
+                    "state":"running",
+                    "installing":true,
+                    "cancelable":false,
+                    "cancelRequested":false,
+                    "itemIds":["system:test"]
+                }
+            }),
+        )
+        .unwrap();
+
+        assert!(cancel_running_queue_before_close(&root).unwrap());
+        assert_eq!(
+            crate::check_update_cancelled::check_update_cancelled(&root).unwrap_err(),
+            "UPDATE_CANCELLED"
+        );
+        assert!(updates.join("cancel-system-update").is_file());
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn closing_without_a_running_queue_does_not_create_a_cancellation() {
+        let root = temporary_root("idle");
+
+        assert!(!cancel_running_queue_before_close(&root).unwrap());
+        assert!(
+            !shroudforge_loader_config::paths::updates_dir(&root)
+                .join("cancel-system-update")
+                .exists()
+        );
+    }
+
+    #[test]
+    fn closing_with_a_corrupt_queue_still_signals_cancellation() {
+        let root = temporary_root("corrupt");
+        let updates = shroudforge_loader_config::paths::updates_dir(&root);
+        std::fs::create_dir_all(&updates).unwrap();
+        std::fs::write(updates.join("update-queue.json"), b"{").unwrap();
+
+        assert!(cancel_running_queue_before_close(&root).unwrap());
+        assert!(updates.join("cancel-system-update").is_file());
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn closing_when_cancellation_cannot_be_written_keeps_the_window_open() {
+        let root = temporary_root("unwritable-cancel");
+        let updates = shroudforge_loader_config::paths::updates_dir(&root);
+        std::fs::create_dir_all(&updates).unwrap();
+        shroudforge_loader_config::config::write_json(
+            &updates.join("update-queue.json"),
+            &serde_json::json!({
+                "schemaVersion": 1,
+                "items": [],
+                "run": {"state":"running", "runId":"active"}
+            }),
+        )
+        .unwrap();
+        std::fs::create_dir(updates.join("cancel-system-update")).unwrap();
+
+        assert!(cancel_running_queue_before_close(&root).is_err());
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

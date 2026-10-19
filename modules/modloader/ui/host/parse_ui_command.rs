@@ -32,6 +32,12 @@ pub(crate) struct UiCommand {
     #[serde(default)]
     pub(crate) selected: Option<bool>,
     #[serde(default)]
+    pub(crate) remove_mods: Option<bool>,
+    #[serde(default)]
+    pub(crate) reset_user_settings: Option<bool>,
+    #[serde(default)]
+    pub(crate) purge_data: Option<bool>,
+    #[serde(default)]
     pub(crate) read: Option<bool>,
     #[serde(default)]
     pub(crate) project_id: Option<String>,
@@ -209,6 +215,16 @@ fn parse_updater_request(value: &UiCommand, desktop: bool, server: bool) -> Opti
             "enqueue-system-update",
             "enqueue-system-update",
             "Updates".into(),
+        ),
+        "queue-latest-installation" => (
+            "queue-latest-installation",
+            "queue-latest-installation",
+            "ShroudForge installation".into(),
+        ),
+        "queue-uninstall" => (
+            "queue-uninstall",
+            "queue-uninstall",
+            "ShroudForge uninstallation".into(),
         ),
         "select-update-queue-items" if value.selected.is_some() => (
             "select-update-queue-items",

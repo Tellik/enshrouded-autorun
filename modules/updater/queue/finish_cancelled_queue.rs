@@ -4,10 +4,7 @@ use crate::scheduled;
 use crate::update_queue_storage::update_update_queue;
 
 #[cfg(windows)]
-pub(crate) fn finish_cancelled_queue(
-    root: &std::path::Path,
-    ids: &[String],
-) -> Result<(), String> {
+pub(crate) fn finish_cancelled_queue(root: &std::path::Path, ids: &[String]) -> Result<(), String> {
     let mut cleanup_errors = Vec::new();
     let mut transitions = Vec::new();
     let update_result = update_update_queue(root, |queue| {
@@ -47,9 +44,7 @@ pub(crate) fn finish_cancelled_queue(
                 );
             }
         }
-        Err(error) => cleanup_errors.push(format!(
-            "could not mark cancelled queue items: {error}"
-        )),
+        Err(error) => cleanup_errors.push(format!("could not mark cancelled queue items: {error}")),
     }
     let updates = shroudforge_loader_config::paths::updates_dir(root);
     remove_file_if_present(&updates.join("download.zip"), &mut cleanup_errors);
@@ -67,6 +62,8 @@ pub(crate) fn finish_cancelled_queue(
             .unwrap_or(serde_json::Value::Null);
         queue["run"]["activeItemId"] = serde_json::Value::Null;
         queue["run"]["installing"] = serde_json::Value::Bool(false);
+        queue["run"]["cancelable"] = serde_json::Value::Bool(false);
+        queue["run"]["cancelRequested"] = serde_json::Value::Bool(true);
         queue["run"]["finishedAt"] = serde_json::json!(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

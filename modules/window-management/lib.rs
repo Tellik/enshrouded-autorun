@@ -9,4 +9,4 @@ pub use reset_window_geometry::reset_window_geometry;
 #[cfg(windows)]
 mod choose_folder;
 #[cfg(windows)]
-pub use choose_folder::choose_folder;
+pub use choose_folder::{choose_folder, choose_folder_from};

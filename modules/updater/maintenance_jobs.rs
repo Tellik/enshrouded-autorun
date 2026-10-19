@@ -227,6 +227,7 @@ pub(crate) fn run_after_install(root: &Path) -> Result<(), String> {
             }
             queue["run"] = serde_json::json!({
                 "state": "running",
+                "runId": crate::update_queue_storage::new_update_queue_run_id(),
                 "trigger": Trigger::AfterInstall.as_str(),
                 "waitForGame": false,
                 "waitPid": 0,
@@ -333,6 +334,7 @@ fn supersede_obsolete_revisions(items: &mut [serde_json::Value], job: &JobDefini
 
 pub(crate) fn execute(root: &Path, item: &serde_json::Value) -> Result<(), String> {
     let action = action_from_item(item)?;
+    crate::check_update_cancelled(root)?;
     match action {
         Action::MigrateLegacyBackups => {
             crate::recycle_bin::migrate_legacy_backups(root)?;
@@ -349,7 +351,7 @@ pub(crate) fn execute(root: &Path, item: &serde_json::Value) -> Result<(), Strin
             }
         }
     }
-    Ok(())
+    crate::check_update_cancelled(root)
 }
 
 pub(crate) fn is_required_migration(item: &serde_json::Value) -> bool {
@@ -378,6 +380,7 @@ fn migrate_legacy_mods(root: &Path) -> Result<(), String> {
     let mods = shroudforge_loader_config::paths::mods_dir(root);
     let mut moved = 0;
     for (folder, expected_id) in LEGACY_SHROUDFORGE_MODS {
+        crate::check_update_cancelled(root)?;
         if CURRENT_MOD_IDS.iter().any(|current| {
             current.eq_ignore_ascii_case(folder) || current.eq_ignore_ascii_case(expected_id)
         }) {
@@ -441,6 +444,7 @@ fn migrate_legacy_mods(root: &Path) -> Result<(), String> {
             expected_id,
             "Removed legacy ShroudForge mod",
         )?;
+        crate::check_update_cancelled(root)?;
         shroudforge_logging::write_activity(
             root,
             "Updates",
@@ -469,7 +473,26 @@ fn migrate_legacy_update_files(root: &Path) -> Result<usize, String> {
     use std::fs;
 
     let updates = shroudforge_loader_config::paths::updates_dir(root);
-    let mut migrated = usize::from(remove_legacy_updater_task(root)?);
+    let task_name = legacy_updater_task_name(root)?;
+    let task_removed = remove_legacy_updater_task(&task_name)?;
+    let cache_removed = remove_legacy_updater_cache(&task_name)?;
+    let mut migrated = usize::from(task_removed) + usize::from(cache_removed);
+    if task_removed || cache_removed {
+        let result = match (task_removed, cache_removed) {
+            (true, true) => "Removed the legacy updater task and its AppData cache",
+            (true, false) => "Removed the legacy updater task",
+            (false, true) => "Removed the per-installation legacy updater AppData cache",
+            (false, false) => unreachable!(),
+        };
+        shroudforge_logging::write_activity(
+            root,
+            "Updates",
+            "Legacy updater cleanup",
+            result,
+            Some(&task_name),
+            "info",
+        );
+    }
     let stage_request = updates.join("system-stage-request.json");
     let mut install_staged_update = false;
     if stage_request.is_file() {
@@ -554,25 +577,29 @@ fn normalize_legacy_stage_request(
 }
 
 #[cfg(windows)]
-fn remove_legacy_updater_task(root: &Path) -> Result<bool, String> {
-    use std::process::Command;
-
+fn legacy_updater_task_name(root: &Path) -> Result<String, String> {
     let canonical = root.canonicalize().map_err(|error| error.to_string())?;
     let mut hash = 0xcbf29ce484222325u64;
     for byte in canonical.to_string_lossy().to_ascii_lowercase().bytes() {
         hash ^= u64::from(byte);
         hash = hash.wrapping_mul(0x100000001b3);
     }
-    let name = format!("ShroudForgeUpdater_{hash:016x}");
+    Ok(format!("ShroudForgeUpdater_{hash:016x}"))
+}
+
+#[cfg(windows)]
+fn remove_legacy_updater_task(name: &str) -> Result<bool, String> {
+    use std::process::Command;
+
     let query = Command::new("schtasks.exe")
-        .args(["/Query", "/TN", &name])
+        .args(["/Query", "/TN", name])
         .output()
         .map_err(|error| format!("could not inspect legacy updater task: {error}"))?;
     if !query.status.success() {
         return Ok(false);
     }
     let deletion = Command::new("schtasks.exe")
-        .args(["/Delete", "/TN", &name, "/F"])
+        .args(["/Delete", "/TN", name, "/F"])
         .output()
         .map_err(|error| format!("could not remove legacy updater task: {error}"))?;
     if !deletion.status.success() {
@@ -583,6 +610,93 @@ fn remove_legacy_updater_task(root: &Path) -> Result<bool, String> {
         ));
     }
     Ok(true)
+}
+
+#[cfg(windows)]
+fn remove_legacy_updater_cache(task_name: &str) -> Result<bool, String> {
+    let local_app_data = std::env::var_os("LOCALAPPDATA")
+        .ok_or("LOCALAPPDATA is unavailable while cleaning the legacy updater cache")?;
+    remove_legacy_updater_cache_at(Path::new(&local_app_data), task_name)
+}
+
+fn remove_legacy_updater_cache_at(local_app_data: &Path, task_name: &str) -> Result<bool, String> {
+    let Some(hash) = task_name.strip_prefix("ShroudForgeUpdater_") else {
+        return Err("legacy updater cache has an invalid installation identifier".into());
+    };
+    if hash.len() != 16 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("legacy updater cache has an invalid installation identifier".into());
+    }
+
+    let local_app_data = local_app_data.canonicalize().map_err(|error| {
+        format!(
+            "cannot resolve LOCALAPPDATA {} while cleaning the legacy updater cache: {error}",
+            local_app_data.display()
+        )
+    })?;
+    let shroudforge = local_app_data.join("ShroudForge");
+    let updater = shroudforge.join("Updater");
+    let installation_cache = updater.join(task_name);
+    for (path, label) in [
+        (&shroudforge, "ShroudForge AppData directory"),
+        (&updater, "legacy updater cache directory"),
+        (&installation_cache, "installation-specific updater cache"),
+    ] {
+        let metadata = match fs::symlink_metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => {
+                return Err(format!(
+                    "cannot inspect {label} {}: {error}",
+                    path.display()
+                ));
+            }
+        };
+        if is_symlink_or_reparse_point(&metadata) || !metadata.is_dir() {
+            return Err(format!(
+                "refusing to remove legacy updater cache through a non-directory or link at {}",
+                path.display()
+            ));
+        }
+    }
+
+    fs::remove_dir_all(&installation_cache).map_err(|error| {
+        format!(
+            "cannot remove legacy updater cache {}: {error}",
+            installation_cache.display()
+        )
+    })?;
+    remove_empty_legacy_updater_directory(&updater)?;
+    remove_empty_legacy_updater_directory(&shroudforge)?;
+    Ok(true)
+}
+
+fn remove_empty_legacy_updater_directory(path: &Path) -> Result<(), String> {
+    match fs::remove_dir(path) {
+        Ok(()) => Ok(()),
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound
+                || error.kind() == std::io::ErrorKind::DirectoryNotEmpty =>
+        {
+            Ok(())
+        }
+        Err(error) => Err(format!(
+            "cannot remove empty legacy updater directory {}: {error}",
+            path.display()
+        )),
+    }
+}
+
+fn is_symlink_or_reparse_point(metadata: &fs::Metadata) -> bool {
+    if metadata.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        return metadata.file_attributes() & 0x400 != 0;
+    }
+    #[cfg(not(windows))]
+    false
 }
 
 fn read_json(path: &Path) -> Result<serde_json::Value, String> {
@@ -622,10 +736,18 @@ fn discover(root: &Path) -> JobCatalog {
     for (name, contents) in DEFAULT_JOBS {
         let path = directory.join(name);
         if path.exists() {
-            if *name == "migrate-legacy-event-levels.json"
-                && let Err(error) = upgrade_legacy_event_job_phase(&path)
-            {
-                errors.push(error);
+            match *name {
+                "migrate-legacy-event-levels.json" => {
+                    if let Err(error) = upgrade_legacy_event_job_phase(&path) {
+                        errors.push(error);
+                    }
+                }
+                "migrate-legacy-update-files.json" => {
+                    if let Err(error) = upgrade_legacy_update_files_job_revision(&path) {
+                        errors.push(error);
+                    }
+                }
+                _ => {}
             }
             continue;
         }
@@ -755,6 +877,33 @@ fn upgrade_legacy_event_job_phase(path: &Path) -> Result<(), String> {
         .map_err(|error| format!("cannot update maintenance job {}: {error}", path.display()))
 }
 
+fn upgrade_legacy_update_files_job_revision(path: &Path) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|error| format!("cannot inspect maintenance job {}: {error}", path.display()))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(format!(
+            "cannot upgrade non-regular maintenance job {}",
+            path.display()
+        ));
+    }
+    let mut job = read_json(path)?;
+    if job["id"] != "migration.legacy-update-files"
+        || job["action"] != "migrate-legacy-update-files"
+        || job["revision"] != 2
+        || job["trigger"] != "before-update"
+    {
+        return Ok(());
+    }
+    job["revision"] = serde_json::json!(3);
+    job["description"] = serde_json::json!(
+        "Removes the previous scheduled task and its per-installation AppData cache, then finishes pending requests from older updater versions."
+    );
+    let contents = serde_json::to_vec_pretty(&job)
+        .map_err(|error| format!("cannot encode maintenance job {}: {error}", path.display()))?;
+    fs::write(path, contents)
+        .map_err(|error| format!("cannot update maintenance job {}: {error}", path.display()))
+}
+
 fn validate(job: &JobDefinition) -> Result<(), String> {
     if job.schema_version != 1 {
         return Err("schemaVersion must be 1".into());
@@ -783,6 +932,70 @@ fn validate(job: &JobDefinition) -> Result<(), String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn legacy_updater_cache_cleanup_is_scoped_to_one_installation() {
+        let local_app_data = tempfile::tempdir().unwrap();
+        let task_name = "ShroudForgeUpdater_0123456789abcdef";
+        let cache = local_app_data
+            .path()
+            .join("ShroudForge/Updater")
+            .join(task_name);
+        let cached_updater = cache.join("123456789/shroudforge-updater.exe");
+        let other_cache_file = local_app_data
+            .path()
+            .join("ShroudForge/Updater/ShroudForgeUpdater_fedcba9876543210/keep.exe");
+        fs::create_dir_all(cached_updater.parent().unwrap()).unwrap();
+        fs::create_dir_all(other_cache_file.parent().unwrap()).unwrap();
+        fs::write(&cached_updater, b"legacy updater").unwrap();
+        fs::write(&other_cache_file, b"another installation").unwrap();
+
+        assert!(remove_legacy_updater_cache_at(local_app_data.path(), task_name).unwrap());
+
+        assert!(!cache.exists());
+        assert_eq!(fs::read(other_cache_file).unwrap(), b"another installation");
+        assert!(!remove_legacy_updater_cache_at(local_app_data.path(), task_name).unwrap());
+    }
+
+    #[test]
+    fn legacy_updater_cache_cleanup_rejects_invalid_installation_identifiers() {
+        let local_app_data = tempfile::tempdir().unwrap();
+        let error =
+            remove_legacy_updater_cache_at(local_app_data.path(), "..\\outside").unwrap_err();
+        assert!(error.contains("invalid installation identifier"));
+    }
+
+    #[test]
+    fn legacy_update_job_revision_upgrade_queues_appdata_cleanup() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("migrate-legacy-update-files.json");
+        fs::write(
+            &path,
+            serde_json::to_vec_pretty(&json!({
+                "schemaVersion": 1,
+                "id": "migration.legacy-update-files",
+                "revision": 2,
+                "name": "Migrate legacy updater requests",
+                "description": "Removes the previous scheduled task and finishes pending requests from older updater versions.",
+                "trigger": "before-update",
+                "repeatable": false,
+                "action": "migrate-legacy-update-files"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        upgrade_legacy_update_files_job_revision(&path).unwrap();
+
+        let upgraded: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        assert_eq!(upgraded["revision"], 3);
+        assert!(
+            upgraded["description"]
+                .as_str()
+                .unwrap()
+                .contains("AppData cache")
+        );
+    }
 
     #[test]
     fn legacy_event_migration_preserves_state_and_loader_settings() {

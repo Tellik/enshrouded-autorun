@@ -39,7 +39,12 @@ fn invoke(root: &Path, request: &serde_json::Value) -> Result<serde_json::Value,
         .pointer("/modules/updates/enabled")
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false);
-    if !updates_enabled {
+    if !updates_enabled
+        && !matches!(
+            request["command"].as_str(),
+            Some("queue-latest-installation" | "queue-uninstall" | "start-update-queue")
+        )
+    {
         return Err("Updates module is disabled in Settings. The update service is unavailable until it is enabled.".into());
     }
     let executable = shroudforge_loader_config::paths::updater_executable(root);

@@ -13,6 +13,8 @@ import type {
 
 type UpdaterSnapshot = {
   root: string
+  suggestedRoot?: string
+  installationRootSelected?: boolean
   version: string
   release: Release
   queue: UpdateQueue
@@ -65,7 +67,9 @@ export function UpdaterApp() {
 
   const data: UpdaterViewData = {
     mode: 'DESKTOP',
+    installationRoot: snapshot.root,
     release: { ...snapshot.release, updaterAvailable: true },
+    installationRootSelected: snapshot.installationRootSelected ?? Boolean(snapshot.root),
     enabled: snapshot.updatesEnabled === true,
     updateQueue: snapshot.queue,
     modUpdates: snapshot.modUpdates,
@@ -88,9 +92,16 @@ export function UpdaterApp() {
           </span>
         </div>
         <div className="updater-installation">
-          <span title={snapshot.root}>
-            {snapshot.root || t('updater.root.missing')}
-          </span>
+          <div className="updater-installation-path">
+            <span title={snapshot.root || snapshot.suggestedRoot}>
+              {snapshot.root || t('updater.root.missing')}
+            </span>
+            {!snapshot.root && snapshot.suggestedRoot && (
+              <small>
+                {t('updater.root.suggested', { path: snapshot.suggestedRoot })}
+              </small>
+            )}
+          </div>
           <button
             className="header-link"
             onClick={() => command('choose-root')}

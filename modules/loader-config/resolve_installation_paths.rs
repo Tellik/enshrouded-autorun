@@ -62,6 +62,20 @@ pub fn updater_executable(root: &Path) -> PathBuf {
 pub fn updater_available(root: &Path) -> bool {
     updater_executable(root).is_file()
 }
+pub fn shroudforge_program_files_present(root: &Path) -> bool {
+    [
+        "dbghelp.dll",
+        "dinput8.dll",
+        "winmm.dll",
+        "shroudforge/version.json",
+        "shroudforge/shroudforge.exe",
+        "shroudforge/shroudforge-updater.exe",
+        "shroudforge/shroudforge-runtime.dll",
+        "shroudforge/kfc-runtime.dll",
+    ]
+    .iter()
+    .any(|relative| root.join(relative).is_file())
+}
 pub fn runtime_library(root: &Path) -> PathBuf {
     data_dir(root).join("shroudforge-runtime.dll")
 }

@@ -2,6 +2,31 @@ pub(crate) fn update_queue_path(root: &std::path::Path) -> std::path::PathBuf {
     shroudforge_loader_config::paths::updates_dir(root).join("update-queue.json")
 }
 
+pub(crate) fn new_update_queue_run_id() -> String {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!("{}-{stamp}", std::process::id())
+}
+
+pub(crate) fn update_queue_run_token(run: &serde_json::Value) -> Option<String> {
+    if let Some(run_id) = run["runId"].as_str().filter(|value| !value.is_empty()) {
+        return Some(run_id.to_owned());
+    }
+    let started_at = run["startedAt"].as_u64()?;
+    let mut item_ids = run["itemIds"]
+        .as_array()?
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    item_ids.sort();
+    serde_json::to_string(&(started_at, item_ids))
+        .ok()
+        .map(|value| format!("legacy:{value}"))
+}
+
 pub(crate) fn read_update_queue_value(root: &std::path::Path) -> serde_json::Value {
     try_read_update_queue_value(root).unwrap_or_else(|error| {
         serde_json::json!({
@@ -13,7 +38,9 @@ pub(crate) fn read_update_queue_value(root: &std::path::Path) -> serde_json::Val
     })
 }
 
-fn try_read_update_queue_value(root: &std::path::Path) -> Result<serde_json::Value, String> {
+pub(crate) fn try_read_update_queue_value(
+    root: &std::path::Path,
+) -> Result<serde_json::Value, String> {
     let path = update_queue_path(root);
     let bytes = match std::fs::read(&path) {
         Ok(bytes) => bytes,

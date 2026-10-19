@@ -13,6 +13,8 @@ pub(crate) fn read_release_status(
         .map(|value| value.clone())
         .unwrap_or_else(|_| idle_release_status(root));
     snapshot["updaterAvailable"] = shroudforge_loader_config::paths::updater_available(root).into();
+    snapshot["installationDetected"] =
+        shroudforge_loader_config::paths::shroudforge_program_files_present(root).into();
     if let Some(latest) = central.pointer("/modules/updates/system/latestRelease") {
         if latest.is_object()
             && latest["version"].is_string()
@@ -47,7 +49,7 @@ pub(crate) fn read_release_status(
         if let Ok(status) = serde_json::from_slice::<serde_json::Value>(&bytes) {
             let terminal = matches!(
                 status["status"].as_str(),
-                Some("installed" | "error" | "cancelled")
+                Some("installed" | "uninstalled" | "error" | "cancelled")
             );
             let last_check = central["modules"]["updates"]["system"]["lastCheckAt"].as_u64();
             let superseded = terminal

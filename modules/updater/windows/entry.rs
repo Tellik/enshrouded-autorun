@@ -52,6 +52,7 @@ pub fn run_scheduled_worker() -> Result<(), String> {
             }
             queue["run"] = serde_json::json!({
                 "state": "running",
+                "runId": crate::update_queue_storage::new_update_queue_run_id(),
                 "waitForGame": wait_for_game,
                 "waitPid": wait_pid,
                 "showWindow": false,
@@ -69,7 +70,21 @@ pub fn run_scheduled_worker() -> Result<(), String> {
     })();
 
     drop(_worker_mutex);
-    if let Err(error) = run_installed_post_install_maintenance(&root) {
+    let completed_queue = read_update_queue_value(&root);
+    let uninstall_selected = completed_queue["run"]["itemIds"]
+        .as_array()
+        .is_some_and(|ids| {
+            ids.iter().filter_map(serde_json::Value::as_str).any(|id| {
+                completed_queue["items"].as_array().is_some_and(|items| {
+                    items.iter().any(|item| {
+                        item["id"].as_str() == Some(id)
+                            && item["kind"] == "installer"
+                            && item["operation"] == "uninstall"
+                    })
+                })
+            })
+        });
+    if !uninstall_selected && let Err(error) = run_installed_post_install_maintenance(&root) {
         scheduled::write_status(
             &root,
             "error",
@@ -178,7 +193,7 @@ pub(crate) fn wait_for_queue_worker_mutex(
 ) -> Result<QueueWorkerMutex, String> {
     use windows_sys::Win32::{
         Foundation::{CloseHandle, WAIT_ABANDONED, WAIT_OBJECT_0},
-        System::Threading::{WaitForSingleObject, INFINITE},
+        System::Threading::{INFINITE, WaitForSingleObject},
     };
     let handle = create_queue_worker_mutex_handle(root)?;
     match unsafe { WaitForSingleObject(handle, INFINITE) } {
@@ -197,16 +212,21 @@ pub(crate) fn wait_for_queue_worker_mutex(
 fn create_queue_worker_mutex_handle(
     root: &std::path::Path,
 ) -> Result<windows_sys::Win32::Foundation::HANDLE, String> {
+    use sha2::Digest;
     use std::{ffi::OsStr, os::windows::ffi::OsStrExt};
     use windows_sys::Win32::System::Threading::CreateMutexW;
-    use sha2::Digest;
 
     let normalized_root = root
         .canonicalize()
         .map_err(|error| format!("could not resolve installation path for update lock: {error}"))?;
     let name = format!(
         "Local\\ShroudForgeUpdateQueue_{:x}",
-        sha2::Sha256::digest(normalized_root.to_string_lossy().to_ascii_lowercase().as_bytes())
+        sha2::Sha256::digest(
+            normalized_root
+                .to_string_lossy()
+                .to_ascii_lowercase()
+                .as_bytes()
+        )
     );
     let wide: Vec<u16> = OsStr::new(&name).encode_wide().chain(Some(0)).collect();
     let handle = unsafe { CreateMutexW(std::ptr::null(), 0, wide.as_ptr()) };
@@ -258,14 +278,18 @@ pub(crate) fn record_queue_worker_failure(
                     .iter_mut()
                     .find(|item| item["id"].as_str() == Some(&active_id))
             })
-            && matches!(item["state"].as_str(), Some("downloading" | "installing"))
+            && !matches!(
+                item["state"].as_str(),
+                Some("complete" | "cancelled" | "error")
+            )
         {
             item["state"] = serde_json::Value::String("error".into());
-            item["message"] = serde_json::Value::Null;
+            item["message"] = serde_json::Value::String(message.clone());
         }
         queue["run"]["state"] = serde_json::Value::String("error".into());
         queue["run"]["error"] = serde_json::Value::String(message.clone());
         queue["run"]["installing"] = serde_json::Value::Bool(false);
+        queue["run"]["cancelable"] = serde_json::Value::Bool(false);
         queue["run"]["finishedAt"] = serde_json::json!(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -291,12 +315,22 @@ pub(crate) fn record_queue_worker_failure(
 #[cfg(windows)]
 pub fn run_module() -> Result<(), String> {
     let args: Vec<String> = std::env::args().collect();
-    if let Some(root) = args
+    let root = args
         .windows(2)
         .find(|pair| pair[0] == "--root")
         .map(|pair| std::path::PathBuf::from(&pair[1]))
-    {
-        match windows::hand_off_installed_worker(&root) {
+        .or_else(|| {
+            if args.len() != 1 {
+                return None;
+            }
+            std::env::current_exe()
+                .ok()?
+                .parent()?
+                .parent()
+                .map(std::path::Path::to_path_buf)
+        });
+    if let Some(root) = root {
+        match windows::hand_off_installed_process(&root) {
             Ok(true) => return Ok(()),
             Ok(false) => {}
             Err(error) => {
@@ -311,6 +345,23 @@ pub fn run_module() -> Result<(), String> {
                 return Err(error);
             }
         }
+    }
+    if args
+        .iter()
+        .any(|argument| argument == "--purge-shroudforge-data")
+    {
+        let root = args
+            .windows(2)
+            .find(|pair| pair[0] == "--root")
+            .map(|pair| std::path::PathBuf::from(&pair[1]))
+            .ok_or("missing --root")?;
+        let wait_pid = args
+            .windows(2)
+            .find(|pair| pair[0] == "--wait-pid")
+            .and_then(|pair| pair[1].parse::<u32>().ok())
+            .ok_or("missing or invalid --wait-pid")?;
+        let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+        return windows::run_shroudforge_data_purge_worker(&root, wait_pid, &executable);
     }
     if args.iter().any(|arg| arg == "--restore-gamefiles-worker") {
         let root = args
@@ -333,24 +384,27 @@ pub fn run_module() -> Result<(), String> {
     }
     if args.len() == 1 {
         let executable = std::env::current_exe().map_err(|error| error.to_string())?;
-        let module_directory = executable
+        let root = executable
             .parent()
-            .ok_or("updater executable has no module directory")?;
-        let root = module_directory
-            .parent()
-            .ok_or("updater executable is not inside the ShroudForge module directory")?
-            .to_path_buf();
-        return run_updater_window(root);
+            .and_then(std::path::Path::parent)
+            .map(std::path::Path::to_path_buf)
+            .filter(|root| crate::ui::host::window::is_game_root(root));
+        return match root {
+            Some(root) => run_updater_window(root),
+            None => crate::ui::host::window::run(None),
+        };
     }
     windows::run()
 }
 
 #[cfg(windows)]
 fn run_updater_window(root: std::path::PathBuf) -> Result<(), String> {
-    let _ = crate::run_request(
-        &root,
-        &serde_json::json!({"command":"run-post-install-maintenance"}),
-    );
+    if crate::ui::host::window::is_game_root(&root) {
+        let _ = crate::run_request(
+            &root,
+            &serde_json::json!({"command":"run-post-install-maintenance"}),
+        );
+    }
     crate::ui::host::window::run(Some(root))
 }
 

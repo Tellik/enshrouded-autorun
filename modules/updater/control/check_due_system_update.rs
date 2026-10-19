@@ -8,9 +8,9 @@ enum UpdateKind {
 }
 
 fn configured_update_check_interval(settings: Option<&serde_json::Value>) -> std::time::Duration {
-    std::time::Duration::from_secs(
-        crate::update_check::system_update_check_interval_seconds(settings),
-    )
+    std::time::Duration::from_secs(crate::update_check::system_update_check_interval_seconds(
+        settings,
+    ))
 }
 
 fn configured_retry_delay(root: &std::path::Path) -> std::time::Duration {
