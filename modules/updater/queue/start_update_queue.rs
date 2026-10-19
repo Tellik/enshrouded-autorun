@@ -10,6 +10,9 @@ pub fn start_update_queue(
     wait_for_game: bool,
     show_window: bool,
 ) -> Result<(), String> {
+    if !crate::update_check::updates_enabled(root) {
+        return Err(crate::UPDATE_MODULE_DISABLED_MESSAGE.into());
+    }
     let _start_lock = crate::acquire_queue_worker_mutex(root)?
         .ok_or("an update or recovery action is already running")?;
     ensure_gamefiles_restore_idle(root)?;
@@ -51,13 +54,6 @@ pub fn start_update_queue(
                 selected_ids.insert(0, id);
             }
         }
-        if selected_ids
-            .iter()
-            .any(|id| id.starts_with("system:") || id.starts_with("mod-"))
-            && !crate::update_check::updates_enabled(root)
-        {
-            return Err("Updates module is disabled".into());
-        }
         for id in &selected_ids {
             let item = items
                 .iter_mut()
@@ -79,13 +75,15 @@ pub fn start_update_queue(
                     .and_then(|item| item["payload"]["waitPid"].as_u64())
             })
             .unwrap_or_else(|| std::process::id() as u64);
-        let cancel_path = shroudforge_loader_config::paths::updates_dir(root)
-            .join("cancel-system-update");
+        let cancel_path =
+            shroudforge_loader_config::paths::updates_dir(root).join("cancel-system-update");
         match std::fs::remove_file(cancel_path) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => {
-                return Err(format!("could not clear an old update cancellation request: {error}"));
+                return Err(format!(
+                    "could not clear an old update cancellation request: {error}"
+                ));
             }
         }
         queue["run"] = serde_json::json!({"state":"running","waitForGame":wait_for_game,"waitPid":wait_pid,"showWindow":show_window,"itemIds":selected_ids,"startedAt":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()});
@@ -118,8 +116,8 @@ pub fn start_update_queue(
 pub(crate) fn ensure_gamefiles_restore_idle(root: &std::path::Path) -> Result<(), String> {
     use std::io::ErrorKind;
 
-    let path = shroudforge_loader_config::paths::backups_dir(root)
-        .join("gamefiles-restore-status.json");
+    let path =
+        shroudforge_loader_config::paths::backups_dir(root).join("gamefiles-restore-status.json");
     let metadata = match std::fs::symlink_metadata(&path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),

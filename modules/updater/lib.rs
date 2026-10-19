@@ -63,6 +63,8 @@ pub mod provider_config;
 
 mod recycle_bin;
 
+pub(crate) const UPDATE_MODULE_DISABLED_MESSAGE: &str = "Updates module is intentionally disabled in Settings. The update service is unavailable until it is enabled.";
+
 /// Run recycle-bin restores from an updater copy outside the managed install
 /// files so Windows can restore a saved updater executable.
 pub fn hand_off_request_to_worker(
@@ -110,6 +112,26 @@ pub fn run_request(
         .get("command")
         .and_then(serde_json::Value::as_str)
         .ok_or("updater request is missing its command")?;
+    let details = request
+        .get("id")
+        .or_else(|| request.get("modId"))
+        .and_then(serde_json::Value::as_str)
+        .map(|id| format!(" {id}"))
+        .unwrap_or_default();
+    if let Err(error) = updates_module_status(root) {
+        let disabled = error == UPDATE_MODULE_DISABLED_MESSAGE;
+        let _ = shroudforge_logging::append(
+            root,
+            if disabled { 'W' } else { 'E' },
+            "updater",
+            &if disabled {
+                format!("Updater request {command}{details} unavailable: {error}")
+            } else {
+                format!("Updater request {command}{details} failed: {error}")
+            },
+        );
+        return Err(error);
+    }
     let result: Result<serde_json::Value, String> = (|| match command {
         "check-system-update" => {
             #[cfg(windows)]
@@ -170,7 +192,7 @@ pub fn run_request(
         }
         "search-catalog" => (|| {
             if !update_check::updates_enabled(root) {
-                return Err("Updates module is disabled".into());
+                return Err(UPDATE_MODULE_DISABLED_MESSAGE.into());
             }
             let provider = request
                 .get("provider")
@@ -366,12 +388,6 @@ pub fn run_request(
         }
         _ => Err(format!("unsupported updater request: {command}")),
     })();
-    let details = request
-        .get("id")
-        .or_else(|| request.get("modId"))
-        .and_then(serde_json::Value::as_str)
-        .map(|id| format!(" {id}"))
-        .unwrap_or_default();
     if command != "check-mod-updates" || result.is_err() {
         match &result {
             Ok(_) => {
@@ -383,16 +399,35 @@ pub fn run_request(
                 );
             }
             Err(error) => {
+                let disabled = error == UPDATE_MODULE_DISABLED_MESSAGE;
                 let _ = shroudforge_logging::append(
                     root,
-                    'E',
+                    if disabled { 'W' } else { 'E' },
                     "updater",
-                    &format!("Updater request {command}{details} failed: {error}"),
+                    &if disabled {
+                        format!("Updater request {command}{details} unavailable: {error}")
+                    } else {
+                        format!("Updater request {command}{details} failed: {error}")
+                    },
                 );
             }
         }
     }
     result
+}
+
+fn updates_module_status(root: &std::path::Path) -> Result<(), String> {
+    let config = shroudforge_loader_config::config::read_loader(root)
+        .map_err(|error| format!("Could not read ShroudForge module settings: {error}"))?;
+    if config
+        .pointer("/modules/updates/enabled")
+        .and_then(serde_json::Value::as_bool)
+        == Some(true)
+    {
+        Ok(())
+    } else {
+        Err(UPDATE_MODULE_DISABLED_MESSAGE.into())
+    }
 }
 
 fn request_string<'a>(request: &'a serde_json::Value, key: &str) -> Result<&'a str, String> {
@@ -417,7 +452,7 @@ fn read_request_provider(
 
 fn checked_system_release(root: &std::path::Path) -> Result<serde_json::Value, String> {
     if !update_check::updates_enabled(root) {
-        return Err("System updates module is disabled".into());
+        return Err(UPDATE_MODULE_DISABLED_MESSAGE.into());
     }
     shroudforge_loader_config::config::read_loader(root)?
         .pointer("/modules/updates/system/latestRelease")

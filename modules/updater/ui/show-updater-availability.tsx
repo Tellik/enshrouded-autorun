@@ -21,7 +21,7 @@ export function UpdaterAvailability({
 
   return (
     <FeatureBanner
-      variant={updaterAvailable ? 'info' : 'warning'}
+      variant="warning"
       brand="SHROUDFORGE UPDATER"
       title={
         updaterAvailable

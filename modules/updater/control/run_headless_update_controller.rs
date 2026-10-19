@@ -75,38 +75,63 @@ pub fn run_headless_control_controller(
                 next_system_check = Instant::now() + crate::system_update_check_delay(&root);
             }
         }
-        if Instant::now() >= next_mod_check {
-            next_mod_check = crate::check_due_mod_updates(&root);
+        let updates_enabled = update_settings["enabled"].as_bool();
+        if updates_enabled == Some(true) {
+            if Instant::now() >= next_mod_check {
+                next_mod_check = crate::check_due_mod_updates(&root);
+            }
+            #[cfg(windows)]
+            if Instant::now() >= next_system_check {
+                next_system_check = crate::check_due_system_update::check_due_system_update(&root);
+            }
         }
         #[cfg(windows)]
-        if Instant::now() >= next_system_check {
-            next_system_check = crate::check_due_system_update::check_due_system_update(&root);
-        }
-        #[cfg(windows)]
-        match claim_headless_control_actions(&root) {
-            Ok(actions) => {
-                for action in actions {
-                    let result = execute_headless_control_action(&root, &action);
-                    let (state, message) = match result {
-                        Ok(message) => ("succeeded", message),
-                        Err(error) => ("failed", error),
-                    };
-                    mark_headless_control_action(
+        if updates_enabled.is_some() {
+            match claim_headless_control_actions(&root) {
+                Ok(actions) => {
+                    for action in actions {
+                        if updates_enabled == Some(false) {
+                            mark_headless_control_action(
+                                &root,
+                                &action.name,
+                                &action.request_id,
+                                "idle",
+                                crate::UPDATE_MODULE_DISABLED_MESSAGE,
+                            );
+                            let _ = shroudforge_logging::append(
+                                &root,
+                                'W',
+                                "config-controller",
+                                &format!(
+                                    "Updater action {} unavailable: {}",
+                                    action.name,
+                                    crate::UPDATE_MODULE_DISABLED_MESSAGE
+                                ),
+                            );
+                            continue;
+                        }
+                        let result = execute_headless_control_action(&root, &action);
+                        let (state, message) = match result {
+                            Ok(message) => ("succeeded", message),
+                            Err(error) => ("failed", error),
+                        };
+                        mark_headless_control_action(
+                            &root,
+                            &action.name,
+                            &action.request_id,
+                            state,
+                            &message,
+                        );
+                    }
+                }
+                Err(error) => {
+                    let _ = shroudforge_logging::append(
                         &root,
-                        &action.name,
-                        &action.request_id,
-                        state,
-                        &message,
+                        'E',
+                        "config-controller",
+                        &format!("Could not read pending server actions: {error}"),
                     );
                 }
-            }
-            Err(error) => {
-                let _ = shroudforge_logging::append(
-                    &root,
-                    'E',
-                    "config-controller",
-                    &format!("Could not read pending server actions: {error}"),
-                );
             }
         }
     }

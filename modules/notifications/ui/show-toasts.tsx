@@ -41,6 +41,8 @@ export function useCommandToasts() {
       }
       if (result.success)
         message = tRef.current(result.message as TranslationKey)
+      else if (result.level === 'warn' && result.message === 'settings.moduleUnavailable')
+        message = tRef.current('settings.moduleUnavailable')
     }
     setMessage({
       message,
@@ -82,7 +84,7 @@ export function Toasts({
       {message && (
         <div
           role={message.level === 'error' ? 'alert' : 'status'}
-          className={`settings-save-message ${message.level === 'error' ? 'error' : 'success'}`}
+          className={`settings-save-message ${message.level === 'error' ? 'error' : message.level === 'warn' ? 'warning' : 'success'}`}
         >
           <EcosystemBadge ecosystem={message.ecosystem} />
           <span className="state-pill neutral">{message.level.toUpperCase()}</span>

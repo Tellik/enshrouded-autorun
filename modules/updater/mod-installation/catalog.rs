@@ -54,7 +54,7 @@ pub fn check_catalog_mod_updates(root: &Path, manual: bool) -> Result<serde_json
         .and_then(serde_json::Value::as_bool)
         == Some(false)
     {
-        return Err("Updates module is disabled".into());
+        return Err(crate::UPDATE_MODULE_DISABLED_MESSAGE.into());
     }
     if !manual
         && config

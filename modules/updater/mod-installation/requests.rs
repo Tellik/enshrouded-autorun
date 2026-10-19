@@ -6,7 +6,7 @@ pub fn request_mod_install(
     provider: serde_json::Value,
 ) -> Result<(), String> {
     if !crate::update_check::updates_enabled(root) {
-        return Err("Updates module is disabled".into());
+        return Err(crate::UPDATE_MODULE_DISABLED_MESSAGE.into());
     }
     if project_id.is_empty()
         || project_id.len() > 128
@@ -51,7 +51,7 @@ fn enqueue_mod_update(
     provider: serde_json::Value,
 ) -> Result<bool, String> {
     if !crate::update_check::updates_enabled(root) {
-        return Err("Updates module is disabled".into());
+        return Err(crate::UPDATE_MODULE_DISABLED_MESSAGE.into());
     }
     if project_id.is_empty()
         || project_id.len() > 128

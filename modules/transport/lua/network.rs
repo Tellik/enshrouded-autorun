@@ -4,6 +4,7 @@ use crate as steam_network;
 use mlua::{Lua, Table};
 use mod_loader::Mod;
 use std::collections::HashSet;
+use std::sync::{Mutex, OnceLock};
 
 /// Runtime facts supplied by the Lua host. Transport owns no execution context.
 #[derive(Clone, Copy)]
@@ -62,7 +63,21 @@ fn denied(lua: &Lua, owner: &Mod, operation: &str, context: RuntimeContext) -> O
         Err(_) => return Some("Network module settings are unavailable".into()),
     };
     if config["modules"]["network"]["enabled"] == false {
-        return Some("Network module is disabled in ShroudForge settings".into());
+        let mod_id = owner.info().id.clone();
+        static WARNED_MODS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+        let mut warned_mods = WARNED_MODS
+            .get_or_init(|| Mutex::new(HashSet::new()))
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if warned_mods.insert(mod_id.clone()) {
+            tracing::warn!(
+                target: "shroudforge::network",
+                mod_id,
+                operation,
+                "Network module was intentionally disabled in Settings. The networking service is unavailable until it is enabled"
+            );
+        }
+        return Some("Network module was intentionally disabled in Settings. The networking service is unavailable until it is enabled.".into());
     }
     let status = steam_network::status();
     if !status.available {

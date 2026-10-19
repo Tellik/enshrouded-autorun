@@ -29,6 +29,11 @@ export function NetworkSettings({
           enabled={enabled}
           onChange={(value) => change('network', 'enabled', value)}
         />
+        {!enabled && (
+          <p className="builder-notice warning" role="status">
+            {t('settings.moduleUnavailable')}
+          </p>
+        )}
         <SettingsRow
           label={t('settings.modules.network.serverSteamId')}
           control={

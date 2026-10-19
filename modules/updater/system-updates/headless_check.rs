@@ -4,7 +4,7 @@ pub(crate) fn headless_check_system_updates(
     mode: crate::update_check::SystemUpdateCheckMode,
 ) -> Result<String, String> {
     if !crate::update_check::updates_enabled(root) {
-        return Err("System updates module is disabled".into());
+        return Err(crate::UPDATE_MODULE_DISABLED_MESSAGE.into());
     }
     super::refresh_cached_repair_status(root)?;
     let config = shroudforge_loader_config::config::read_loader(root)?;

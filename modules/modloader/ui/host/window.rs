@@ -86,6 +86,11 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std::error::Error>> {
+    if !arguments.desktop
+        && read_central_config(&arguments.root)["modules"]["modloaderUi"]["enabled"] == false
+    {
+        return Ok(());
+    }
     let mut module_config = load_module_config(&arguments.root).unwrap_or_else(|_| ModuleConfig {
         toggle_key: default_toggle_key(),
         refresh_milliseconds: default_refresh(),
@@ -286,6 +291,8 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                                     "modloaderUi",
                                     false,
                                 );
+                                *control_flow = ControlFlow::Exit;
+                                return;
                             }
                         }
                         loaded_settings_revision = current_settings_revision;
@@ -328,9 +335,15 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                                 }
                             }
                             Err(error) => {
+                                let unavailable =
+                                    super::report_command_result::is_module_unavailable_warning(&error);
                                 if let Ok(mut catalog) = catalog_state.lock() {
-                                    catalog["state"] = "error".into();
-                                    catalog["message"] = error.clone().into();
+                                    catalog["state"] = if unavailable { "idle" } else { "error" }.into();
+                                    catalog["message"] = if unavailable {
+                                        serde_json::Value::Null
+                                    } else {
+                                        error.clone().into()
+                                    };
                                     catalog["items"] = serde_json::json!([]);
                                 }
                                 report_command_result(
@@ -357,26 +370,60 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                                     release["message"] = value["message"].clone();
                                 }
                                 Err(error) => {
-                                    release["state"] = "error".into();
-                                    release["message"] = error.clone().into();
+                                    let unavailable = super::report_command_result::
+                                        is_module_unavailable_warning(error);
+                                    release["state"] =
+                                        if unavailable { "idle" } else { "error" }.into();
+                                    release["message"] = if unavailable {
+                                        serde_json::Value::Null
+                                    } else {
+                                        error.clone().into()
+                                    };
                                 }
                             }
                         }
                     }
                     if result.operation.starts_with("recycle-bin-") {
-                        let payload = match result.result {
-                            Ok(value) => serde_json::json!({
-                                "requestId": result.request_id,
-                                "action": result.operation,
-                                "success": true,
-                                "value": value
-                            }),
-                            Err(error) => serde_json::json!({
+                        let unavailable = result.result.as_ref().err().is_some_and(|error| {
+                            super::report_command_result::is_module_unavailable_warning(error)
+                        });
+                        if unavailable {
+                            if let Some(error) = result.result.as_ref().err() {
+                                report_command_result(
+                                    &arguments.root,
+                                    &webview,
+                                    &result.request_id,
+                                    "Updates",
+                                    "Recycle bin",
+                                    Err(error.clone()),
+                                    "recycleBin.error",
+                                    None,
+                                    false,
+                                );
+                            }
+                        }
+                        let payload = if unavailable {
+                            serde_json::json!({
                                 "requestId": result.request_id,
                                 "action": result.operation,
                                 "success": false,
-                                "error": error
-                            }),
+                                "skipped": true
+                            })
+                        } else {
+                            match result.result {
+                                Ok(value) => serde_json::json!({
+                                    "requestId": result.request_id,
+                                    "action": result.operation,
+                                    "success": true,
+                                    "value": value
+                                }),
+                                Err(error) => serde_json::json!({
+                                    "requestId": result.request_id,
+                                    "action": result.operation,
+                                    "success": false,
+                                    "error": error
+                                }),
+                            }
                         };
                         if let Ok(payload) = serde_json::to_string(&payload) {
                             let _ = webview.evaluate_script(&format!(

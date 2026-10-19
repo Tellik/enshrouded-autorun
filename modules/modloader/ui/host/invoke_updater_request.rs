@@ -1,3 +1,4 @@
+use super::report_command_result::disable_missing_updater;
 use std::{
     io::Write,
     path::{Path, PathBuf},
@@ -33,12 +34,17 @@ pub(crate) fn spawn(
 }
 
 fn invoke(root: &Path, request: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let config = shroudforge_loader_config::config::read_loader(root)?;
+    let updates_enabled = config
+        .pointer("/modules/updates/enabled")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    if !updates_enabled {
+        return Err("Updates module was intentionally disabled in Settings. The update service is unavailable until it is enabled.".into());
+    }
     let executable = shroudforge_loader_config::paths::updater_executable(root);
     if !executable.is_file() {
-        return Err(format!(
-            "ShroudForge updater executable was not found: {}",
-            executable.display()
-        ));
+        return Err(disable_missing_updater(root));
     }
     let mut command = Command::new(&executable);
     command
@@ -54,12 +60,18 @@ fn invoke(root: &Path, request: &serde_json::Value) -> Result<serde_json::Value,
         command.creation_flags(0x08000000);
     }
     let request_bytes = serde_json::to_vec(request).map_err(|error| error.to_string())?;
-    let mut child = command.spawn().map_err(|error| {
-        format!(
-            "could not start ShroudForge updater executable {}: {error}",
-            executable.display()
-        )
-    })?;
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(disable_missing_updater(root));
+        }
+        Err(error) => {
+            return Err(format!(
+                "could not start ShroudForge updater executable {}: {error}",
+                executable.display()
+            ));
+        }
+    };
     let Some(mut stdin) = child.stdin.take() else {
         let _ = child.wait();
         return Err("updater request stdin is unavailable".into());

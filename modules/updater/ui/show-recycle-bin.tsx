@@ -20,6 +20,7 @@ type Entry = {
 type RecycleBinResult = {
   action: string
   success: boolean
+  skipped?: boolean
   value?: { entries?: Entry[]; removed?: number }
   error?: string
 }
@@ -53,6 +54,11 @@ export function RecycleBin({
   useEffect(() => {
     const receive = (event: Event) => {
       const result = (event as CustomEvent<RecycleBinResult>).detail
+      if (result.skipped) {
+        setLoading(false)
+        setBusy(null)
+        return
+      }
       if (result.action === 'recycle-bin-list') {
         setLoading(false)
         if (result.success) setEntries(result.value?.entries || [])

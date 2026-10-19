@@ -76,6 +76,14 @@ pub(super) fn settings_to_apply_live(
 
 impl IngameRuntime {
     pub(super) fn refresh_configuration(&mut self) {
+        let world_editor_enabled = shroudforge_loader_config::config::read_loader(&self.root)
+            .ok()
+            .and_then(|config| {
+                config
+                    .pointer("/modules/worldEditor/enabled")
+                    .and_then(serde_json::Value::as_bool)
+            })
+            .unwrap_or(false);
         let configured_enabled: std::collections::HashMap<String, bool> = self
             .configurations
             .iter()
@@ -110,7 +118,7 @@ impl IngameRuntime {
             }
         }
         for (id, package, applied) in &mut self.configurations {
-            let signature = match mod_loader::config::manifest_revision(package) {
+            let package_signature = match mod_loader::config::manifest_revision(package) {
                 Ok(signature) => signature,
                 Err(error) => {
                     let signature = format!("read-error:{error}");
@@ -120,6 +128,11 @@ impl IngameRuntime {
                     }
                     continue;
                 }
+            };
+            let signature = if id == "world-editor" {
+                format!("{package_signature}:worldEditor.enabled={world_editor_enabled}")
+            } else {
+                package_signature
             };
             if self.observed.get(package) == Some(&signature) {
                 continue;
@@ -136,7 +149,10 @@ impl IngameRuntime {
                     continue;
                 }
             };
-            let desired = serde_json::to_value(&manifest).expect("manifest is serializable");
+            let mut desired = serde_json::to_value(&manifest).expect("manifest is serializable");
+            if id == "world-editor" && !world_editor_enabled {
+                desired["enabled"] = false.into();
+            }
             if desired == *applied {
                 if self
                     .lifecycle
@@ -161,7 +177,7 @@ impl IngameRuntime {
                 && !manifest
                     .capabilities
                     .contains(&mod_loader::Capability::Patch);
-            let wanted_enabled = manifest.enabled;
+            let wanted_enabled = desired["enabled"].as_bool().unwrap_or(false);
             let was_enabled = applied["enabled"].as_bool().unwrap_or(false);
             if metadata_unchanged && live_mod && wanted_enabled != was_enabled {
                 let transition_block = if wanted_enabled {
@@ -247,7 +263,7 @@ impl IngameRuntime {
                 } else {
                     self.errors.insert(
                         id.clone(),
-                        "Runtime module was not present in the startup plan. Restart required"
+                        "restart-required: Runtime module was not present in the startup plan. Restart the game to activate it."
                             .into(),
                     );
                 }
@@ -288,7 +304,7 @@ impl IngameRuntime {
                     }
                 }
             }
-            let now_applied = serde_json::to_value(&manifest).expect("manifest is serializable");
+            let now_applied = desired.clone();
             let changed_but_deferred = now_applied != *applied;
             let deferred_is_only_enable_or_settings =
                 settings_only_manifest_change(&now_applied, applied);

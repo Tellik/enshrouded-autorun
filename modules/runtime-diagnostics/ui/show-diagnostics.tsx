@@ -72,7 +72,9 @@ export function DiagnosticsControls({
     const keys = builtInJobLabels[job.id]
     return keys ? t(keys[description ? 1 : 0]) : description ? job.description : job.name
   }
-  const statusText = data.diagnostics?.fresh
+  const statusText = !moduleEnabled
+    ? t('settings.moduleUnavailable')
+    : data.diagnostics?.fresh
     ? data.diagnostics.active
       ? `${t('settings.modules.diagnosticActive')} · ${data.diagnostics.remainingSeconds}s`
       : data.diagnostics.reason
@@ -98,7 +100,10 @@ export function DiagnosticsControls({
         </select>
       </label>
       {selectedJob && <p className="hint">{jobLabel(selectedJob, true)}</p>}
-      <p className="hint">
+      <p
+        className={moduleEnabled ? 'hint' : 'builder-notice warning'}
+        role={!moduleEnabled ? 'status' : undefined}
+      >
         {statusText}
         {data.diagnostics?.active && data.diagnostics.jobId && (
           <>
@@ -136,7 +141,7 @@ export function DiagnosticsControls({
           <button
             className="button ghost"
             key={action}
-            disabled={!moduleEnabled}
+            disabled={!moduleEnabled && action !== 'stop'}
             onClick={() => postRequest('diagnostics', { action, jobId })}
           >
             {t(`settings.modules.${action}`)}

@@ -12,7 +12,7 @@ pub fn request_job(root: &Path, action: &str, job_id: Option<&str>) -> Result<()
     let config = shroudforge_loader_config::config::read_loader(root)?;
     let settings = &config["modules"]["runtimeDiagnostics"];
     if action != "stop" && settings["enabled"] == false {
-        return Err("Runtime Diagnostics module is disabled".into());
+        return Err("Runtime Diagnostics module is intentionally disabled in Settings. The diagnostics service is unavailable until it is enabled.".into());
     }
     let job = if action == "stop" {
         None

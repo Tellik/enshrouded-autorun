@@ -18,30 +18,6 @@ HANDLE world_editor_ui_stop_event{};
 
 HANDLE world_editor_ui_process{};
 
-void start_recovery_update_window(const std::filesystem::path& root) {
-    const auto executable = shroudforge_directory(root) / L"shroudforge-updater.exe";
-    if (!std::filesystem::is_regular_file(executable)) {
-        log('D', "Recovery updater is not installed. Skipping the optional repair window");
-        return;
-    }
-
-    std::wstring command = L"\"" + executable.wstring() + L"\" --open-window --root \"" +
-        root.wstring() + L"\"";
-    STARTUPINFOW startup{sizeof(startup)};
-    PROCESS_INFORMATION process{};
-    if (!CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, FALSE,
-            CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT, nullptr, root.c_str(),
-            &startup, &process)) {
-        const auto detail = "Recovery updater window could not be started. " + windows_error(GetLastError());
-        log('E', detail);
-        if (!is_dedicated_server_process()) show_startup_error(root, detail);
-        return;
-    }
-    CloseHandle(process.hThread);
-    CloseHandle(process.hProcess);
-    log("Independent recovery updater requested after fatal ShroudForge error");
-}
-
 bool run_startup_update_check(const std::filesystem::path& root) {
     const auto executable = shroudforge_directory(root) / L"shroudforge-updater.exe";
     if (!std::filesystem::is_regular_file(executable)) {
@@ -49,7 +25,7 @@ bool run_startup_update_check(const std::filesystem::path& root) {
         return true;
     }
     if (!ShroudforgeConfig::ModuleEnabled(root, "updates")) {
-        log('D', "Updates module is disabled. Skipping the startup update and repair check");
+        log('W', "Startup update service is unavailable because the Updates module is intentionally disabled in Settings");
         return true;
     }
 
@@ -103,6 +79,10 @@ bool run_startup_update_check(const std::filesystem::path& root) {
 void start_debug_console(const std::filesystem::path& root) {
     if (is_dedicated_server_process()) {
         log('D', "Dedicated server uses file logging. Interactive Debug Console is skipped");
+        return;
+    }
+    if (!ShroudforgeConfig::ModuleEnabled(root, "debugConsole")) {
+        log('W', "Debug Console is unavailable because the module is intentionally disabled in Settings");
         return;
     }
     if (!std::filesystem::is_regular_file(root / L"enshrouded.exe") &&
@@ -187,6 +167,10 @@ void start_modloader_ui(const std::filesystem::path& root) {
         log('D', "Modloader UI window is skipped in the Dedicated Server process");
         return;
     }
+    if (!ShroudforgeConfig::ModuleEnabled(root, "modloaderUi")) {
+        log('W', "Modloader UI service is unavailable because the module is intentionally disabled in Settings");
+        return;
+    }
     const auto executable = shroudforge_directory(root) / L"shroudforge.exe";
     if (!std::filesystem::is_regular_file(executable)) {
         log('W', "Modloader UI module is not installed");
@@ -238,6 +222,10 @@ void start_world_editor_ui(const std::filesystem::path& root) {
         log('D', "World Editor window is skipped in the Dedicated Server process");
         return;
     }
+    if (!ShroudforgeConfig::ModuleEnabled(root, "worldEditor")) {
+        log('W', "World Editor service is unavailable because the module is intentionally disabled in Settings");
+        return;
+    }
     const auto executable = shroudforge_directory(root) / L"shroudforge.exe";
     if (!std::filesystem::is_regular_file(executable)) {
         log('W', "World Editor window host is not installed");
@@ -284,10 +272,15 @@ void stop_world_editor_ui() {
 }
 
 void start_pending_update(const std::filesystem::path& root) {
-    if (!ShroudforgeConfig::ModuleEnabled(root, "updates")) return;
     const auto updates = ShroudforgeConfig::Directory(root, "updates", "shroudforge/updates");
     const auto staged = updates / L"pending";
     const auto marker = updates / L"pending.ready";
+    if (!ShroudforgeConfig::ModuleEnabled(root, "updates")) {
+        if (std::filesystem::is_regular_file(marker)) {
+            log('W', "Pending update was not installed because the Updates module is intentionally disabled in Settings");
+        }
+        return;
+    }
     const auto executable = shroudforge_directory(root) / L"shroudforge-updater.exe";
     if (!std::filesystem::is_regular_file(marker) ||
         !std::filesystem::is_regular_file(staged / L"shroudforge" / L"shroudforge.exe") ||

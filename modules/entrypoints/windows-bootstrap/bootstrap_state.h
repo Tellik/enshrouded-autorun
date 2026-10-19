@@ -50,7 +50,6 @@ void startup_stage(const std::filesystem::path& root, const char* stage);
 std::string_view status_value(std::string_view status, std::string_view key);
 std::string_view runtime_thread_state(std::string_view value);
 std::string runtime_status_state(std::string_view status);
-void start_recovery_update_window(const std::filesystem::path& root);
 bool run_startup_update_check(const std::filesystem::path& root);
 void startup_failed(const std::filesystem::path& root, const char* stage,
         const std::string& detail);

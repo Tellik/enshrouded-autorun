@@ -142,3 +142,56 @@ pub fn read_loader(root: &Path) -> Result<Value, String> {
     validate_document(root, crate::documents::LOADER, &result)?;
     Ok(result)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn modules_are_enabled_by_default_and_windows_start_closed() {
+        let root = tempfile::tempdir().unwrap();
+        let updater = crate::paths::updater_executable(root.path());
+        fs::create_dir_all(updater.parent().unwrap()).unwrap();
+        fs::write(updater, b"").unwrap();
+        crate::config::initialize_loader_config(root.path()).unwrap();
+        let config = read_loader(root.path()).unwrap();
+
+        for module in [
+            "debugConsole",
+            "worldEditor",
+            "modloaderUi",
+            "network",
+            "runtimeDiagnostics",
+            "updates",
+        ] {
+            assert_eq!(config["modules"][module]["enabled"], true, "{module}");
+        }
+        assert_eq!(crate::config::window_state(root.path()), serde_json::json!({}));
+    }
+
+    #[test]
+    fn explicitly_disabled_module_stays_disabled() {
+        let root = tempfile::tempdir().unwrap();
+        let config_path = crate::paths::loader_config(root.path());
+        fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+        fs::write(
+            config_path,
+            br#"{"schemaVersion":1,"modules":{"network":{"enabled":false}}}"#,
+        )
+        .unwrap();
+
+        let config = read_loader(root.path()).unwrap();
+
+        assert_eq!(config["modules"]["network"]["enabled"], false);
+        for module in [
+            "debugConsole",
+            "worldEditor",
+            "modloaderUi",
+            "runtimeDiagnostics",
+            "updates",
+        ] {
+            assert_eq!(config["modules"][module]["enabled"], true, "{module}");
+        }
+    }
+}

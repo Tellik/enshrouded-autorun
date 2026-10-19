@@ -71,7 +71,8 @@ impl IngameRuntime {
                 restrict_network_clients,
             );
         }
-        let (plan, mut errors) = super::plan_runtime_mods::plan_runtime_mods(env, &root, is_server);
+        let (plan, mut errors) =
+            super::plan_runtime_mods::plan_runtime_mods(env, &root, is_server, &loader_config);
         let loaded = plan
             .iter()
             .map(|item| {
@@ -92,14 +93,23 @@ impl IngameRuntime {
             &mut diagnostics,
             &mut errors,
         )?;
+        let world_editor_enabled = loader_config
+            .pointer("/modules/worldEditor/enabled")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(true);
         let configurations = env
             .mod_registry()
             .values()
             .map(|item| {
+                let mut configuration =
+                    serde_json::to_value(item.info()).expect("manifest is serializable");
+                if item.info().id == "world-editor" && !world_editor_enabled {
+                    configuration["enabled"] = false.into();
+                }
                 (
                     item.info().id.clone(),
                     item.fs().root().as_std_path().to_path_buf(),
-                    serde_json::to_value(item.info()).expect("manifest is serializable"),
+                    configuration,
                 )
             })
             .collect();

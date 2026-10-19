@@ -228,12 +228,12 @@
       }
     },
     "worldEditor": {
-      "enabled": false,
+      "enabled": true,
       "toggleKey": 113,
       "refreshMilliseconds": 400
     },
     "modloaderUi": {
-      "enabled": false,
+      "enabled": true,
       "startPage": "news",
       "toggleKey": 120,
       "refreshMilliseconds": 1000,
@@ -242,12 +242,12 @@
       }
     },
     "network": {
-      "enabled": false,
+      "enabled": true,
       "serverSteamId": "",
       "allowedClientSteamIds": ""
     },
     "runtimeDiagnostics": {
-      "enabled": false,
+      "enabled": true,
       "sessionActive": false,
       "intervalMilliseconds": 2000,
       "continuous": true,
@@ -258,7 +258,7 @@
       "requestId": 0
     },
     "updates": {
-      "enabled": false,
+      "enabled": true,
       "window": {
         "position": null
       },

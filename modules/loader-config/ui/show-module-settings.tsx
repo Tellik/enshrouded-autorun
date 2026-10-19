@@ -226,6 +226,11 @@ export function ModulePreferencesEditor({
                 enabled={moduleEnabled(module)}
                 onChange={(value) => change(module, 'enabled', value)}
               />
+              {!moduleEnabled(module) && module !== 'runtimeDiagnostics' && (
+                <p className="builder-notice warning" role="status">
+                  {t('settings.moduleUnavailable')}
+                </p>
+              )}
               {module === 'debugConsole' && (
                 <p className="hint settings-module-hint">
                   {t('settings.modules.debugConsole.popupHint')}

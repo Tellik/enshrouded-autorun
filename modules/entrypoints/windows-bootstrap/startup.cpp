@@ -38,7 +38,7 @@ std::filesystem::path shroudforge_directory(const std::filesystem::path& root) {
 void startup_failed(const std::filesystem::path& root, const char* stage,
         const std::string& detail) {
     log('E', std::string("Startup failed at ") + stage + ": " + detail);
-    if (!is_dedicated_server_process()) start_recovery_update_window(root);
+    if (!is_dedicated_server_process()) show_startup_error(root, detail);
 }
 
 bool is_supported_game_process() {

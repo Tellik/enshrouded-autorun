@@ -10,6 +10,13 @@ pub fn configuration(root: &Path, server: bool, api: &str) -> Value {
         shroudforge_runtime_diagnostics::documents::MOD_STATUS,
     )
     .ok();
+    let world_editor_module_enabled = shroudforge_loader_config::config::read_loader(root)
+        .ok()
+        .and_then(|config| {
+            config
+                .pointer("/modules/worldEditor/enabled")
+                .and_then(Value::as_bool)
+        });
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -152,13 +159,23 @@ pub fn configuration(root: &Path, server: bool, api: &str) -> Value {
                 let dll_still_loaded = native_dll_effect
                     .and_then(|value| value["state"].as_str())
                     .is_some_and(|state| matches!(state, "loading" | "loaded"));
-                let state = if runtime_mod
+                let state = if manifest.id == "world-editor"
+                    && world_editor_module_enabled == Some(false)
+                {
+                    json!({"state":"disabled","code":"module-disabled","detail":"World Editor module was intentionally disabled in Settings. The World Editor mod is unavailable until it is enabled."})
+                } else if runtime_mod
                     && runtime_error.is_some_and(|reason| {
                         reason.starts_with("plan-blocked:")
                             || reason.starts_with("dependency-blocked:")
-                    }) {
+                    })
+                {
                     let reason = runtime_error.unwrap();
                     json!({"state":"blocked","code":"runtime-plan","detail":reason.split_once(": ").map(|(_, detail)| detail).unwrap_or(reason)})
+                } else if runtime_mod
+                    && runtime_error.is_some_and(|reason| reason.starts_with("restart-required:"))
+                {
+                    let reason = runtime_error.unwrap();
+                    json!({"state":"restart-required","code":"runtime-restart-required","detail":reason.split_once(": ").map(|(_, detail)| detail).unwrap_or(reason)})
                 } else if runtime_mod && runtime_error.is_some() {
                     json!({"state":"failed","detail":runtime_error.unwrap()})
                 } else if manifest.enabled
@@ -517,7 +534,7 @@ mod tests {
     }
 
     #[test]
-    fn installed_update_state_uses_the_updates_section_schema() {
+    fn installed_update_state_preserves_the_window_state_section() {
         let root = tempfile::tempdir().expect("temporary installation root");
         shroudforge_loader_config::config::write_document(
             root.path(),
@@ -533,11 +550,10 @@ mod tests {
             "installedAt": 1,
             "backup": "backup/1"
         });
-        shroudforge_loader_config::config::write_json(
-            &shroudforge_loader_config::paths::state_file(root.path()),
-            &json!({"updates": update}),
-        )
-        .expect("installed update state");
+        shroudforge_loader_config::config::update_state_section(root.path(), "updates", |_| {
+            Ok(update.clone())
+        })
+        .expect("installed update state section");
         assert_eq!(
             serde_json::from_slice::<Value>(
                 &fs::read(shroudforge_loader_config::paths::state_file(root.path()))

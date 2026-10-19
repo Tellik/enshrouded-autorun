@@ -81,8 +81,8 @@ pub fn default_system_provider() -> ProviderConfig {
     ProviderConfig {
         enabled: true,
         kind: "github-releases".into(),
-        base_url: "https://api.github.com".into(),
-        project_id: "bonsaibauer/shroudforge".into(),
+        base_url: shroudforge_release_feed::GITHUB_API_BASE_URL.into(),
+        project_id: shroudforge_release_feed::SHROUDFORGE_PROJECT_ID.into(),
         loader: default_loader(),
         check_minutes: 60,
         include_prereleases: false,

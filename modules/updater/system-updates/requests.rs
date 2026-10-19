@@ -1,6 +1,9 @@
 use crate::*;
 #[cfg(windows)]
 pub fn request_staged_install(root: &std::path::Path, pid: u32) -> Result<(), String> {
+    if !crate::update_check::updates_enabled(root) {
+        return Err(crate::UPDATE_MODULE_DISABLED_MESSAGE.into());
+    }
     let staged = shroudforge_loader_config::paths::updates_dir(root).join("pending");
     let release: serde_json::Value = serde_json::from_slice(
         &std::fs::read(staged.join("shroudforge/version.json"))

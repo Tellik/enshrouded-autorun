@@ -30,6 +30,11 @@ export function Updates({
   const updaterAvailable = data.release.updaterAvailable === true
   const enabled = data.enabled === true
   const actionsEnabled = updaterAvailable && enabled
+  const moduleUnavailable =
+    !!commandError &&
+    /intentionally disabled in Settings|is disabled in module settings/i.test(
+      commandError,
+    )
   const queueFailureMessages = [
     queue.error,
     queue.run?.error,
@@ -80,8 +85,11 @@ export function Updates({
         }
       />
       {commandError && !commandErrorAlreadyShown && (
-        <p className="notice" role="alert">
-          {commandError}
+        <p
+          className={moduleUnavailable ? 'notice warning' : 'notice error'}
+          role={moduleUnavailable ? 'status' : 'alert'}
+        >
+          {moduleUnavailable ? t('settings.moduleUnavailable') : commandError}
         </p>
       )}
       <UpdaterAvailability

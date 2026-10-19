@@ -188,8 +188,44 @@ pub(crate) fn run_module() -> Result<(), Box<dyn std::error::Error>> {
                         Command::Drag => {}
                         Command::Manager(open) => set_manager_open(open, &mut manager_open, &window, &arguments, panel_width, panel_height, panel_position_x, panel_position_y, library_expanded, library_expanded_height),
                         Command::LibraryExpanded { expanded, height } => set_library_expanded(expanded, height, &mut library_expanded, &mut library_expanded_height, manager_open, &window, &arguments, panel_width, panel_height, panel_position_x, panel_position_y),
-                        Command::Action { action, value } if module_enabled => run_blueprint_action(action, value, &arguments, &webview, &mut next_refresh),
-                        Command::Action { .. } => {}
+                        Command::Action { action, value } => {
+                            match shroudforge_loader_config::config::read_loader(&arguments.root) {
+                                Ok(config)
+                                    if config
+                                        .pointer("/modules/worldEditor/enabled")
+                                        .and_then(serde_json::Value::as_bool)
+                                        .unwrap_or(false) =>
+                                {
+                                    run_blueprint_action(
+                                        action,
+                                        value,
+                                        &arguments,
+                                        &webview,
+                                        &mut next_refresh,
+                                    );
+                                }
+                                Ok(_) => {
+                                    let message = "World Editor module was intentionally disabled in Settings. The blueprint service is unavailable until it is enabled.";
+                                    log_world_editor(&arguments.root, 'W', "request", message);
+                                    let _ = webview.evaluate_script(&format!(
+                                        "window.__worldEditorNotice({}, 'warn');",
+                                        serde_json::to_string(message)
+                                            .unwrap_or_else(|_| "\"\"".into())
+                                    ));
+                                }
+                                Err(error) => {
+                                    let message = format!(
+                                        "World Editor action is unavailable because module settings could not be read: {error}"
+                                    );
+                                    log_world_editor(&arguments.root, 'E', "request", &message);
+                                    let _ = webview.evaluate_script(&format!(
+                                        "window.__worldEditorNotice({}, 'error');",
+                                        serde_json::to_string(&message)
+                                            .unwrap_or_else(|_| "\"\"".into())
+                                    ));
+                                }
+                            }
+                        }
 
                     }
                 }
@@ -249,6 +285,10 @@ pub(crate) fn run_module() -> Result<(), Box<dyn std::error::Error>> {
                                 "worldEditor",
                                 module_enabled && window_visible,
                             );
+                            if !module_enabled {
+                                *control_flow = ControlFlow::Exit;
+                                return;
+                            }
                         }
                     }
                     next_settings_poll = Instant::now() + Duration::from_millis(300);

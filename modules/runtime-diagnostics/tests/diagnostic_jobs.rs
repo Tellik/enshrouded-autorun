@@ -4,6 +4,11 @@ use std::time::{Duration, Instant};
 #[test]
 fn disabled_module_does_not_measure_and_enabled_snapshot_finishes() {
     let root = tempfile::tempdir().unwrap();
+    shroudforge_loader_config::config::update_loader(root.path(), |value| {
+        value["modules"]["runtimeDiagnostics"]["enabled"] = json!(false);
+        Ok(())
+    })
+    .unwrap();
     let mut session = Session::new(root.path());
     session.measure(
         "mods",
