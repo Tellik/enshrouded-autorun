@@ -11,6 +11,7 @@ impl IngameRuntime {
                 if std::time::Instant::now() < item.next_update {
                     continue;
                 }
+                self.diagnostics.release_mod_host(&item.id);
                 if item.try_unload(&self.runner.lua).is_ok() {
                     self.runner
                         .lua
@@ -66,6 +67,7 @@ impl IngameRuntime {
                         "on_update failed: {error}");
                     self.errors
                         .insert(item.id.clone(), format!("on_update failed: {error}").into());
+                    self.diagnostics.release_mod_host(&item.id);
                     if let Err(cleanup) = item.try_unload(&self.runner.lua) {
                         tracing::error!(target: "shroudforge::runtime", mod_id = %item.id,
                             "Update rollback is pending and will be retried: {cleanup}");

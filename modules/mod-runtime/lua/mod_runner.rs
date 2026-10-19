@@ -17,6 +17,26 @@ pub struct LuaModRunner {
 }
 
 impl LuaModRunner {
+    /// The job has its own globals while retaining the real mod's bound APIs.
+    pub(crate) fn diagnostic_environment(&self, mod_id: &str) -> mlua::Result<mlua::Table> {
+        let source = self.state.environment(mod_id).ok_or_else(|| {
+            mlua::Error::runtime(format!("diagnostic API owner is not loaded: {mod_id}"))
+        })?;
+        let env = self.lua.create_table()?;
+        for entry in source.pairs::<mlua::Value, mlua::Value>() {
+            let (key, value) = entry?;
+            if key
+                .as_string()
+                .is_some_and(|name| name.as_bytes().as_ref() == b"_G")
+            {
+                continue;
+            }
+            env.raw_set(key, value)?;
+        }
+        env.raw_set("_G", env.clone())?;
+        Ok(env)
+    }
+
     pub fn new(context: AppState) -> mlua::Result<Self> {
         let lua = LuaVM::new()?;
         let state = Rc::new(RunnerState::default());

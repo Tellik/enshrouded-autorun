@@ -48,6 +48,13 @@ impl Drop for LoadingGuard<'_> {
 }
 
 impl RunnerState {
+    pub(crate) fn environment(&self, mod_id: &str) -> Option<Table> {
+        self.mods
+            .borrow()
+            .get(mod_id)
+            .map(|state| state.env.clone())
+    }
+
     #[inline]
     pub fn mods(&self) -> Ref<'_, indexmap::IndexMap<String, ModLuaState>> {
         self.mods.borrow()

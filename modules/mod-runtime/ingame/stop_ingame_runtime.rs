@@ -2,6 +2,7 @@ use super::IngameRuntime;
 
 impl Drop for IngameRuntime {
     fn drop(&mut self) {
+        self.diagnostics.release_runtime_host();
         for item in self.lifecycle.iter_mut().rev() {
             if !item.active {
                 continue;

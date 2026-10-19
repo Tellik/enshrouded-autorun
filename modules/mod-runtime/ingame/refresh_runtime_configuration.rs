@@ -203,6 +203,7 @@ impl IngameRuntime {
                             .and_then(|result| result)
                             .map_err(|error| error.to_string())
                     } else if item.active {
+                        self.diagnostics.release_mod_host(id);
                         item.try_unload(&self.runner.lua)
                             .map_err(|error| error.to_string())
                     } else {

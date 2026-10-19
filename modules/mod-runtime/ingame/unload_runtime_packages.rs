@@ -8,6 +8,7 @@ impl IngameRuntime {
             if !mod_ids.iter().any(|id| id == &item.id) || !item.active {
                 continue;
             }
+            self.diagnostics.release_mod_host(&item.id);
             if let Err(error) = item.try_unload(&self.runner.lua) {
                 let mod_id = item.id.clone();
                 self.restore_previous_runtime(&unloaded_ids);
