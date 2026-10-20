@@ -128,7 +128,7 @@ A file contains the implementation of the action named by that file. Related hel
 | What you want to change | Open this file |
 | --- | --- |
 | Find installed mods | `modules/modloader/find_installed_mods.rs` |
-| Find Enshrouded character saves and read the current character name | `modules/player-name/lib.rs` |
+| Read the live player name from the Enshrouded login log or character menu memory, and persist successful detections | `modules/player-name/lib.rs`, `modules/player-name/read_game_login_player_name.rs`, `modules/player-name/read_live_character_selection.rs` |
 | Read a mod's information | `modules/modloader/read_mod_manifest.rs` |
 | Save mod settings | `modules/modloader/save_mod_settings.rs` |
 | Change a mod's enabled state | `modules/modloader/set_mod_enabled.rs` |

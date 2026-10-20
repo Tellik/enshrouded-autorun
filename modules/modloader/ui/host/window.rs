@@ -867,8 +867,13 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                         id: &item.id, name: &item.name, version: &item.version, ecosystem: item.ecosystem, changelog: &item.changelog,
                     }).collect();
                     shroudforge_news::sync_mod_events(&arguments.root, &notification_mods);
+                    let game_process_id =
+                        (!arguments.desktop && !arguments.server).then_some(arguments.game_pid);
                     let player_name_detection =
-                        shroudforge_player_name::detect_active_character(&arguments.root);
+                        shroudforge_player_name::detect_active_character_for_process(
+                            &arguments.root,
+                            game_process_id,
+                        );
                     let (snapshot, resolved_player_name) = read_ui_snapshot(
                         &arguments,
                         &active_provider,

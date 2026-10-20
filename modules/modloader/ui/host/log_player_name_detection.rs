@@ -34,6 +34,9 @@ pub(crate) fn log_player_name_detection(
         (shroudforge_player_name::NameSource::Live, false) => {
             ("Character name detected live", "info")
         }
+        (shroudforge_player_name::NameSource::GameLog, false) => {
+            ("Player name detected from Enshrouded log", "info")
+        }
         (shroudforge_player_name::NameSource::Saved, false) => {
             ("Saved character name used", "info")
         }

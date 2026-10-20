@@ -1,3 +1,4 @@
+mod read_game_login_player_name;
 mod read_live_character_selection;
 
 use serde_json::{Value, json};
@@ -8,13 +9,15 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const DETECTION_CACHE_DURATION: Duration = Duration::from_secs(5);
 
-static DETECTION_CACHE: OnceLock<Mutex<HashMap<PathBuf, (Instant, DetectionReport)>>> =
-    OnceLock::new();
+static DETECTION_CACHE: OnceLock<
+    Mutex<HashMap<(PathBuf, Option<u32>), (Instant, DetectionReport)>>,
+> = OnceLock::new();
 static SAVED_NAME_CACHE: OnceLock<Mutex<HashMap<PathBuf, SavedNameEntry>>> = OnceLock::new();
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DetectionStatus {
     Detected,
+    DetectedFromGameLog,
     GameNotRunning,
     MultipleGameProcesses,
     SelectionScanInProgress,
@@ -26,7 +29,10 @@ pub enum DetectionStatus {
 impl DetectionStatus {
     pub fn description(self) -> &'static str {
         match self {
-            Self::Detected => "The selected character name was read from the live game UI",
+            Self::Detected => "The selected character name was read from live game UI memory",
+            Self::DetectedFromGameLog => {
+                "The player name was read from the live Enshrouded login log"
+            }
             Self::GameNotRunning => "The Enshrouded client is not running",
             Self::MultipleGameProcesses => {
                 "More than one Enshrouded client is running, so the UI source is ambiguous"
@@ -35,7 +41,7 @@ impl DetectionStatus {
                 "The live game UI is being scanned for the selected character"
             }
             Self::SelectionNotFound => {
-                "No character UI record matching the supported text pattern was found"
+                "No player login name or supported character UI record was found"
             }
             Self::ProcessMemoryUnreadable => "The Enshrouded process memory could not be read",
             Self::UnsupportedPlatform => "Live character selection is supported only on Windows",
@@ -46,6 +52,7 @@ impl DetectionStatus {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NameSource {
     Live,
+    GameLog,
     Saved,
     Fallback,
 }
@@ -54,6 +61,7 @@ impl NameSource {
     pub fn key(self) -> &'static str {
         match self {
             Self::Live => "live",
+            Self::GameLog => "live",
             Self::Saved => "saved",
             Self::Fallback => "fallback",
         }
@@ -61,7 +69,8 @@ impl NameSource {
 
     pub fn description(self) -> &'static str {
         match self {
-            Self::Live => "Live character name detected",
+            Self::Live => "Live character name detected from game UI memory",
+            Self::GameLog => "Live player name detected from Enshrouded login log",
             Self::Saved => "Previously detected character name used",
             Self::Fallback => "Configured fallback used",
         }
@@ -97,7 +106,11 @@ impl DetectionReport {
         if let Some(name) = &self.name {
             return ResolvedName {
                 name: name.clone(),
-                source: NameSource::Live,
+                source: if self.status == DetectionStatus::DetectedFromGameLog {
+                    NameSource::GameLog
+                } else {
+                    NameSource::Live
+                },
             };
         }
         if let Some(name) = &self.saved_name {
@@ -122,8 +135,22 @@ struct SavedNameEntry {
 }
 
 pub fn detect_active_character(root: &Path) -> DetectionReport {
-    let mut report = read_live_with_short_cache(root);
+    detect_active_character_for_process(root, None)
+}
+
+pub fn detect_active_character_for_process(
+    root: &Path,
+    game_process_id: Option<u32>,
+) -> DetectionReport {
+    let mut report = read_live_with_short_cache(root, game_process_id);
     let mut saved = load_saved_name(root);
+
+    if report.status == DetectionStatus::DetectedFromGameLog
+        && let (Some(live_name), Some(saved_name)) = (report.name.as_deref(), saved.name.as_deref())
+        && live_name.eq_ignore_ascii_case(saved_name)
+    {
+        report.name = Some(saved_name.to_owned());
+    }
 
     if let Some(name) = report.name.as_deref() {
         saved = persist_live_name(root, name, saved);
@@ -134,8 +161,8 @@ pub fn detect_active_character(root: &Path) -> DetectionReport {
     report
 }
 
-fn read_live_with_short_cache(root: &Path) -> DetectionReport {
-    let key = root.to_path_buf();
+fn read_live_with_short_cache(root: &Path, game_process_id: Option<u32>) -> DetectionReport {
+    let key = (root.to_path_buf(), game_process_id);
     let cache = DETECTION_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     if let Ok(mut cache) = cache.lock() {
         if let Some((sampled_at, report)) = cache.get(&key)
@@ -144,12 +171,44 @@ fn read_live_with_short_cache(root: &Path) -> DetectionReport {
             return report.clone();
         }
 
-        let report = read_live_character_selection::read_live_character_selection();
+        let report = read_live(root, game_process_id);
         cache.insert(key, (Instant::now(), report.clone()));
         return report;
     }
 
-    read_live_character_selection::read_live_character_selection()
+    read_live(root, game_process_id)
+}
+
+fn read_live(root: &Path, game_process_id: Option<u32>) -> DetectionReport {
+    if let Some(process_id) = game_process_id
+        && let Some(name) = read_game_login_player_name::read_active_player_name(root)
+    {
+        return report_from_game_log(name, process_id);
+    }
+
+    let report = read_live_character_selection::read_live_character_selection();
+    if report.name.is_some() {
+        return report;
+    }
+
+    let process_id = game_process_id.or(report.process_id);
+    if let Some(process_id) = process_id
+        && let Some(name) = read_game_login_player_name::read_active_player_name(root)
+    {
+        return report_from_game_log(name, process_id);
+    }
+
+    report
+}
+
+fn report_from_game_log(name: String, process_id: u32) -> DetectionReport {
+    DetectionReport {
+        name: Some(name),
+        saved_name: None,
+        status: DetectionStatus::DetectedFromGameLog,
+        process_id: Some(process_id),
+        cache_error: None,
+    }
 }
 
 fn load_saved_name(root: &Path) -> SavedNameEntry {
@@ -256,6 +315,21 @@ mod tests {
             report(Some("BonsaiBauer"), Some("OldName")).resolve_name(false, "Flameborn");
         assert_eq!(resolved.name, "BonsaiBauer");
         assert_eq!(resolved.source, NameSource::Live);
+    }
+
+    #[test]
+    fn game_log_name_is_reported_as_a_live_source() {
+        let detected = DetectionReport {
+            name: Some("bonsaibauer".into()),
+            saved_name: None,
+            status: DetectionStatus::DetectedFromGameLog,
+            process_id: Some(31280),
+            cache_error: None,
+        };
+        let resolved = detected.resolve_name(false, "Flameborn");
+        assert_eq!(resolved.name, "bonsaibauer");
+        assert_eq!(resolved.source, NameSource::GameLog);
+        assert_eq!(resolved.source.key(), "live");
     }
 
     #[test]
