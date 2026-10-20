@@ -1,4 +1,5 @@
 #include "bootstrap_state.h"
+#include "../../game-improvements/native/enable_no_intro.h"
 
 using namespace BootstrapImplementation;
 
@@ -90,6 +91,11 @@ DWORD WINAPI run(void*) {
     startup_stage(root, "native-provider-init");
     if (!EcsRuntime::Initialize()) {
         log('W', "KFC Runtime initialization failed: " + EcsRuntime::Status());
+    }
+    if (!is_dedicated_server_process()) {
+        if (const auto no_intro_error = GameImprovements::EnableNoIntro(root)) {
+            log('W', *no_intro_error);
+        }
     }
     log("Startup assets and native-provider setup complete. Releasing the game entrypoint");
     startup.release();
