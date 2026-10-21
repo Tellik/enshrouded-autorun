@@ -36,7 +36,7 @@ editor.readiness_logged = false
 editor.readiness_wait_logged = false
 editor.native_readiness_state = "waiting"
 editor.native_readiness_reason = "Waiting for the first native world readiness sample."
-editor.last_readiness_signature = nil
+editor.last_readiness_log_state = nil
 editor.maximum_blueprint_bytes = 256 * 1024 * 1024
 editor.maximum_supported_props = 1000000
 editor.default_maximum_copyable_props = 60000
@@ -255,9 +255,9 @@ return {
             editor.native_readiness_state = editor.readiness_logged and "ready" or
                 (permanently_unavailable and "unavailable" or "waiting")
             editor.native_readiness_reason = editor.readiness_logged and "Native world APIs are ready." or table.concat(missing, ", ")
-            local signature = tostring(editor.current_session()) .. "|" .. editor.native_readiness_state .. "|" .. editor.native_readiness_reason
-            if signature ~= editor.last_readiness_signature then
-                editor.last_readiness_signature = signature
+            local readiness_log_state = tostring(editor.current_session()) .. "|" .. editor.native_readiness_state .. "|" .. editor.native_readiness_reason
+            if readiness_log_state ~= editor.last_readiness_log_state then
+                editor.last_readiness_log_state = readiness_log_state
                 if editor.readiness_logged then
                     shroudforge.log.info("World Editor native entity APIs ready: F3 rotate, F4 undo, F5 mark A/B, F6 reset, F7 paste, F8 capture/save.")
                 else
