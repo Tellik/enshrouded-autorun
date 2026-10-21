@@ -332,7 +332,7 @@ def write_aggregate(args: argparse.Namespace) -> None:
         "release_scanners": release_job,
         "virustotal": virustotal_job,
     }
-    artifact_url = f"https://github.com/{repository}/actions/runs/{run_id}/artifacts" if repository and run_id else None
+    artifact_url = f"https://github.com/{repository}/actions/runs/{run_id}" if repository and run_id else None
     aggregate = {
         "run_id": run_id or None,
         "repository": repository or None,
@@ -411,7 +411,7 @@ def write_aggregate(args: argparse.Namespace) -> None:
         ]
     )
     if artifact_url:
-        lines.append(f"[Open security report bundle]({artifact_url})")
+        lines.append(f"[Open workflow run and its artifacts]({artifact_url})")
     markdown = "\n".join(lines) + "\n"
     (output_dir / "release-security-report.md").write_text(markdown, encoding="utf-8")
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
