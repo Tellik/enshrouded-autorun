@@ -32,7 +32,13 @@ local cursor_paths = {
     "fromClient.digitalInput", "fromAdminClient.adminSpawnCommand.count", "fromAdminClient.adminSpawnCommand.level",
 }
 local consumer_paths = {"inputConsumer.consumedInputs", "inputConsumer.logicalStates", "inputConsumer.totalPreviousInputs"}
-local report = {schema=1, kind="typed-input-api-read-only", state="waiting-world", accumulated_callback_delta=0,
+local bitmask_paths = {
+    ["fromClient.cursorInput.primaryFlags"]=true, ["fromClient.cursorInput.secondaryFlags"]=true,
+    ["fromClient.digitalInput"]=true, ["inputConsumer.consumedInputs"]=true,
+    ["inputConsumer.logicalStates"]=true, ["inputConsumer.totalPreviousInputs"]=true,
+}
+local report = {schema=2, kind="typed-input-api-read-only", state="waiting-world", accumulated_callback_delta=0,
+    value_encoding="scalars-and-named-bitmasks",
     observation_clock="accumulated_callback_delta",
     sessions={}, session_events={}, discarded_session_reads=0, errors={},
     bounds={samples_per_session=16, player_samples_per_round=2, retained_sessions=4, successful_rounds=8},
@@ -114,6 +120,34 @@ local function switch_session(session)
     report.state = "waiting-registry"
 end
 
+local function snapshot_value(value, path)
+    local kind = type(value)
+    -- The shared reflected codec exposes bitmasks as an owned array of enum
+    -- names. Copy only these known mask fields, without numeric coercion or
+    -- serializing arbitrary userdata. Empty masks are valid observations.
+    if bitmask_paths[path] and (kind == "userdata" or kind == "table") then
+        local ok, snapshot = pcall(function()
+            local count, names = #value, {}
+            if count < 0 or count > 64 or count % 1 ~= 0 then error("invalid bitmask length") end
+            for index=1,count do
+                local name = value[index]
+                if type(name) ~= "string" or #name == 0 or #name > 160 then error("invalid bitmask name") end
+                names[index] = name
+            end
+            return {kind="named-bitmask", names=names}
+        end)
+        if ok then return snapshot end
+        return nil, "reader returned an invalid named bitmask for " .. path
+    end
+    if kind ~= "number" and kind ~= "boolean" and kind ~= "string" then
+        return nil, "reader returned a non-scalar for " .. path
+    end
+    if kind == "number" and (value ~= value or value == math.huge or value == -math.huge) then
+        return nil, "reader returned a nonfinite number for " .. path
+    end
+    return value
+end
+
 local function read_fields(handle, component, paths)
     if not current or runtime.world.session_id() ~= current.session_id then
         return {state="session-changed", reason="world changed before field read"}
@@ -124,13 +158,9 @@ local function read_fields(handle, component, paths)
     for _, path in ipairs(paths) do
         local value = values[path]
         if value == nil then return {state="unavailable", reason="reader omitted selected field " .. path} end
-        if type(value) ~= "number" and type(value) ~= "boolean" and type(value) ~= "string" then
-            return {state="unavailable", reason="reader returned a non-scalar for " .. path}
-        end
-        if type(value) == "number" and (value ~= value or value == math.huge or value == -math.huge) then
-            return {state="unavailable", reason="reader returned a nonfinite number for " .. path}
-        end
-        result.values[path] = value
+        local snapshot, failure = snapshot_value(value, path)
+        if snapshot == nil then return {state="unavailable", reason=failure} end
+        result.values[path] = snapshot
     end
     return result
 end
@@ -208,7 +238,7 @@ local function round(session)
     current.query = query
     local successful = false
     for _, player in ipairs(sample.players) do
-        if player.stable_versions then
+        if player.stable_versions and player.cursor_input.state == "read" and player.consumer.state == "read" then
             successful = true
             for _, pair in ipairs(version_pairs) do
                 local observation = {handle=player.handle, pair=pair.key,
@@ -220,7 +250,7 @@ local function round(session)
     end
     if successful then
         current.successful_rounds = current.successful_rounds + 1
-        report.findings.reading = "stable-version-pairs-observed"
+        report.findings.reading = "input-masks-and-stable-version-pairs-observed"
     end
     bounded_push(current.samples, sample, 16)
     if current.successful_rounds >= 8 then current.state, report.state = "observed", "observed" end

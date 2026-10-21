@@ -49,6 +49,16 @@ local function fixture(mode)
             local fields = {}
             for _, path in ipairs(paths) do
                 fields[path] = path:match("%.version$") and f.version or 0
+                if path:match("Flags$") or path:match("digitalInput$") or path:match("^inputConsumer%.") then
+                    if mode=="named-bitmasks" then
+                        fields[path] = fixture_named_mask(path:match("primaryFlags$") and {} or {"BuildingUndo"})
+                    elseif mode=="invalid-bitmask" then
+                        fields[path] = {17}
+                    elseif mode=="oversized-bitmask" then
+                        fields[path] = {}
+                        for index=1,65 do fields[path][index]="BuildingUndo" end
+                    end
+                end
                 if mode=="consumed-different" and component=="keen::ecs::ServerConsumedPlayerInput" and path:match("%.version$") then
                     fields[path] = f.version-1
                 end
@@ -91,6 +101,23 @@ assert(session.registrations["keen::ecs::PlayerInput"].write_fields_available==f
     "successful reads must retain independently denied writability")
 assert(waiting.report.findings.consume_contract=="unverified-read-only-observation",
     "equal versions do not prove command consumption")
+local named = fixture("named-bitmasks")
+named.session=17
+named:step(20)
+local named_player = named.report.sessions[1].samples[1].players[1]
+assert(named.report.state=="observed" and named.report.schema==2)
+assert(named_player.cursor_input.values["fromClient.digitalInput"].kind=="named-bitmask"
+    and named_player.cursor_input.values["fromClient.digitalInput"].names[1]=="BuildingUndo")
+assert(named_player.consumer.values["inputConsumer.consumedInputs"].names[1]=="BuildingUndo"
+    and next(named_player.cursor_input.values["fromClient.cursorInput.primaryFlags"].names)==nil,
+    "named and empty bitmask userdata must be copied without numeric coercion")
+for _, mode in ipairs({"invalid-bitmask","oversized-bitmask"}) do
+    local invalid=fixture(mode)
+    invalid.session=17
+    invalid:step(20)
+    assert(invalid.report.sessions[1].successful_rounds==0 and invalid.report.state~="observed",
+        "invalid input masks must never count as a completed input observation")
+end
 local reads_before = waiting.reads
 waiting:step(8)
 assert(waiting.reads==reads_before, "a completed session must stop sampling")

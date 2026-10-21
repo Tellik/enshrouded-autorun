@@ -114,6 +114,19 @@ fn typed_input_observation_separates_readability_from_consumption_and_sessions()
 {
     let lua = Lua::new();
     install_report_codec(&lua)?;
+    struct NamedMask(Vec<String>);
+    impl mlua::UserData for NamedMask {
+        fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+            methods.add_meta_method(mlua::MetaMethod::Len, |_, this, ()| Ok(this.0.len()));
+            methods.add_meta_method(mlua::MetaMethod::Index, |_, this, index: usize| {
+                Ok(index.checked_sub(1).and_then(|index| this.0.get(index)).cloned())
+            });
+        }
+    }
+    lua.globals().set(
+        "fixture_named_mask",
+        lua.create_function(|lua, names: Vec<String>| lua.create_userdata(NamedMask(names)))?,
+    )?;
     lua.globals().set(
         "typed_inputs_probe_source",
         job_source("world-editor.typed-inputs"),
