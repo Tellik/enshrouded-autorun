@@ -101,7 +101,7 @@ def write_trivy_report(args: argparse.Namespace) -> None:
         "sarif_file": sarif_path.name if sarif_path.is_file() else None,
         "finding_count": len(findings),
         "counts": counts,
-        "findings": findings[:100],
+        "findings": findings,
         "error": error,
     }
     write_json(Path(args.output), report)
@@ -144,7 +144,7 @@ def write_clamav_report(args: argparse.Namespace) -> None:
         "signature_update_status": args.signature_update_outcome,
         "scanned_file_count": int(scanned_match[-1]) if scanned_match else None,
         "finding_count": infected_count,
-        "findings": [{"level": "malware", "message": item} for item in detected[:100]],
+        "findings": [{"level": "malware", "message": item} for item in detected],
         "error": error,
     }
     write_json(Path(args.output), report)
@@ -188,17 +188,15 @@ def markdown_cell(value: Any) -> str:
     )
 
 
-def status_label(report: dict[str, Any], is_trivy: bool = False) -> str:
+def status_label(report: dict[str, Any]) -> str:
     status = report.get("status", "error")
-    if status == "clean":
-        return "No findings"
-    if status == "findings":
-        return "Findings, release not blocked" if is_trivy else "Findings, release blocked"
-    if status == "skipped":
-        return "Skipped"
-    if status == "error":
-        return "Error"
-    return str(status)
+    return {
+        "clean": "Clean",
+        "warning": "Warning",
+        "findings": "Findings",
+        "skipped": "Skipped",
+        "error": "Error",
+    }.get(str(status).lower(), str(status))
 
 
 def job_result_label(value: Any) -> str:
@@ -260,6 +258,18 @@ def report_notes(report: dict[str, Any]) -> str:
         notes.append(str(warning))
     if report.get("scanned_file_count") is not None:
         notes.append(f"Files scanned: {report['scanned_file_count']}")
+    if str(report.get("scanner", "")).lower() == "virustotal":
+        notes.append(f"Malicious: {report.get('malicious_count', 0)}")
+        notes.append(f"Suspicious: {report.get('suspicious_count', 0)}")
+        for item in report.get("files", []) or []:
+            archive = item.get("archive") or "Release ZIP"
+            sha256 = item.get("sha256")
+            report_url = item.get("report_url")
+            if sha256:
+                details = f"{archive}, SHA-256 {sha256}"
+                if report_url:
+                    details += f", VirusTotal report {report_url}"
+                notes.append(details)
     if report.get("sarif_upload_status"):
         notes.append(f"SARIF: {sarif_status_label(report['sarif_upload_status'])}")
     if report.get("error"):
@@ -295,7 +305,7 @@ def collect_details(reports: list[dict[str, Any]]) -> list[dict[str, str]]:
                 level = str(entry.get("level", "Finding"))
                 message = str(entry.get("message", ""))
             details.append({"scanner": scanner, "level": level, "finding": title, "message": message, "location": location})
-    return details[:50]
+    return details
 
 
 def write_aggregate(args: argparse.Namespace) -> None:
@@ -304,6 +314,7 @@ def write_aggregate(args: argparse.Namespace) -> None:
     source_job = os.environ.get("TRIVY_SOURCE_JOB_RESULT", "unknown")
     defender_job = os.environ.get("DEFENDER_JOB_RESULT", "unknown")
     release_job = os.environ.get("RELEASE_SCAN_JOB_RESULT", "unknown")
+    virustotal_job = os.environ.get("VIRUSTOTAL_JOB_RESULT", "unknown")
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     repository = os.environ.get("GITHUB_REPOSITORY", "")
 
@@ -311,35 +322,23 @@ def write_aggregate(args: argparse.Namespace) -> None:
     defender = load_report(report_root / "defender" / "defender-release-report.json", "Microsoft Defender Antivirus", "Release package", defender_job)
     release_trivy = load_report(report_root / "release" / "trivy-release.json", "Trivy", "Release package", release_job)
     clamav = load_report(report_root / "release" / "clamav-release.json", "ClamAV", "ZIP and extracted release files", release_job)
+    virustotal = load_report(report_root / "virustotal" / "virustotal-release.json", "VirusTotal", "Release ZIP files", virustotal_job)
 
-    packages_built = build_result.lower() == "success"
-    if not packages_built:
-        overall = "not_applicable" if build_result.lower() == "skipped" else "blocked"
-    else:
-        required_success = (
-            build_result.lower() == "success"
-            and source_job.lower() == "success"
-            and defender_job.lower() == "success"
-            and release_job.lower() == "success"
-            and defender.get("status") == "clean"
-            and clamav.get("status") == "clean"
-            and source.get("status") in {"clean", "findings"}
-            and release_trivy.get("status") in {"clean", "findings"}
-        )
-        overall = "ready" if required_success else "blocked"
-
-    reports = [source, defender, release_trivy, clamav]
+    reports = [source, defender, release_trivy, clamav, virustotal]
     job_results = {
         "build_and_package": build_result,
         "trivy_filesystem": source_job,
         "defender": defender_job,
         "release_scanners": release_job,
+        "virustotal": virustotal_job,
     }
     artifact_url = f"https://github.com/{repository}/actions/runs/{run_id}/artifacts" if repository and run_id else None
     aggregate = {
         "run_id": run_id or None,
         "repository": repository or None,
-        "overall_status": overall,
+        "ref": os.environ.get("GITHUB_REF_NAME") or None,
+        "version": os.environ.get("RELEASE_VERSION") or None,
+        "commit_sha": os.environ.get("GITHUB_SHA") or None,
         "job_results": job_results,
         "scanners": reports,
         "report_artifact_url": artifact_url,
@@ -349,28 +348,23 @@ def write_aggregate(args: argparse.Namespace) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     write_json(output_dir / "release-security-report.json", aggregate)
 
-    overall_label = {
-        "ready": "Checks completed. Release publication is approved.",
-        "blocked": "A check failed or blocking findings were detected. Release publication is blocked.",
-        "not_applicable": "No release package was built for this event.",
-    }[overall]
     lines = [
-        "# Unified release security report",
+        "# Release security scan results",
         "",
         f"**Run:** {run_id or 'unknown'}",
-        f"**Overall result:** {overall_label}",
+        f"**Version:** {os.environ.get('RELEASE_VERSION') or 'unknown'}",
+        f"**Commit:** {os.environ.get('GITHUB_SHA') or 'unknown'}",
         "",
-        "## Scans",
+        "## Scanner results",
         "",
-        "| Service | Scope | Result | Total | Errors | Warnings | Notes | SARIF | Version and signatures |",
+        "| Scanner | Scope | Result | Findings | Errors | Warnings | Notes | SARIF upload | Scanner details |",
         "|---|---|---|---:|---:|---:|---:|---|---|",
-        f"| Build and packaging | Release ZIP | {markdown_cell(job_result_label(build_result))} | — | — | — | — | — | — |",
     ]
-    for report, is_trivy in ((source, True), (defender, False), (release_trivy, True), (clamav, False)):
+    for report in reports:
         notes = report_notes(report)
         lines.append(
             f"| {markdown_cell(report.get('scanner'))} | {markdown_cell(report.get('target'))} | "
-            f"{markdown_cell(status_label(report, is_trivy))} | {markdown_cell(finding_count(report))} | "
+            f"{markdown_cell(status_label(report))} | {markdown_cell(finding_count(report))} | "
             f"{markdown_cell(count_cell(report, 'error'))} | {markdown_cell(count_cell(report, 'warning'))} | "
             f"{markdown_cell(count_cell(report, 'note'))} | {markdown_cell(report.get('sarif_upload_status', '—'))} | "
             f"{markdown_cell(notes)} |"
@@ -378,9 +372,7 @@ def write_aggregate(args: argparse.Namespace) -> None:
     lines.extend(
         [
             "",
-            "Trivy findings are counted. The SARIF file is retained as a workflow artifact and published to GitHub Code Scanning when the upload succeeds. Under the workflow policy, Trivy findings do not block publication. Microsoft Defender and ClamAV findings do block publication.",
-            "",
-            "## Job results",
+            "## Workflow job results",
             "",
             "| Job | Result |",
             "|---|---|",
@@ -388,30 +380,38 @@ def write_aggregate(args: argparse.Namespace) -> None:
             f"| Trivy filesystem scan | {markdown_cell(job_result_label(source_job))} |",
             f"| Microsoft Defender | {markdown_cell(job_result_label(defender_job))} |",
             f"| Trivy package scan and ClamAV | {markdown_cell(job_result_label(release_job))} |",
+            f"| VirusTotal release scan | {markdown_cell(job_result_label(virustotal_job))} |",
         ]
     )
 
     details = collect_details(reports)
-    lines.extend(["", "## Reported findings", ""])
+    lines.extend(["", "## Findings", ""])
     if details:
         lines.extend(
             [
-                "| Service | Severity | Finding | File or location |",
-                "|---|---|---|---|",
+                "| Scanner | Severity | Finding | Message | File or location |",
+                "|---|---|---|---|---|",
             ]
         )
         for item in details:
-            location = item["location"] or item["message"]
             lines.append(
                 f"| {markdown_cell(item['scanner'])} | {markdown_cell(item['level'])} | "
-                f"{markdown_cell(item['finding'])} | {markdown_cell(location)} |"
+                f"{markdown_cell(item['finding'])} | {markdown_cell(item['message'])} | "
+                f"{markdown_cell(item['location'])} |"
             )
     else:
-        lines.append("The available reports contain no individual findings. Skipped and failed scans are marked above.")
+        lines.append("No individual findings were included in the available scanner reports.")
 
-    lines.extend(["", "## Files", "", "The consolidated report, SARIF files, and raw reports are included in the workflow artifact."])
+    lines.extend(
+        [
+            "",
+            "## Included reports",
+            "",
+            "This bundle contains this Markdown report, the unified JSON report, available scanner JSON reports, SARIF files, raw logs, and the full VirusTotal Analysis API response.",
+        ]
+    )
     if artifact_url:
-        lines.append(f"[Open reports and SARIF artifacts]({artifact_url})")
+        lines.append(f"[Open security report bundle]({artifact_url})")
     markdown = "\n".join(lines) + "\n"
     (output_dir / "release-security-report.md").write_text(markdown, encoding="utf-8")
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
