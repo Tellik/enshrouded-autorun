@@ -184,7 +184,7 @@ export function NoticeCard({
         )}
         {!compact && item.kind === 'notice.welcome' && <ContributorList />}
         {!compact && item.changelog?.length ? (
-          <ul className="notice-changelog">
+          <ul className="notice-changelog" tabIndex={0}>
             {item.changelog.map((entry, index) => (
               <li key={`${index}-${entry}`}>{entry}</li>
             ))}

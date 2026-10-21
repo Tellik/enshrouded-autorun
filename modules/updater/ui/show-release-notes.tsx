@@ -92,5 +92,9 @@ export function ReleaseNotes({
       </p>,
     )
   }
-  return <div className="release-notes">{blocks}</div>
+  return (
+    <div className="release-notes" tabIndex={0}>
+      {blocks}
+    </div>
+  )
 }
