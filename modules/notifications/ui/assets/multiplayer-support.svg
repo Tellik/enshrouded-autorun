@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 390" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">Multiplayer support for all ShroudForge mods</title>
+  <desc id="desc">SF Crafting Essentials, SF Survival, SF Unlimited Flight, SF Unlock Blueprints, and World Editor support multiplayer.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1280" y2="390" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#17282D"/>
+      <stop offset="1" stop-color="#0B1417"/>
+    </linearGradient>
+    <linearGradient id="globe" x1="970" y1="85" x2="1080" y2="195" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A8F1DF"/>
+      <stop offset="1" stop-color="#347F88"/>
+    </linearGradient>
+    <linearGradient id="land" x1="990" y1="106" x2="1048" y2="166" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E1F5B3"/>
+      <stop offset="1" stop-color="#81C69F"/>
+    </linearGradient>
+    <linearGradient id="pencil" x1="1042" y1="157" x2="1092" y2="207" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF0B0"/>
+      <stop offset="1" stop-color="#CA9147"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" stroke="#A8F1DF" stroke-opacity=".045"/>
+    </pattern>
+  </defs>
+
+  <rect x="1" y="1" width="1278" height="388" rx="24" fill="url(#bg)" stroke="#38545A" stroke-width="2"/>
+  <rect x="1" y="1" width="1278" height="388" rx="24" fill="url(#grid)"/>
+
+  <g font-family="Segoe UI, Arial, sans-serif">
+    <text x="64" y="62" fill="#D0AE6D" font-size="15" font-weight="800" letter-spacing="3">SHROUDFORGE · MULTIPLAYER</text>
+    <text x="60" y="145" fill="#F3FFD9" font-size="62" font-weight="900" letter-spacing="-2">MULTIPLAYER SUPPORT</text>
+    <text x="64" y="197" fill="#A8F1DF" font-size="29" font-weight="750" letter-spacing=".4">FOR ALL SHROUDFORGE MODS</text>
+    <text x="64" y="239" fill="#B8C9C5" font-size="18" font-weight="550">The full ShroudForge mod collection, ready for your multiplayer world.</text>
+  </g>
+
+  <g transform="translate(64 275)" font-family="Segoe UI, Arial, sans-serif">
+    <g>
+      <rect width="210" height="48" rx="8" fill="#101D22" stroke="#38545A"/>
+      <circle cx="22" cy="24" r="5" fill="#D0AE6D"/>
+      <text x="38" y="29" fill="#E7EEEA" font-size="13" font-weight="700">Crafting Essentials</text>
+    </g>
+    <g transform="translate(222)">
+      <rect width="125" height="48" rx="8" fill="#101D22" stroke="#38545A"/>
+      <circle cx="22" cy="24" r="5" fill="#81C69F"/>
+      <text x="38" y="29" fill="#E7EEEA" font-size="13" font-weight="700">Survival</text>
+    </g>
+    <g transform="translate(359)">
+      <rect width="171" height="48" rx="8" fill="#101D22" stroke="#38545A"/>
+      <circle cx="22" cy="24" r="5" fill="#A8F1DF"/>
+      <text x="38" y="29" fill="#E7EEEA" font-size="13" font-weight="700">Unlimited Flight</text>
+    </g>
+    <g transform="translate(542)">
+      <rect width="195" height="48" rx="8" fill="#101D22" stroke="#38545A"/>
+      <circle cx="22" cy="24" r="5" fill="#E1F5B3"/>
+      <text x="38" y="29" fill="#E7EEEA" font-size="13" font-weight="700">Unlock Blueprints</text>
+    </g>
+    <g transform="translate(749)">
+      <rect width="151" height="48" rx="8" fill="#101D22" stroke="#38545A"/>
+      <circle cx="22" cy="24" r="5" fill="#CA9147"/>
+      <text x="38" y="29" fill="#E7EEEA" font-size="13" font-weight="700">World Editor</text>
+    </g>
+  </g>
+
+  <g transform="translate(930 34)">
+    <circle cx="135" cy="151" r="119" fill="#101D22" fill-opacity=".76" stroke="#38545A" stroke-width="2"/>
+    <circle cx="119" cy="133" r="66" fill="url(#globe)" stroke="#D1FFF2" stroke-width="3"/>
+    <path d="M53 133h132M119 67c-20 18-31 40-31 66s11 48 31 66m0-132c20 18 31 40 31 66s-11 48-31 66M70 99h98M70 167h98" stroke="#DDFFF4" stroke-width="2.3" stroke-linecap="round" opacity=".8"/>
+    <path d="m78 109 14-11 13 6 3 12-10 7 3 13-11 10-11-8-3-13 7-7-5-9Zm34-12 13-6 11 8-5 11-10 3-8-7 3-9Zm5 37 10-7 11 7-5 11-11 4-7-7 2-8Z" fill="url(#land)" stroke="#F3FFD9" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="m150 159 30-30a9 9 0 0 1 13 13l-30 30-20 7 7-20Z" fill="url(#pencil)" stroke="#FFF3C8" stroke-width="2.7" stroke-linejoin="round"/>
+    <path d="m173 136 13 13m-36 10 13 13" stroke="#79582E" stroke-width="2.4" stroke-linecap="round"/>
+
+    <g transform="translate(202 90)">
+      <rect width="63" height="43" rx="8" fill="#0B1417" stroke="#51696D" stroke-width="2"/>
+      <rect x="10" y="9" width="43" height="7" rx="3.5" fill="#D0AE6D"/>
+      <rect x="10" y="27" width="43" height="7" rx="3.5" fill="#81C69F"/>
+      <circle cx="15" cy="12.5" r="1.5" fill="#17282D"/>
+      <circle cx="15" cy="30.5" r="1.5" fill="#17282D"/>
+    </g>
+    <g transform="translate(202 157)" fill="#A8F1DF">
+      <circle cx="12" cy="11" r="7"/>
+      <circle cx="43" cy="11" r="7"/>
+      <path d="M0 36c1-10 5-15 12-15s11 5 12 15H0Zm31 0c1-10 5-15 12-15s11 5 12 15H31Z"/>
+    </g>
+  </g>
+</svg>

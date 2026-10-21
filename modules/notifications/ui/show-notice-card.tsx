@@ -12,6 +12,7 @@ import modSupportFeedbackDe from './assets/mod-support-feedback.de.svg'
 import modSupportFeedbackEn from './assets/mod-support-feedback.en.svg'
 import modSupportFeedbackEs from './assets/mod-support-feedback.es.svg'
 import modSupportFeedbackFr from './assets/mod-support-feedback.fr.svg'
+import multiplayerSupportBanner from './assets/multiplayer-support.svg'
 import nexusModsBanner from '../../../assets/nexusmods-enshrouded-banner.jpg'
 
 const modSupportFeedbackBanners: Record<string, string> = {
@@ -42,6 +43,8 @@ export function noticeIcon(item: NewsItem) {
       return 'discord'
     case 'notice.localization':
       return 'discover'
+    case 'notice.multiplayerSupport':
+      return 'server'
     case 'notice.nexusMods':
       return 'discover'
     case 'notice.applySettings':
@@ -130,6 +133,14 @@ export function NoticeCard({
             <img src={item.banner.imageUrl} alt="" loading="lazy" />
           </button>
         )}
+        {!compact && item.kind === 'notice.multiplayerSupport' && (
+          <img
+            className="notice-artwork"
+            src={multiplayerSupportBanner}
+            alt={t('news.notice.multiplayerSupport.bannerAlt')}
+            loading="lazy"
+          />
+        )}
         {!compact && item.kind === 'notice.nexusMods' && item.actionUrl && (
           <button
             className="notice-banner"
@@ -161,7 +172,7 @@ export function NoticeCard({
             />
           </button>
         )}
-        <p>{message}</p>
+        {item.kind !== 'notice.multiplayerSupport' && <p>{message}</p>}
         {!compact && supportLink && (
           <button
             className="notice-banner"

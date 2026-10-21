@@ -35,6 +35,7 @@ const infoCategoryPriority = (item: NewsItem): InfoCategory => {
     case 'notice.nexusMods':
       return 'community'
     case 'mod.update.success':
+    case 'notice.multiplayerSupport':
       return 'updates'
     case 'mod.install.success':
     case 'mod.remove.success':
