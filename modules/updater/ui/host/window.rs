@@ -660,7 +660,7 @@ mod tests {
     }
 
     #[test]
-    fn closing_during_irreversible_install_signals_cancellation() {
+    fn closing_during_irreversible_install_does_not_signal_cancellation() {
         let root = temporary_root("installing");
         let updates = shroudforge_loader_config::paths::updates_dir(&root);
         std::fs::create_dir_all(&updates).unwrap();
@@ -680,12 +680,9 @@ mod tests {
         )
         .unwrap();
 
-        assert!(cancel_running_queue_before_close(&root).unwrap());
-        assert_eq!(
-            crate::check_update_cancelled::check_update_cancelled(&root).unwrap_err(),
-            "UPDATE_CANCELLED"
-        );
-        assert!(updates.join("cancel-system-update").is_file());
+        assert!(!cancel_running_queue_before_close(&root).unwrap());
+        crate::check_update_cancelled::check_update_cancelled(&root).unwrap();
+        assert!(!updates.join("cancel-system-update").exists());
 
         std::fs::remove_dir_all(root).unwrap();
     }

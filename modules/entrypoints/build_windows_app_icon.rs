@@ -40,13 +40,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         .set_output_directory(output_directory_text)
         .compile()?;
 
-    let resource_file = match std::env::var("CARGO_CFG_TARGET_ENV")?.as_str() {
-        "gnu" => output_directory.join("resource.o"),
-        "msvc" => output_directory.join("resource.lib"),
-        environment => {
-            return Err(format!("Unsupported Windows resource environment: {environment}").into());
-        }
-    };
-    println!("cargo:rustc-link-arg-bins={}", resource_file.display());
+    // winres already links resource.lib on MSVC. Adding it again duplicates the icons.
+    // GNU needs the object explicitly because its static archive has no referenced symbols.
+    if std::env::var("CARGO_CFG_TARGET_ENV")? == "gnu" {
+        let resource_file = output_directory.join("resource.o");
+        println!("cargo:rustc-link-arg-bins={}", resource_file.display());
+    }
     Ok(())
 }
