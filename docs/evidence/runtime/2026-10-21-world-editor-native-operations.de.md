@@ -202,3 +202,99 @@ Um 11:21:08 UTC wurde F8 für die neue Auswahl erfolgreich abgeschlossen. Der er
 Der Nutzer löste F7 um 11:21:30 UTC zweimal mit `capture-2` aus. Beide Aufrufe wurden vor einer Mutation abgewiesen: `runtime.world.voxel.write` hat keinen verifizierten nativen Writer für diese Sitzung. Beide Logeinträge sagen ausdrücklich, dass keine Weltänderung gesendet wurde. F4 wurde um 11:20:22 und 11:20:40 UTC davor ausgelöst. Beide Aufrufe meldeten, dass es keine bestätigte Blueprint-Platzierung zum Rückgängigmachen gibt. Nach den beiden abgewiesenen F7-Aufrufen drückte der Nutzer F4 erneut um 11:26:21 UTC. Auch dieser Aufruf meldete, dass es keine bestätigte Blueprint-Platzierung zum Rückgängigmachen gibt. Ein weiterer F7-Aufruf um 11:26:44 UTC wurde wieder vor einer Mutation abgewiesen und meldete, dass keine Weltänderung gesendet wurde. Es existiert kein Terrain-Pastejournal. Ein erfolgreicher F4-Undo von Terrain, Blöcken oder Voxeln wurde nicht ausgeführt.
 
 Damit ist in Sitzung 5 der Ablauf Capture und Speichern für `capture-2` live bestätigt. F7 wurde dreimal live geprüft und sicher vor Mutation abgewiesen. F4 wurde dreimal ohne Pastejournal als No-op bestätigt, zweimal vor und einmal nach den ersten beiden F7-Versuchen. Der spätere dritte F7-Aufruf erfolgte nach diesem F4. Der vollständige Paste-/Undo-Zyklus bleibt offen, weil der verifizierte native Terrainwriter weiterhin fehlt. Der frühere Propscanfehler gehört zu einer anderen Auswahl und wurde durch diesen späteren erfolgreichen Propscan nicht als reproduzierbarer Fehler bestätigt.
+
+## Neue Anbindung und erfolgreicher Terrainzyklus in PID 5352
+
+Dieser spätere Lauf ersetzt die früheren negativen Ergebnisse nicht. Er verwendet die neu gebauten und bei beendetem Client installierten Bibliotheken. Der Client startete um 12:14:47 UTC, seine lokale ECS-Sitzung ist 5.
+
+Der neue Decoder verfolgt originale gerichtete Aufrufketten ab den registrierten Namen. Zydis dekodiert auch die überprüften originalen Switchtabellen des Terraformingpfads. Es werden keine festen Writer- oder Spawnadressen als Dispatchziele eingetragen. Der Voxeladapter prüft den vollständigen originalen Blockkopierer, den Store-Commit, die Codebelege und die aktuellen Besitzer unter den ursprünglichen Gates. Er bewahrt benachbarte Zellen in erweiterten 8³-Blöcken und verifiziert das Ergebnis durch Rücklesen. Der Propadapter verwendet den originalen Bauhelper mit eigenen Argumenten und bestätigt anschließend die exakt zugeteilte Entity-ID einschließlich Baukomponenten. Statische Vertragsauswahl und ein erfolgreicher Terrainauftrag bestätigen noch keinen Prop-Spawn.
+
+| UTC am 21. Oktober | Tatsächlicher Livebefund |
+| --- | --- |
+| 12:18:35 bis 12:18:40 | F7 mit `capture-1`, vorherigen Terrainzustand gesichert, 12 Zellen geschrieben und native Bestätigung erhalten, null Props |
+| 12:18:51 bis 12:18:53 | F4 wartete zunächst auf den Terrainleser, restaurierte dann den vorherigen Zellpuffer und meldete `Undo verified` |
+| 12:21:20 | F8 speicherte `capture-3`, 13×9×10 beziehungsweise 1.170 Zellen, davon 205 belegt, ein Prop |
+| 12:21:29 | F7 mit `capture-3` wurde durch die Lua-Bereitschaftsprüfung vor Mutation abgewiesen |
+
+Damit ist erstmals ein tatsächlicher F7-/F4-Zyklus für Terrainzellen im laufenden Spiel bestätigt. Save-Reload, vollständiger gemischter Blueprint und Mehrfach-Prop-Löschung sind dadurch nicht geprüft. Die gefilterten Originalmeldungen und die unveränderte Blueprintkopie liegen unter `dev/profiles/captures/world-editor-runtime-ab-20261021/` mit den Namen `f7-undo-live-5352-before-readiness-fix.log` und `capture-3-live-5352.sfbp`.
+
+### Separater einzelner Voxel-A/B-Test und Wiederherstellung
+
+Der ausdrücklich autorisierte Diagnosejob speicherte den vollständigen Chunk ab `7480,1672,2800` mit 512 Zellen. Der No-op wurde bestätigt. Anschließend wurde genau die Zelle am Chunkursprung von 65282 auf null gesetzt und wiederholt zurückgelesen. Alle 511 anderen Zellen waren unverändert. Der Restoreversuch wurde mit `voxel write was rejected before changing the world` abgewiesen. Der Job wiederholte keine Mutation und behielt seine Baseline sowie den Zustand `recovery-required` bei.
+
+Ein eigener einmaliger Recoveryjob überprüfte dieselbe Sitzung und vor dem Schreiben den gesamten Chunk. Er akzeptierte ausschließlich die eine bekannte geleerte Zelle als Unterschied. Ein Wiederherstellungsaufruf gab `true` zurück. Drei vollständige Rücklesungen ergaben jeweils null Unterschiede zur ursprünglichen Baseline. Sein Abschluss lautet `complete`, `restored_verified=true` und `recovery_required=false`. Die ursprünglichen Diagnosebelege wurden nicht überschrieben. Belegkopien heißen `voxel-write-ab-incomplete-5352-report.json` und `voxel-recovery-confirmed-5352-report.json`.
+
+### Ursache der späteren Bereitschaftsabweisung
+
+Die native Verfügbarkeitsabfrage versucht das originale Scene-Gate nicht blockierend zu erwerben. Ein belegtes Gate ergibt vorübergehend `false`. Die Lua-Funktion `native_mutation_unavailable_reason` behandelte zuvor jedes negative Ergebnis bei direkten Mutationen als grundsätzlich fehlenden Adapter. Dadurch wurde das vorhandene Warten in `require_world_feature` umgangen. Außerdem wurde die Bereitschaft nur bis zum ersten Gesamterfolg beziehungsweise die erste Wartemeldung protokolliert. Eine Verfügbarkeitsabfrage reserviert das Gate weiterhin nicht für den späteren Write.
+
+Die Korrektur lässt vorübergehende Bereitschaftsfehler vor der ersten Mutation im bestehenden begrenzten Warteablauf weiterlaufen und aktualisiert den Editorstatus periodisch. Ein zusätzlicher nativer Retry darf ausschließlich Ergebnis 1, sicher vor Dispatch abgewiesen, innerhalb desselben Sitzungsmarkers wiederholen. Erfolgreiche, zurückgerollte oder unklare Mutationen werden nicht erneut eingereicht.
+
+## Bestätigter gemischter lokaler Zyklus und gedrehte Platzierung
+
+In PID 27804, ECS-Sitzung 5, wurde das gespeicherte `capture-3` mit 1.170 Terrainzellen und einem Prop vollständig gesetzt und rückgängig gemacht. F7 begann um 13:02:32,538 UTC. Nach etwa sieben Sekunden erster Bereitschafts- und Codeauflösung war der Undo-Snapshot um 13:02:39,772 gesichert. Um 13:02:39,778 waren die Terrainzellen geschrieben, um 13:02:40,391 war die gemischte Platzierung bestätigt. Die eigentliche Mutation dauerte etwa 0,61 Sekunden, nicht der gesamte erste F7-Auftrag.
+
+F4 begann um 13:02:53,235 UTC und bestätigte um 13:02:53,768 die Wiederherstellung des vorherigen Terrains und die Entfernung des gesetzten Props. Ein weiterer Auftrag setzte `capture-3` um 13:04:14,645 mit insgesamt 180° Drehung. Vor dem zusätzlich ausgelösten Vierteldrehen hatte der Nutzer bereits 90° eingestellt. Der Diagnosebericht bestätigt diesen Auftrag mit `rotation_turns=2` und etwa 0,97 Sekunden akkumuliertem Callbackdelta. Weitere Nutzeraktionen bestätigten gedrehte Platzierung sowie Terrain-Undo. Die Einzelberichte und der gefilterte Originalauszug liegen unter `dev/profiles/captures/world-editor-runtime-ab-20261021/`.
+
+Der Editor-Callback ist auf 100 ms gestellt. Zusätzliche Bereitschaftsbeobachtungen erfolgen höchstens einmal pro zwei akkumulierten Callbacksekunden und pausieren während aktiver Aufträge. Die separate P2P-Zielprüfung behält ihr bestehendes Intervall. Die zusätzlich eingeführte zweite sichtbare Runtimezeile wurde wieder entfernt. Diese Änderungen wurden für den nächsten Clientstart installiert, der Lua-Lebenszyklustest bestand. Daraus folgt keine Messung eines exakten Wandzeitintervalls des übergeordneten Schedulers.
+
+## Dedicated Server und P2P: Fehler und erfolgreicher Livezyklus
+
+Geprüft wurden die aktuellen Enshrouded- und ShroudForge-Logs in beiden Installationen `Enshrouded` und `EnshroudedServer`. Der Clientauftrag um 13:17:26 UTC kam vollständig beim autorisierten Server an. Der Server validierte V7, 1.170 Zellen und ein Prop und meldete erst um 13:18:32 `server-world-runtime-did-not-become-ready`. Der Versand und der Rückkanal funktionierten bereits vor der Korrektur.
+
+Die zusätzliche Serverprüfung verlangte unabhängig von der tatsächlichen Propgröße immer `runtime.world.entity.set_scale`. Außerdem sollten mehrere voneinander unabhängige Scene-Bereitschaftsabfragen gemeinsam erfolgreich sein. In einem späteren rein lesenden Vergleich im neu gestarteten Server, PID 10356, Sitzung 5, war `set_scale` in allen 20 Runden nicht verfügbar. Writer, Spawn, Destroy und Leser lieferten dagegen wiederholt positive Proben. Dieser Vergleich führte keine Weltmutation aus. Der Cursor ist auf dem Headless-Server ebenfalls nicht verfügbar und wird dort für den übertragenen Zielpunkt nicht gebraucht.
+
+Ein weiterer Nutzerauftrag um 13:23:24 UTC zeigte einen zweiten Fehler. Eine vorübergehend negative Grid-Abfrage wurde schon vor der kanonischen Platzierung als ungültige Zielausrichtung abgewiesen: `server-rejected-target-grid-alignment: KFC Runtime world operation is not ready: runtime.world.voxel.grid_spec`.
+
+`operations.lua` übergibt jetzt den bereits vom Transport validierten Weltpunkt an die kanonische Platzierung. Diese besitzt Drehung, Gridprüfung, Bounds, tatsächlich benötigte Features und begrenzte Bereitschaftswiederholungen. Die Serverkoordination enthält keine zweite Featureliste. `history.lua` ruft für Server-F4 denselben abgesicherten Undo-Ablauf auf und entfernt seine zusätzlichen Leser-/Writer-Proben. Authentifizierung, Übertragungsformat, Sitzungsschutz, unveränderte Original-Guards und serverseitiger Transaktionsbesitz bleiben erhalten.
+
+Der Client-Reload gelang sofort. Der erste Server-Reload wurde vom ausstehenden Cleanup von `sf-crafting-essentials` abgewiesen. Nach dessen protokolliertem Abschluss gelang der erneute Reload um 13:26:54 UTC. Beide Installationen verwenden dieselben korrigierten Lua-Dateien, die nativen DLLs wurden für diese Korrektur nicht geändert.
+
+| UTC am 21. Oktober | Livebefund nach der Korrektur |
+| --- | --- |
+| 13:27:09,929 | Client beginnt den einmaligen F7-Test mit `capture-3`, Client-Sitzung 8 |
+| 13:27:10,417 | Server erhält den vollständigen autorisierten Auftrag |
+| 13:27:11,072 | Server bestätigt den Write von 1.170 Terrainzellen |
+| 13:27:11,087 | Server bestätigt Terrain und ein neu gesetztes Prop bei `3728,843,1436.5` |
+| 13:27:11,179 | Client erhält die positive Serverantwort mit Undo-Token |
+| 13:27:34,853 | Server erhält den F4-Auftrag für diese Transaktion |
+| 13:27:34,886 | Server bestätigt restauriertes Terrain und Entfernung des gesetzten Props |
+| 13:27:42,722 | Weiterer Nutzer-F7 nach einer Vierteldrehung bestätigt erneut Terrain und ein Prop |
+| 13:27:48,083 | Auch der anschließende Nutzer-F4 wird vom Server bestätigt |
+
+Die einmaligen Diagnosejobs melden für F7 und F4 jeweils `world-operation-confirmed`, `attempts=1`. Dazwischen wurde ein weiterer F7 um 13:27:31 mit dem bestehenden Undo-Token abgewiesen. Das schützt die noch offene Servertransaktion. Der bestätigte F4 gab sie anschließend frei. Die erfolgreichen Aufträge bestätigen keinen Save-Reload und keine Mehrfach-Prop-Platzierung.
+
+Rohlogs aller vier Quellen, der lesende Vergleich, Installationsbelege und die bestätigten F7-/F4-Berichte liegen unter `dev/profiles/captures/world-editor-server-p2p-20261021/`. Die temporären Jobs wurden nach Sicherung entfernt. Diagnoseeinstellungen sind wieder wie zuvor: Client deaktiviert, Server aktiviert ohne aktive Sitzung, beide auf `runtime.overview`. Die monotonen Anforderungszähler wurden beibehalten.
+
+## Online-F8 und vollständiger Zyklus mit zwei Props
+
+Der Nutzer-F8 um 13:28:13 UTC versuchte weiterhin, `runtime.world.voxel.read` im replizierten Client auszuführen. Um 13:28:35 wurde der lesende Auftrag nach dem Bereitschaftstimeout beendet. Es war kein Capture-Auftrag zum Server geschickt worden. Die zuvor bestätigte P2P-Anbindung umfasste F7 und F4.
+
+Online-F8 überträgt jetzt die beiden markierten Weltpunkte und die Blueprintachse über denselben autorisierten Modkanal. Der Server verwendet `copy_voxels(false)` mit den vorhandenen Terrain-, Grid- und Prop-Abfragen. Er speichert kein zusätzliches Blueprint. Das fertige V7 wird mit den gemeinsam verwendeten Chunk- und Integritätsprüfungen zurückgeschickt. Der Client prüft Peer, Request-ID, Länge, Prüfsumme, aktuelle Sitzung und V7-Inhalt. Erst danach verwendet `library.lua::save_capture` denselben freien Dateinamen und Speicherablauf wie ein lokales F8. Fehlende Chunks, falsche Absender, beschädigte Inhalte und abgelaufene Sitzungen erzeugen keine Blueprintdatei. F6 beendet einen lesenden Capture, ohne ein vorhandenes Baujournal aufzugeben.
+
+| UTC am 21. Oktober | Livebefund |
+| --- | --- |
+| 13:52:25,022 | Server erhält den autorisierten F8-Auftrag `client-8-6c94a73e-0-1` |
+| 13:52:26,130 | Capture bestätigt 648 Terrainzellen, davon 311 belegt, und zwei Props ab Gridposition `7503,1685,2855` |
+| 13:52:26,133 | Server gibt das vollständige V7 mit 4.010 Bytes zurück |
+| anschließend | Client speichert `capture-4.sfbp`, Abmessungen `8×9×9`, und wählt es aus |
+| 13:52:34,286 | Server bestätigt F7 mit allen 648 Zellen und beiden Props |
+| 13:52:51,252 | Server bestätigt F4 mit restauriertem Terrain und Entfernung beider gesetzten Props |
+
+Die unveränderte Datei, Rohlogs, Installationsbelege und Diagnoseberichte liegen unter `dev/profiles/captures/world-editor-server-capture-20261021/`. Damit sind Capture, Rückübertragung, lokales Speichern, serverseitiges Setzen und Undo eines Blueprints mit zwei Props live belegt. Save-Reload und mehrere echte gleichzeitig verbundene Spielclients sind damit weiterhin nicht geprüft.
+
+## Getrennte Clients, Warteschlange und erneutes F7
+
+Die vorherige Implementierung wies weitere Aufträge bei `server_busy` ab und besaß nur ein serverweites Undo-Journal. Sie blockierte außerdem das nächste F7 selbst nach bestätigter Platzierung. Beispielsweise endete die Platzierung um 13:54:30,878 UTC erfolgreich. Der nächste Nutzer-F7 um 13:54:36 wurde dennoch als `server-has-an-unresolved-world-editor-transaction` abgewiesen. Diese Sperre war keine Aussage über einen weiterhin laufenden nativen Auftrag.
+
+`p2p.lua` besitzt jetzt eine FIFO-Warteschlange für vollständig empfangene F8-, F7- und F4-Anfragen. Genau ein Weltauftrag wird gleichzeitig ausgeführt. Schlüssel bestehen aus authentifiziertem Peer und Request-ID. Parallele Uploads haben getrennte Puffer. Es gelten höchstens 32 wartende Anfragen, eine wartende Anfrage je Peer, 32 MiB wartende Blueprintinhalte und separat 32 MiB deklarierte Uploadinhalte. Vor Dispatch werden Berechtigung, Sitzung und eine Wartefrist von 45 akkumulierten Callbacksekunden erneut geprüft. Wartende Anfragen erhalten periodische Fortschrittsmeldungen. Doppelte aktive Anfragen werden nicht erneut ausgeführt, die letzten 128 Abschlussbelege bleiben für Wiederholungen erhalten. F6 kann nur eine passende eigene wartende Anfrage beziehungsweise eigene Transaktion freigeben.
+
+`operations.lua` und `history.lua` halten jetzt das jeweils letzte Journal getrennt je Client. Nur während eines serialisierten Undo-Auftrags ist das betreffende Journal im kanonischen Undo-Ablauf aktiv. Ein weiterer erfolgreicher F7 ersetzt ausschließlich das vorherige bestätigte Journal dieses Clients. F4 nimmt anschließend dessen letzte Platzierung zurück, frühere Platzierungen bleiben stehen. Eine tatsächlich unvollständige Wiederherstellung sperrt weiterhin das nächste F7 desselben Clients. Es werden höchstens 32 Clientjournale in einer Sitzung behalten. Die vorhandenen Konfliktprüfungen schützen spätere Terrain- und Propänderungen auch bei überlappenden Bereichen.
+
+Die bestehenden Lua-Prüfungen wurden um die echte Transport- und Modkoordination mit kontrollierten nativen Ergebnissen erweitert. Geprüft sind mehrteilige V7-Übertragung, gleichzeitige Uploads verschiedener Peers mit derselben Request-ID, FIFO-Ausführung ohne Überschneidung, doppelte aktive und abgeschlossene Anfragen, verspätete Abschlusscallbacks, erneute Autorisierung, Sitzungswechsel, Ablauf, Queuegrenzen und Abbruch vor Dispatch. Getrennte Journale, fremde Undo-/Freigabetoken, wiederholtes F7 und die verbleibende Wiederherstellungssperre sind ebenfalls geprüft. Dies ist eine automatisierte Prüfung mit mehreren simulierten Peers, kein Liveversuch mit einem zweiten Spielclient. Die drei Prüfungen des gebündelten Lua-Testtargets bestanden.
+
+### Wiederholtes F7 nach dem Einspielen live bestätigt
+
+Nach dem letzten Lua-Reload bestätigten Client und Server um 14:09:33,412 und 14:09:37,523 UTC zwei direkt aufeinanderfolgende Platzierungen desselben aktiven `capture-4`, jeweils mit 648 Zellen und zwei Props. Dazwischen wurde kein F4 verlangt. Um 14:09:39,803 bestätigte der Server den anschließenden Undo der letzten Platzierung. Vier weitere F7-Aufträge um 14:09:47,012, 14:09:49,619, 14:09:51,904 und 14:09:56,533 wurden ebenfalls erfolgreich abgeschlossen. Damit ist der frühere Undo-Zwang für bestätigte Platzierungen auch im laufenden Spiel behoben.
+
+Die Tests verwendeten unterschiedliche Cursorziele desselben Blueprints. Es wird keine Rücknahme aller dieser Platzierungen behauptet. F4 betrifft das zuletzt behaltene Journal. Die Belegkopien heißen `EnshroudedServer-repeat-f7-confirmed.log` und `Enshrouded-repeat-f7-confirmed.log` im Captureordner dieses Laufs. Die Diagnoseeinstellungen wurden wiederhergestellt und die temporäre Vorbereitung für den Reload archiviert.
