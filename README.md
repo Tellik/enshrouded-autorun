@@ -69,6 +69,10 @@ The guide includes separate instructions for your PC and game server, pictures o
 </p>
 
 <p align="center">
+  <a href="https://github.com/bonsaibauer/shroudforge?tab=security-ov-file"><img src="assets\shroudforge-banner-8-scanned-with.svg" width="100%" alt="Security Scan Banner"></a>
+</p>
+
+<p align="center">
   <a href="https://www.youtube.com/watch?v=V57iZcn-hfo"><img src="assets\shroudforge-banner-1-ohne-strich_v1.svg" width="100%" alt="ShroudForge on YouTube: watch the trailer"></a>
 </p>
 
