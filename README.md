@@ -26,39 +26,34 @@ New to mods? Start with the illustrated guide. It explains everything in simple 
 
 The guide includes separate instructions for your PC and game server, pictures of the Modloader, a first-mod lesson, and an interactive preview for mod settings.
 
-> [!IMPORTANT]
-> 🚧 **ModLoader 1.0 – Work in Progress!**
->
-> I'm currently working on restoring all ModLoader features for version 1.0!
->
-> ⚠️ **Automatic updates are currently broken!** Please download and install new versions manually:
->
-> 📥 **[Download Latest Release](https://github.com/bonsaibauer/shroudforge/releases/latest)**
->
-> ✅ **Light Version is now available and working!**
->
-> 🎮 **SF Survival Mod – 8 Features Available:**
-> - ✅ No Fall Damage
-> - ✅ Fast Health Regen
-> - ✅ Fast Mana Regen
-> - ✅ Infinite Stamina
-> - ✅ Infinite Underwater Breath
-> - ✅ Infinite Weapon Durability
-> - ✅ Infinite Frost Timer
-> - ✅ Infinite Mana
->
-> 🪂 **Unlimited Flight Mod – 5 Settings Available:**
-> - ✅ Unlimited Flying
-> - ✅ Turn Speed
-> - ✅ Move Speed
-> - ✅ Lift Speed
-> - ✅ Descend Speed
->
-> 🟢 **All features tested and working in Singleplayer!**
->
-> 🌐 Multiplayer support and additional features will be added gradually!
->
-> ❤️ **Thanks for your patience! More updates are coming soon!**
+# 🚀 ShroudForge v1.7.3 – Full Enshrouded 1.0 Support!
+
+**ShroudForge has officially completed its migration to Enshrouded 1.0!** 🎉
+
+This major release introduces **native mod support for both singleplayer and multiplayer**, including dedicated servers!
+
+## 🔥 Release Highlights
+
+- ✅ **Full Enshrouded 1.0 Migration** – Updated runtime systems and native game integration.
+- 🛠️ **Hotfix 1.0.0.3 Compatibility** – Client and dedicated server profiles updated for today's Keen Games hotfix!
+- 🌐 **Native Singleplayer & Multiplayer Modding** – Mods now work with native game integration in singleplayer and on dedicated servers.
+- 🖥️ **Dedicated Server Support** – Native ECS, resource, ItemRegistry, and service access for server build `25988414`.
+- 🏗️ **World Editor** – Capture, place, rotate, and undo blueprints, including experimental multiplayer support.
+- ⚒️ **SF Crafting Essentials** – Native crafting controls, item-use configuration, and live production scaling.
+- ⚡ **Performance Improvements** – Faster ECS lookups, optimized runtime operations, and reduced memory usage.
+- 🛡️ **Security Improvements** – Automated release scans using Microsoft Defender, ClamAV, Trivy, and VirusTotal.
+
+## 📋 Additional Changes (Click to Reveal)
+
+||🔹 Improved multiplayer blueprint capture and placement via Steam P2P.
+🔹 Added client-specific operation queues and independent undo handling.
+🔹 Improved World Editor placement and undo for terrain, voxels, and props.
+🔹 Expanded Lua, Python, Rust, and runtime diagnostics.
+🔹 Reduced unnecessary background checks and repeated log messages.
+🔹 Added French and Spanish translations.
+🔹 Improved UI scaling, settings, notifications, and window management.
+🔹 Expanded modding documentation and security reporting.
+🔹 Improved loader stability and error recovery.||
 
 <p align="center">
   <a href="https://github.com/bonsaibauer/shroudforge/releases/latest"><img src="assets\shroudforge-banner-4-release-1.0.svg" width="100%" alt="ShroudForge 10 Support"></a>
