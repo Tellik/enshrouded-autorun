@@ -46,3 +46,4 @@ shroudforge-updater = { path = "modules/updater" }
 shroudforge-release-feed = { path = "modules/updater/release-feed" }
 shroudforge-player-name = { path = "modules/player-name" }
 shroudforge-window-management = { path = "modules/window-management" }
+winres = "0.1.12"

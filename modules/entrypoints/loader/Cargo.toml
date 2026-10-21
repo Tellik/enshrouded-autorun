@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+build = "../build_windows_app_icon.rs"
 
 [lib]
 crate-type = ["rlib", "cdylib"]
@@ -32,6 +33,9 @@ shroudforge-world-editor-ui = { path = "../../world-editor" }
 shroudforge-modloader-ui = { path = "../../modloader/ui" }
 shroudforge-runtime-diagnostics = { path = "../../runtime-diagnostics" }
 mlua = { version = "0.11.2", features = ["lua54", "vendored"] }
+
+[build-dependencies]
+winres.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_UI_WindowsAndMessaging"] }
