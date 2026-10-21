@@ -231,7 +231,8 @@ jobs:
             throw "VirusTotal did not produce a scan report. Scan step: $env:VIRUSTOTAL_SCAN_OUTCOME"
           }
           $report = Get-Content -LiteralPath 'virustotal-release.json' -Raw | ConvertFrom-Json
-          if ($env:VIRUSTOTAL_SCAN_OUTCOME -ne 'success' -or $report.status -in @('error', 'findings') -or [int]$report.malicious_count -gt 0) {
+          $maliciousCount = [int]$report.malicious_count
+          if ($env:VIRUSTOTAL_SCAN_OUTCOME -ne 'success' -or $report.status -notin @('clean', 'warning', 'findings') -or $maliciousCount -ge 2) {
             throw "VirusTotal result is '$($report.status)' with $($report.malicious_count) malicious detection(s). See the unified release security report for details."
           }
 

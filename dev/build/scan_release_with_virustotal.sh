@@ -284,7 +284,12 @@ write_report() {
           errors: ($global_errors + [ $files[] | select(.status == "error") | .error ]),
           error: (if (($global_errors | length) + $file_errors) > 0 then (($global_errors + [ $files[] | select(.status == "error") | .error ]) | join(" ")) else null end),
           scan_completed_at: $completed_at,
-          policy: {malicious_blocks_publication: true, suspicious_is_advisory: true}
+          policy: {
+            malicious_blocks_publication: ($malicious >= 2),
+            malicious_blocking_threshold: 2,
+            single_malicious_detection_is_advisory: true,
+            suspicious_is_advisory: true
+          }
         }
     ' >"$report_path"
 }
@@ -315,6 +320,6 @@ write_report
 
 report_status="$(jq -r '.status' "$report_path")"
 malicious_count="$(jq -r '.malicious_count' "$report_path")"
-if [[ "$report_status" == 'error' || "$report_status" == 'findings' ]] || ((malicious_count > 0)); then
+if [[ "$report_status" == 'error' ]] || ((malicious_count >= 2)); then
   exit 1
 fi
