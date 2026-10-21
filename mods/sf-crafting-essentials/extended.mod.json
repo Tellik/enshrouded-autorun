@@ -10,7 +10,7 @@
   },
   "settings": {
     "noResourceCost": {
-      "value": true,
+      "value": false,
       "label": "No Recipe Resource Costs",
       "description": "Removes direct ingredients, category ingredients and water charges from recipes before startup. Recipe requirements display as zero. Requires a game restart. Building, upgrade and other shared inventory costs are unchanged.",
       "control": "checkbox",
@@ -19,7 +19,7 @@
       "assetPreparation": true
     },
     "infiniteItemUse": {
-      "value": true,
+      "value": false,
       "label": "No Item Consumption",
       "description": "Used food, potions, bandages and other supported items stay in your inventory instead of being consumed. Applies live to supported use actions. Recipe ingredients, trades and inventory transfers are unchanged. Some item actions are not supported.",
       "control": "checkbox",
