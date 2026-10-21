@@ -67,6 +67,7 @@ export type NewsDisplaySource = {
     updateAvailable: boolean
     latestVersion?: string
     releaseUrl?: string | null
+    changelog?: string[]
   }
   release: {
     updaterAvailable?: boolean

@@ -16,7 +16,12 @@
             "checkedAt": { "type": ["integer", "null"], "minimum": 0 },
             "updateAvailable": { "type": "boolean" },
             "version": { "type": ["string", "null"] },
-            "releaseUrl": { "type": ["string", "null"] }
+            "releaseUrl": { "type": ["string", "null"] },
+            "changelog": {
+              "type": "array",
+              "items": { "type": "string", "maxLength": 2000 },
+              "maxItems": 50
+            }
           },
           "additionalProperties": false
         }

@@ -4,6 +4,31 @@ import type {
   NewsPersonalization,
   NewsDisplaySource,
 } from './notification-types'
+
+function releaseChangelog(message?: string): string[] {
+  if (!message) return []
+  const lines = message.split(/\r?\n/).map((line) => line.trim())
+  const isChangelogHeading = (line: string) =>
+    line.replace(/^#+/, '').trim().toLowerCase() === 'changelog:'
+  const hasChangelogHeading = lines.some(isChangelogHeading)
+  let inChangelog = !hasChangelogHeading
+  return lines
+    .flatMap((line) => {
+      if (isChangelogHeading(line)) {
+        inChangelog = true
+        return []
+      }
+      if (/^\**\s*full changelog/i.test(line)) {
+        inChangelog = false
+        return []
+      }
+      if (!inChangelog || !line) return []
+      const entry = line.replace(/^[-*+]\s+/, '').trim()
+      return entry ? [entry.slice(0, 2000)] : []
+    })
+    .slice(0, 50)
+}
+
 export function buildNewsItems(
   data: NewsDisplaySource,
   settings: NewsPersonalization,
@@ -25,9 +50,8 @@ export function buildNewsItems(
   const updatesEnabled = data.updatesEnabled === true
   const standardUpdateAvailable =
     updaterAvailable && updatesEnabled && data.release.updateAvailable
-  const missingUpdaterUpdateAvailable =
-    !updaterAvailable &&
-    !updatesEnabled &&
+  const fallbackUpdateAvailable =
+    !standardUpdateAvailable &&
     (data.releaseAnnouncement?.updateAvailable === true ||
       data.release.updateAvailable)
   if (standardUpdateAvailable)
@@ -41,17 +65,26 @@ export function buildNewsItems(
       actionUrl: data.release.releaseUrl,
       actions: [{ id: 'queue-system-update', kind: 'queue-system-update' }],
       updatedAt: 0,
+      changelog: releaseChangelog(data.release.message),
     })
-  else if (missingUpdaterUpdateAvailable) {
+  else if (fallbackUpdateAvailable) {
     const version =
       data.releaseAnnouncement?.latestVersion || data.release.latestVersion || ''
     items.push({
       id: `system-${version}`,
       level: 'warn',
       title: t('news.system.updaterMissing.title', { version }),
-      message: t('news.system.updaterMissing.message', { version }),
+      message: !updaterAvailable
+        ? t('news.system.updaterMissing.message', { version })
+        : !updatesEnabled
+          ? t('updates.availability.disabled.description')
+          : t('news.system.update.message'),
       actions: [{ id: 'open-updates', kind: 'open-updates' }],
       updatedAt: 0,
+      changelog:
+        data.releaseAnnouncement?.changelog?.length
+          ? data.releaseAnnouncement.changelog
+          : releaseChangelog(data.release.message),
     })
   }
   if (standardUpdateAvailable && data.release.staged)

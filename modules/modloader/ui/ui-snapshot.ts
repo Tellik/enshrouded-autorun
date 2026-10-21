@@ -48,6 +48,7 @@ export type Snapshot = {
     updateAvailable: boolean
     latestVersion?: string
     releaseUrl?: string | null
+    changelog?: string[]
   }
   updateQueue?: UpdateQueue
   backupManagement?: BackupManagement

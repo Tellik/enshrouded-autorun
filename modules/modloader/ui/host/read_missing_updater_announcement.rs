@@ -6,6 +6,7 @@ use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const CHECK_INTERVAL_SECONDS: u64 = 24 * 60 * 60;
+const IN_FLIGHT_RETRY_SECONDS: u64 = 30;
 const ANNOUNCEMENT_STATE_KEY: &str = "missingUpdaterAnnouncement";
 
 pub(crate) fn read_cached(root: &Path) -> Value {
@@ -18,8 +19,7 @@ pub(crate) fn read_cached(root: &Path) -> Value {
 }
 
 pub(crate) fn start_refresh(root: &Path, central: &Value, cached: Arc<Mutex<Value>>) {
-    let updater_available = shroudforge_loader_config::paths::updater_available(root);
-    if updater_available || !module_is_explicitly_disabled(central) {
+    if !module_is_explicitly_disabled(central) || !announcement_check_is_due(root, unix_seconds()) {
         return;
     }
 
@@ -31,7 +31,7 @@ fn refresh(root: &Path, cached: &Arc<Mutex<Value>>) {
     let Ok(config) = shroudforge_loader_config::config::read_loader(root) else {
         return;
     };
-    if !eligible_for_announcement(root, &config) {
+    if !eligible_for_release_news(&config) {
         return;
     }
 
@@ -68,7 +68,7 @@ fn refresh(root: &Path, cached: &Arc<Mutex<Value>>) {
                 release_daily_check(root, now);
                 return;
             };
-            if !eligible_for_announcement(root, &current_config) {
+            if !eligible_for_release_news(&current_config) {
                 release_daily_check(root, now);
                 return;
             }
@@ -88,7 +88,8 @@ fn refresh(root: &Path, cached: &Arc<Mutex<Value>>) {
                         "checkedAt": now,
                         "updateAvailable": true,
                         "version": release.version,
-                        "releaseUrl": release.release_url
+                        "releaseUrl": release.release_url,
+                        "changelog": release_changelog(&release.body)
                     })
                 })
                 .unwrap_or_else(|| {
@@ -97,7 +98,8 @@ fn refresh(root: &Path, cached: &Arc<Mutex<Value>>) {
                         "checkedAt": now,
                         "updateAvailable": false,
                         "version": null,
-                        "releaseUrl": null
+                        "releaseUrl": null,
+                        "changelog": []
                     })
                 });
             if let Err(error) = save_announcement(root, announcement.clone()) {
@@ -119,6 +121,7 @@ fn refresh(root: &Path, cached: &Arc<Mutex<Value>>) {
                 "modloader",
                 &format!("Could not refresh ShroudForge release news: {error}"),
             );
+            release_daily_check(root, now);
         }
     }
 }
@@ -135,8 +138,7 @@ fn claim_daily_check(root: &Path, now: u64) -> Result<bool, String> {
             .cloned()
             .filter(Value::is_object)
             .unwrap_or_else(|| empty_announcement(now));
-        let last_attempt = announcement["lastAttemptAt"].as_u64();
-        if last_attempt.is_none_or(|last| now.saturating_sub(last) >= CHECK_INTERVAL_SECONDS) {
+        if announcement_check_due(&announcement, now) {
             announcement["lastAttemptAt"] = json!(now);
             should_check = true;
         }
@@ -144,6 +146,25 @@ fn claim_daily_check(root: &Path, now: u64) -> Result<bool, String> {
         Ok(updates)
     })?;
     Ok(should_check)
+}
+
+fn announcement_check_is_due(root: &Path, now: u64) -> bool {
+    let announcement = shroudforge_loader_config::config::read_state_section(root, "updates")
+        .ok()
+        .flatten()
+        .and_then(|updates| updates.get(ANNOUNCEMENT_STATE_KEY).cloned())
+        .filter(Value::is_object)
+        .unwrap_or_else(|| empty_announcement(0));
+    announcement_check_due(&announcement, now)
+}
+
+fn announcement_check_due(announcement: &Value, now: u64) -> bool {
+    if let Some(checked_at) = announcement["checkedAt"].as_u64() {
+        return now.saturating_sub(checked_at) >= CHECK_INTERVAL_SECONDS;
+    }
+    announcement["lastAttemptAt"]
+        .as_u64()
+        .is_none_or(|last| now.saturating_sub(last) >= IN_FLIGHT_RETRY_SECONDS)
 }
 
 fn release_daily_check(root: &Path, claimed_at: u64) {
@@ -176,7 +197,8 @@ fn empty_announcement(now: u64) -> Value {
         "checkedAt": null,
         "updateAvailable": false,
         "version": null,
-        "releaseUrl": null
+        "releaseUrl": null,
+        "changelog": []
     })
 }
 
@@ -187,9 +209,8 @@ fn module_is_explicitly_disabled(config: &Value) -> bool {
         == Some(false)
 }
 
-fn eligible_for_announcement(root: &Path, config: &Value) -> bool {
-    !shroudforge_loader_config::paths::updater_available(root)
-        && module_is_explicitly_disabled(config)
+fn eligible_for_release_news(config: &Value) -> bool {
+    module_is_explicitly_disabled(config)
 }
 
 fn public_announcement(value: Value) -> Value {
@@ -197,11 +218,50 @@ fn public_announcement(value: Value) -> Value {
         json!({
             "updateAvailable": true,
             "latestVersion": value["version"],
-            "releaseUrl": value["releaseUrl"]
+            "releaseUrl": value["releaseUrl"],
+            "changelog": value["changelog"].as_array().cloned().unwrap_or_default()
         })
     } else {
         json!({"updateAvailable": false})
     }
+}
+
+fn release_changelog(body: &str) -> Vec<String> {
+    let lines = body.lines().map(str::trim).collect::<Vec<_>>();
+    let has_changelog_heading = lines
+        .iter()
+        .any(|line| line.trim_matches('#').trim().eq_ignore_ascii_case("changelog:"));
+    let mut in_changelog = !has_changelog_heading;
+    lines
+        .into_iter()
+        .filter_map(|line| {
+            if line.trim_matches('#').trim().eq_ignore_ascii_case("changelog:") {
+                in_changelog = true;
+                return None;
+            }
+            if line
+                .trim_start_matches('*')
+                .trim()
+                .to_ascii_lowercase()
+                .starts_with("full changelog")
+            {
+                in_changelog = false;
+                return None;
+            }
+            if !in_changelog || line.is_empty() {
+                return None;
+            }
+            let entry = line
+                .strip_prefix("* ")
+                .or_else(|| line.strip_prefix("- "))
+                .or_else(|| line.strip_prefix("+ "))
+                .unwrap_or(line)
+                .trim();
+            (!entry.is_empty())
+                .then(|| entry.chars().take(2_000).collect::<String>())
+        })
+        .take(50)
+        .collect()
 }
 
 fn installed_release(root: &Path) -> (String, u64) {

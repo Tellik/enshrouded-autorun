@@ -232,6 +232,7 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
         );
     }
     let mut next_refresh = Instant::now();
+    let mut next_announcement_retry = Instant::now() + Duration::from_secs(30);
     let mut next_visibility_poll = Instant::now();
     let mut next_window_state_refresh = Instant::now();
     let mut next_control_poll = Instant::now();
@@ -846,6 +847,16 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                 }
 
                 if Instant::now() >= next_refresh {
+                    if Instant::now() >= next_announcement_retry {
+                        if !arguments.server {
+                            read_missing_updater_announcement::start_refresh(
+                                &arguments.root,
+                                &read_central_config(&arguments.root),
+                                release_announcement.clone(),
+                            );
+                        }
+                        next_announcement_retry = Instant::now() + Duration::from_secs(30);
+                    }
                     let next_position = read_central_config(&arguments.root)["modules"]
                         [window_config_module]["window"]["position"]
                         .clone();
