@@ -138,19 +138,6 @@ export function ModulePreferencesEditor({
     })
     saveModule(module, key, value)
   }
-  const changeNoIntro = (enabled: boolean) => {
-    setSettings({
-      ...settings,
-      modulePreferences: {
-        ...prefs,
-        gameImprovements: {
-          ...prefs.gameImprovements,
-          noIntro: { ...prefs.gameImprovements?.noIntro, enabled },
-        },
-      },
-    })
-    saveModule('gameImprovements', 'noIntro.enabled', enabled)
-  }
   const fields: Array<[string, string, TranslationKey, string[]?]> = [
     ...diagnosticSettingsFields,
     ...debugConsoleSettingsFields,
@@ -207,7 +194,6 @@ export function ModulePreferencesEditor({
             'debugConsole',
             'worldEditor',
             'modloaderUi',
-            'gameImprovements',
             'runtimeDiagnostics',
           ] as const
         ).map((module) => (
@@ -240,25 +226,6 @@ export function ModulePreferencesEditor({
                 enabled={moduleEnabled(module)}
                 onChange={(value) => change(module, 'enabled', value)}
               />
-              {module === 'gameImprovements' && (
-                <>
-                  <SettingsRow
-                    label={t('settings.modules.gameImprovements.noIntro.enabled')}
-                    detail={t('settings.modules.gameImprovements.noIntro.description')}
-                    control={
-                      <SettingSwitch
-                        label={t('settings.modules.gameImprovements.noIntro.enabled')}
-                        checked={prefs.gameImprovements?.noIntro?.enabled === true}
-                        disabled={!moduleEnabled(module)}
-                        onChange={changeNoIntro}
-                      />
-                    }
-                  />
-                  <p className="hint settings-module-hint">
-                    {t('settings.modules.gameImprovements.noIntro.restart')}
-                  </p>
-                </>
-              )}
               {!moduleEnabled(module) && module !== 'runtimeDiagnostics' && (
                 <p className="builder-notice warning" role="status">
                   {t('settings.moduleUnavailable')}

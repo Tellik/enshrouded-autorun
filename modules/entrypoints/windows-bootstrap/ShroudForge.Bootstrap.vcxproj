@@ -47,7 +47,6 @@
     <ClCompile Include="logging.cpp" />
     <ClCompile Include="winmm_proxy.cpp" />
     <ClCompile Include="runtime_bridge.cpp" />
-    <ClCompile Include="..\..\game-improvements\native\enable_no_intro.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bootstrap_state.h" />
@@ -55,7 +54,6 @@
     <ClInclude Include="logging_config.h" />
     <ClInclude Include="startup_gate.h" />
     <ClInclude Include="..\..\game-runtime\native\abi\runtime_api.h" />
-    <ClInclude Include="..\..\game-improvements\native\enable_no_intro.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

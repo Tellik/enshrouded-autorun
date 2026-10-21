@@ -138,7 +138,6 @@ pub(crate) fn save_setting(
             ) || key == "window.position"
         }
         "worldEditor" => matches!(key, "enabled" | "toggleKey" | "refreshMilliseconds"),
-        "gameImprovements" => matches!(key, "enabled" | "noIntro.enabled"),
         "network" => matches!(key, "enabled" | "serverSteamId" | "allowedClientSteamIds"),
         "runtimeDiagnostics" => matches!(
             key,
@@ -191,17 +190,6 @@ pub(crate) fn save_setting(
             Ok(())
         });
     }
-    if module == "gameImprovements" && key == "noIntro.enabled" {
-        let enabled = setting
-            .as_bool()
-            .ok_or("No-Intro setting must be a boolean")?;
-        if enabled {
-            let config = shroudforge_loader_config::config::read_loader(root)?;
-            if config["modules"]["gameImprovements"]["enabled"] != true {
-                return Err("Enable the Game Improvements module first".into());
-            }
-        }
-    }
     if module == "network" && key != "enabled" {
         let text = setting.as_str().ok_or("Network settings must be text")?;
         if key == "serverSteamId"
@@ -234,8 +222,6 @@ pub(crate) fn save_setting(
             config["modules"]["updates"]["system"][key] = setting.clone();
         } else if module == "updates.recycleBin" {
             config["modules"]["updates"]["recycleBin"][key] = setting.clone();
-        } else if module == "gameImprovements" && key == "noIntro.enabled" {
-            config["modules"]["gameImprovements"]["noIntro"]["enabled"] = setting.clone();
         } else {
             config["modules"][module][key] = setting.clone();
         }

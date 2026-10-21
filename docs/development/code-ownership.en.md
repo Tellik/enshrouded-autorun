@@ -23,8 +23,6 @@ modules/                       # Product modules and application entrypoints
   modloader/                  # Find, read, check and configure mods
     ui/                       # Modloader window and its views
   player-name/                # Read the selected character name from the live Enshrouded UI
-  game-improvements/          # Own optional game-start features
-    native/                   # Apply enabled game-start options before game entry
   updater/                    # Check, download and install updates
     ui/                       # Its update views
   loader-config/              # Read and save loader settings and state
@@ -151,7 +149,6 @@ A file contains the implementation of the action named by that file. Related hel
 | Restore verified original game files | `modules/game-files/originals/restore_original_game_files.rs` |
 | Publish or recover a changed game-file set | `modules/game-files/game_file_transaction.rs` |
 | Apply game-file mods before startup | `modules/entrypoints/loader/asset_preparation/prepare_startup_assets.rs` |
-| Apply Enshrouded's startup option to skip intro videos when Game Improvements and No-Intro are enabled | `modules/game-improvements/native/enable_no_intro.cpp`, the Game Improvements controls in `modules/loader-config/ui/show-module-settings.tsx`, and the call from `modules/entrypoints/windows-bootstrap/runtime_lifecycle.cpp` |
 | Select and run a runtime diagnostics job, export its results, or execute Lua, Python, Rust and mod actions | `modules/runtime-diagnostics/diagnostics-jobs/**/*.job.json` defines all built-in jobs using `catalog/diagnostic-job.schema.json` and the shared parser. The module owns `session/`, `catalog/`, `collectors/` and `execution/`. `execution/write_job_exports.rs` owns `JobExports` under the configured exports folder at `diagnostics/<job-id>/`. Messages use the shared Debug Log. Lua jobs live under `world-editor/`, Python jobs and imports under `game_inspection/`, compiled Rust job actions live alongside their definitions under `game_inspection/`, and tests and fixtures remain under `modules/runtime-diagnostics/tests/`. `modules/mod-runtime/ingame/run_diagnostic_job.rs` hosts the active mod sandbox, Rust actions and canonical mod-action call. |
 | Measure runtime operations | `modules/runtime-diagnostics/collectors/operation_timings.rs` |
 | Report connection health | `modules/transport/report_network_health.rs` |

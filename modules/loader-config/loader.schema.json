@@ -707,20 +707,6 @@
           },
           "additionalProperties": false
         },
-        "gameImprovements": {
-          "type": "object",
-          "properties": {
-            "enabled": { "type": "boolean" },
-            "noIntro": {
-              "type": "object",
-              "properties": {
-                "enabled": { "type": "boolean" }
-              },
-              "additionalProperties": false
-            }
-          },
-          "additionalProperties": false
-        },
         "network": {
           "type": "object",
           "properties": {

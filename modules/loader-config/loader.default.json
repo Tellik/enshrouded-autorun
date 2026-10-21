@@ -232,12 +232,6 @@
       "toggleKey": 113,
       "refreshMilliseconds": 400
     },
-    "gameImprovements": {
-      "enabled": true,
-      "noIntro": {
-        "enabled": false
-      }
-    },
     "modloaderUi": {
       "enabled": true,
       "startPage": "news",
