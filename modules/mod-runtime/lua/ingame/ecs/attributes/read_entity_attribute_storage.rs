@@ -31,6 +31,6 @@ pub(super) fn entity_storage(
     resolve_storage(catalog, descriptor, |component| {
         snapshots
             .get(component["qualified_name"].as_str()?)
-            .cloned()
+            .map(Vec::as_slice)
     })
 }

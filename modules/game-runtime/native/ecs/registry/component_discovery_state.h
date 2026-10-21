@@ -30,8 +30,6 @@ struct TemplateLayoutSample {
 
 extern std::unordered_map<std::uint32_t, std::unordered_set<std::uint16_t>> observed_indices_by_size;
 
-extern std::unordered_set<std::uintptr_t> discovered_layouts;
-
 extern std::unordered_map<std::uintptr_t, std::vector<ComponentSlot>> discovered_layout_components;
 
 extern std::unordered_map<std::string, TemplateLayoutSample> template_layout_samples;

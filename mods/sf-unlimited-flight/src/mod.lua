@@ -119,11 +119,6 @@ local function active_item(entity)
         item_id_path, "currentState", "currentAction.playbackContext.state",
         "currentAction.playbackContext.setStateMask", "currentAction.playbackContext.unsetStateMask"})
     if not actor then return nil, reason end
-    local function describe(value)
-        if value == nil then return "<nil>" end
-        local ok, text = pcall(tostring, value)
-        return ok and text or "<unreadable>"
-    end
     local function has_flag(flags, name)
         if flags == nil then return false end
         for _, flag in ipairs(flags) do if flag == name then return true end end
@@ -138,17 +133,7 @@ local function active_item(entity)
             and not has_flag(actor["currentAction.playbackContext.unsetStateMask"], "HangGliding")
     end
     if not gliding or not active then
-        local raw_item_id = actor[item_id_path]
-        if type(raw_item_id) == "table" or type(raw_item_id) == "userdata" then
-            raw_item_id = raw_item_id.value
-        end
-        return nil, string.format(
-            "No active glider action: active=%s gliding=%s itemId=%s currentState=%s actionState=%s setStateMask=%s unsetStateMask=%s",
-            tostring(active), tostring(gliding), tostring(raw_item_id),
-            describe(actor.currentState),
-            describe(actor["currentAction.playbackContext.state"]),
-            describe(actor["currentAction.playbackContext.setStateMask"]),
-            describe(actor["currentAction.playbackContext.unsetStateMask"]))
+        return nil, "Player is not actively using a glider"
     end
     local item_id = actor[item_id_path]
     if type(item_id) == "table" or type(item_id) == "userdata" then item_id = item_id.value end
@@ -202,8 +187,8 @@ local function pitch_command(entity, delta_seconds)
     local horizon = math.max(0.25, 2 * peak_flight_delta)
     -- This margin uses measured runtime intervals. A resource rate has no
     -- expiry, so an arbitrarily longer future Lua pause is still unbounded.
-    return {input=command, pitch=pitch, recovery=upward_recovery,
-        horizon=horizon, upward_rate_limit=math.max(0, (pitch + 85) / horizon)}
+    return {input=command, recovery=upward_recovery,
+        upward_rate_limit=math.max(0, (pitch + 85) / horizon)}
 end
 
 local function update(delta_seconds)
@@ -265,9 +250,9 @@ local function update(delta_seconds)
                     if #players == 1 then
                         local command, failure = pitch_command(entity, delta_seconds)
                         if command then
-                            pitch_detail = string.format(" | observed pitch=%.1f deg, input=%.2f, horizon=%.3f s%s",
-                                command.pitch, command.input, command.horizon,
-                                command.recovery and ", inverted recovery: release climb to resume" or "")
+                            if command.recovery then
+                                pitch_detail = " | inverted recovery: release climb to resume"
+                            end
                             local target, why = runtime.overrides.resource(resource, pitch_path)
                             if target then
                                 pitch_overrides:apply(target.key, "unlimitedFlying", target, function(_, baseline)
@@ -288,6 +273,7 @@ local function update(delta_seconds)
                         local factor, why = multiplier(field.setting)
                         if factor then
                             -- Toolkit values are direct multipliers of these original coefficients.
+                            -- The adapter captures a fresh snapshot before each field apply.
                             local target, failure = runtime.overrides.resource(resource, field.path)
                             if target then
                                 overrides:apply(target.key, field.setting, target, function(snapshot, baseline)
@@ -297,10 +283,6 @@ local function update(delta_seconds)
                         else
                             overrides:waiting(field.setting .. ": " .. tostring(why))
                         end
-                        -- Each field uses a fresh resource snapshot after any earlier field write.
-                        local fresh, fresh_reason = game.assets.get_loaded_resource(resource.guid,
-                            "keen::ItemInfo", resource.part)
-                        if fresh then resource = fresh else overrides:waiting("Refresh glider resource: " .. tostring(fresh_reason)) end
                     end
                 end
             elseif setting_enabled("unlimitedFlying") or setting_enabled("turnSpeed") or setting_enabled("moveSpeed")
@@ -323,7 +305,7 @@ local function update(delta_seconds)
 end
 
 return {
-    update_interval_ms = 16,
+    update_interval_ms = 100,
     on_load = function()
         if type(game.assets.prepare_loaded_index) == "function" then
             game.assets.prepare_loaded_index("keen::ItemInfo", "itemId.value")

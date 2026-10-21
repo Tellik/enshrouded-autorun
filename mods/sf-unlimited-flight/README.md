@@ -2,6 +2,9 @@
 
 Independent runtime mod using the public ShroudForge API. It has no dependency
 on SF Survival or another mod. Settings default to off and 100 percent.
+Runtime updates run every 100 ms to reduce repeated ECS and resource access.
+Steering inputs and landing are sampled at that interval. The pitch guard still
+uses the measured elapsed time, and restoration uses the same checked writers.
 
 `Unlimited Flying` controls the original glider pitch-rate input and sets the
 glider-specific stamina depletion modifier to zero. The active actor action
@@ -35,5 +38,5 @@ template. The user confirmed immediate upward flight in the first performance
 build. Its vertical flip was subsequently captured and the sampled guard was
 corrected. The user confirmed the installed R2 build working without problems.
 Its 120-second API measurement had no mod errors. A separate quantitative R2
-near-vertical angle capture was not obtained. The runtime status reports observed
-pitch and current input.
+near-vertical angle capture was not obtained. These observations predate the
+100 ms update interval, which has not yet been validated in game.

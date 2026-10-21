@@ -56,6 +56,7 @@ public:
         if (progress_.scanning && progress_.completed_passes == 0)
             progress_.reason = "scanning resident-private-memory for component registry metadata";
         std::size_t remaining = 2 * 1024 * 1024;
+        std::size_t inspected_headers{};
         const auto now = GetTickCount64();
         std::size_t validation_bytes{};
         bool validation_limited{};
@@ -157,6 +158,15 @@ public:
                     std::size_t offset = (8 - (run_begin % 8)) % 8;
                     for (; offset + header_size <= run_size; offset += 8) {
                         const auto address = run_begin + offset;
+                        // Bound header scanning inside each copied chunk too.
+                        // Always advance a bounded batch before yielding, even
+                        // when the preceding memory query consumed the budget.
+                        if (inspected_headers && !(inspected_headers & 255) && Clock::now() >= deadline) {
+                            cursor_ = address; // first unprocessed aligned header, with no progress counted yet
+                            ++progress_.budget_limited_steps;
+                            return false;
+                        }
+                        ++inspected_headers;
                         cursor_ = address + 8;
                         progress_.scanned_bytes += 8;
                         if (address >= buffer_begin && address - buffer_begin < buffer_.size()) continue;
@@ -200,7 +210,7 @@ public:
                     if (!validation_limited) Invalidate(error.empty() ? "known component registry owner no longer validates" : error);
                     return false;
                 }
-                if (!SameCatalog(selected_catalog_, current)) {
+                if (selected_catalog_.entries != current.entries) {
                     Invalidate("known component registry owners expose different complete catalogs");
                     return false;
                 }
@@ -235,30 +245,6 @@ private:
     std::unordered_set<std::uintptr_t> rejected_records_;
     Snapshot selected_catalog_;
 
-    static bool SameType(const Type& first, const Type& second) {
-        return first.name == second.name && first.hash == second.hash &&
-            first.size == second.size && first.metadata_rva == second.metadata_rva;
-    }
-
-    static bool SameCatalog(const Snapshot& first, const Snapshot& second) {
-        if (first.entries.size() != second.entries.size()) return false;
-        for (std::size_t i = 0; i < first.entries.size(); ++i) {
-            const auto& a = first.entries[i];
-            const auto& b = second.entries[i];
-            if (a.index != b.index || a.name != b.name || a.hash != b.hash || a.size != b.size ||
-                a.flags != b.flags || a.storage_flags != b.storage_flags ||
-                !SameType(a.storage, b.storage) || !SameType(a.configuration, b.configuration) ||
-                a.callbacks.size() != b.callbacks.size()) return false;
-            for (std::size_t j = 0; j < a.callbacks.size(); ++j) {
-                const auto& ac = a.callbacks[j];
-                const auto& bc = b.callbacks[j];
-                if (ac.slot_offset != bc.slot_offset || ac.function_rva != bc.function_rva ||
-                    ac.in_record != bc.in_record) return false;
-            }
-        }
-        return true;
-    }
-
     void Invalidate(const std::string& reason) {
         selected_owner_ = 0;
         progress_.available = false;
@@ -272,7 +258,7 @@ private:
         for (std::size_t i = 0; i < candidates_.size(); ++i) {
             bool seen{};
             for (std::size_t j = 0; j < i; ++j)
-                if (SameCatalog(candidates_[i].snapshot, candidates_[j].snapshot)) { seen = true; break; }
+                if (candidates_[i].snapshot.entries == candidates_[j].snapshot.entries) { seen = true; break; }
             if (!seen) ++progress_.distinct_catalogs;
         }
     }
@@ -280,12 +266,12 @@ private:
     void RememberCandidate(Snapshot candidate) {
         // The first observation in a follow-up scan must also be compared with
         // the published catalog, not only with other candidates in this pass.
-        if (selected_owner_ && !SameCatalog(selected_catalog_, candidate))
+        if (selected_owner_ && selected_catalog_.entries != candidate.entries)
             Invalidate("new component registry candidate differs from the selected complete catalog");
         for (auto& previous : candidates_) if (previous.snapshot.records == candidate.records) {
             if (std::find(previous.owners.begin(), previous.owners.end(), candidate.owner) == previous.owners.end())
                 previous.owners.push_back(candidate.owner);
-            if (!SameCatalog(previous.snapshot, candidate)) {
+            if (previous.snapshot.entries != candidate.entries) {
                 unstable_ = true;
                 Invalidate("component registry catalog changed during discovery");
             }

@@ -15,10 +15,20 @@ bool compact_entity_pointers(const std::uintptr_t* slots, std::size_t count,
     } else {
         pointers.reserve(count);
     }
-    for (std::size_t index = 0; index < count; ++index) {
-        const bool active = !occupancy ||
-            (occupancy[index / 64] & (std::uint64_t{1} << (index % 64)));
-        if (active && slots[index]) pointers.push_back({slots[index], index});
+    if (occupancy) {
+        // Original entity tables are sparse. Visit occupied bits in slot order
+        // instead of testing every empty bucket on each query refresh.
+        for (std::size_t word = 0; word < occupancy_count; ++word) {
+            auto bits = occupancy[word];
+            while (bits) {
+                const auto index = word * 64 + std::countr_zero(bits);
+                if (index < count && slots[index]) pointers.push_back({slots[index], index});
+                bits &= bits - 1;
+            }
+        }
+    } else {
+        for (std::size_t index = 0; index < count; ++index)
+            if (slots[index]) pointers.push_back({slots[index], index});
     }
     return true;
 }

@@ -200,6 +200,27 @@ return {
         if editor.p2p_target_check_elapsed >= 1 then
             editor.p2p_target_check_elapsed = 0
             editor.log_p2p_target_if_changed()
+            if not editor.readiness_logged then
+                local props_ready = runtime.has("runtime.world.entity.query_props_in_bounds")
+                local cursor_ready = runtime.has("runtime.world.cursor.get")
+                local write_feature = "runtime.world.entity.spawn"
+                local spawn_ready = runtime.has(write_feature)
+                local read_ready = runtime.has("runtime.world.voxel.read")
+                if props_ready and cursor_ready and spawn_ready and read_ready then
+                    editor.readiness_logged = true
+                    shroudforge.log.info("World Editor native entity APIs ready: F3 rotate, F4 undo, F5 mark A/B, F6 reset, F7 paste, F8 capture/save.")
+                elseif not editor.readiness_wait_logged then
+                    editor.readiness_wait_logged = true
+                    local props = runtime.status("runtime.world.entity.query_props_in_bounds")
+                    local cursor = runtime.status("runtime.world.cursor.get")
+                    local spawn = runtime.status(write_feature)
+                    local read = runtime.status("runtime.world.voxel.read")
+                    shroudforge.log.debug("World Editor waiting for runtime readiness: cursor=" .. tostring(cursor and cursor.reason or "ready") ..
+                        ", props=" .. tostring(props and props.reason or "ready") ..
+                        ", spawn=" .. tostring(spawn and spawn.reason or "ready") ..
+                        ", worldRead=" .. tostring(read and read.reason or "ready"))
+                end
+            end
         end
         local backend = editor.execution_backend()
         if backend ~= editor.last_execution_backend then
@@ -211,27 +232,6 @@ return {
                 shroudforge.log.info("World Editor automatic target selected: dedicated server via Steam P2P")
             else
                 shroudforge.log.debug("World Editor automatic target is waiting for a validated world session")
-            end
-        end
-        if not editor.readiness_logged then
-            local props_ready = runtime.has("runtime.world.entity.query_props_in_bounds")
-            local cursor_ready = runtime.has("runtime.world.cursor.get")
-            local write_feature = "runtime.world.entity.spawn"
-            local spawn_ready = runtime.has(write_feature)
-            local read_ready = runtime.has("runtime.world.voxel.read")
-            if props_ready and cursor_ready and spawn_ready and read_ready then
-                editor.readiness_logged = true
-                shroudforge.log.info("World Editor native entity APIs ready: F3 rotate, F4 undo, F5 mark A/B, F6 reset, F7 paste, F8 capture/save.")
-            elseif not editor.readiness_wait_logged then
-                editor.readiness_wait_logged = true
-                local props = runtime.status("runtime.world.entity.query_props_in_bounds")
-                local cursor = runtime.status("runtime.world.cursor.get")
-                local spawn = runtime.status(write_feature)
-                local read = runtime.status("runtime.world.voxel.read")
-                shroudforge.log.debug("World Editor waiting for runtime readiness: cursor=" .. tostring(cursor and cursor.reason or "ready") ..
-                    ", props=" .. tostring(props and props.reason or "ready") ..
-                    ", spawn=" .. tostring(spawn and spawn.reason or "ready") ..
-                    ", worldRead=" .. tostring(read and read.reason or "ready"))
             end
         end
         local rotate = editor.key_pressed("F3")

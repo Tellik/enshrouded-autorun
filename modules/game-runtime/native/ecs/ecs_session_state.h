@@ -172,8 +172,6 @@ std::uint64_t current_epoch();
 bool invoke_read_operation(GameThreadDispatcher::Operation operation, const std::shared_ptr<void>& context,
                            std::uint32_t timeout_ms = 75);
 
-void publish_query_result(QueryOperation& operation, const std::vector<std::uint32_t>& matches);
-
 void publish_current_query_result(QueryOperation& operation, const QueryCacheEntry& cached,
                                   const ResolvedLayout& layout, const std::vector<ComponentType>& components);
 

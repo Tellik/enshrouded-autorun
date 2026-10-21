@@ -14,27 +14,23 @@ std::string query_key(const QueryOperation& operation){
     return key;
 }
 
-void publish_query_result(QueryOperation& operation, const std::vector<std::uint32_t>& matches){
-    operation.result = matches.size();
-    if (operation.entities && operation.capacity)
-        std::copy_n(matches.begin(), (std::min)(operation.capacity, matches.size()), operation.entities);
-}
-
 void publish_current_query_result(QueryOperation& operation, const QueryCacheEntry& cached,
                                   const ResolvedLayout& layout, const std::vector<ComponentType>& components){
     // Discovery is incremental, but a known entity need not disappear from every
     // caller while that scan refreshes. Revalidate its real identity, live table
     // membership and requested components. Never retain component addresses.
-    std::vector<std::uint32_t> matches;
-    matches.reserve(cached.matches.size());
+    std::size_t matches{};
     for (const auto handle : cached.matches) {
         EntityView entity{};
         if (!entity_for_handle(handle, layout, entity)) continue;
         if (std::all_of(components.begin(), components.end(), [&](const auto& component) {
                 return component_present(entity, layout, component);
-            })) matches.push_back(handle);
+            })) {
+            if (operation.entities && matches < operation.capacity) operation.entities[matches] = handle;
+            ++matches;
+        }
     }
-    publish_query_result(operation, matches);
+    operation.result = matches;
 }
 
 void query_on_game_thread(void* opaque){

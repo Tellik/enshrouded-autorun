@@ -64,8 +64,6 @@ pub fn report_network_health(
     if stats.probe_send_failures > previous_failures {
         if network_probe_failure_started() {
             tracing::warn!(target: "shroudforge::network", result = stats.last_send_result.unwrap_or_default(), total_failures = stats.probe_send_failures, "Steam P2P health probe send failed. Check the peer identity and Steam session state");
-        } else {
-            tracing::debug!(target: "shroudforge::network", result = stats.last_send_result.unwrap_or_default(), total_failures = stats.probe_send_failures, "Steam P2P health probe send failed again");
         }
     }
     let previous_timeouts =
@@ -73,8 +71,6 @@ pub fn report_network_health(
     if stats.probe_timeouts > previous_timeouts {
         if network_probe_failure_started() {
             tracing::warn!(target: "shroudforge::network", total_timeouts = stats.probe_timeouts, timeout_seconds = 15, "Steam P2P health probe received no acknowledgement for 15 seconds");
-        } else {
-            tracing::debug!(target: "shroudforge::network", total_timeouts = stats.probe_timeouts, timeout_seconds = 15, "Steam P2P health probe timed out again");
         }
     }
     if stats.probes_acknowledged > previous_acks {
@@ -84,8 +80,6 @@ pub fn report_network_health(
         let recovered = network_probe_recovered();
         if recovered || previous_acks == 0 || (peer_id != 0 && peer_id != previous_peer) {
             tracing::info!(target: "shroudforge::network", peer = peer, round_trip_ms = stats.last_round_trip_ms.unwrap_or_default(), total_acknowledged = stats.probes_acknowledged, "Steam P2P health probe confirmed");
-        } else {
-            tracing::debug!(target: "shroudforge::network", peer = peer, round_trip_ms = stats.last_round_trip_ms.unwrap_or_default(), total_acknowledged = stats.probes_acknowledged, "Steam P2P health probe acknowledged");
         }
     }
 }

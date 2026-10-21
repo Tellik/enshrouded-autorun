@@ -7,30 +7,42 @@ pub fn resources_by_type(type_hash: u32) -> Result<Vec<kfc::guid::ResourceId>, S
     let fetch = provider()
         .and_then(|value| value.resources_by_type)
         .ok_or("native provider lacks the ResourceService listing extension")?;
-    let mut count = 0usize;
-    if !unsafe { fetch(type_hash, std::ptr::null_mut(), 0, &mut count) } {
-        return Err("live ResourceService listing is unavailable".into());
-    }
-    if count > 1 << 20 {
-        return Err("live ResourceService listing exceeded the resource safety limit".into());
-    }
-    let mut native = vec![RuntimeResourceId::default(); count];
-    if count != 0 {
+    // Listing validates the complete resource index on every native call.
+    // Small lists need no separate full scan just to discover their size.
+    let mut native = vec![RuntimeResourceId::default(); 256];
+    for attempt in 0..3 {
         let mut actual = 0usize;
-        if !unsafe { fetch(type_hash, native.as_mut_ptr(), native.len(), &mut actual) }
-            || actual != count
-        {
+        let success = unsafe { fetch(type_hash, native.as_mut_ptr(), native.len(), &mut actual) };
+        if actual > 1 << 20 {
+            return Err("live ResourceService listing exceeded the resource safety limit".into());
+        }
+        if success {
+            if actual > native.len() {
+                return Err("live ResourceService listing changed during retrieval".into());
+            }
+            native.truncate(actual);
+            return Ok(native
+                .into_iter()
+                .map(|resource| {
+                    ResourceId::new(
+                        Guid::new(resource.guid),
+                        resource.type_hash,
+                        resource.part_index,
+                    )
+                })
+                .collect());
+        }
+        if actual <= native.len() {
+            return Err(if attempt == 0 {
+                "live ResourceService listing is unavailable".into()
+            } else {
+                "live ResourceService listing changed during retrieval".into()
+            });
+        }
+        if attempt == 2 {
             return Err("live ResourceService listing changed during retrieval".into());
         }
+        native.resize(actual, RuntimeResourceId::default());
     }
-    Ok(native
-        .into_iter()
-        .map(|resource| {
-            ResourceId::new(
-                Guid::new(resource.guid),
-                resource.type_hash,
-                resource.part_index,
-            )
-        })
-        .collect())
+    Err("live ResourceService listing changed during retrieval".into())
 }

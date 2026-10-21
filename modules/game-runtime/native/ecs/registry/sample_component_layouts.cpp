@@ -6,7 +6,6 @@ void reset_component_discovery(){
     std::scoped_lock lock(discovery_mutex);
     registry_discovery.Reset();
     observed_indices_by_size.clear();
-    discovered_layouts.clear();
     discovered_layout_components.clear();
     template_layout_samples.clear();
     template_layout_samples_dropped = 0;
@@ -147,7 +146,6 @@ void component_discovery_tick(std::uintptr_t manager){
         if (components == discovered_layout_components.end()) {
             std::vector<ComponentSlot> discovered_components;
             if (!collect_layout_component_candidates(entity, layout, discovered_components)) continue;
-            discovered_layouts.insert(entity.layout);
             components = discovered_layout_components.emplace(entity.layout, std::move(discovered_components)).first;
         }
         collect_template_layout_sample(entity, components->second);
@@ -164,8 +162,6 @@ void component_discovery_tick(std::uintptr_t manager){
 
 
 std::unordered_map<std::uint32_t, std::unordered_set<std::uint16_t>> observed_indices_by_size;
-
-std::unordered_set<std::uintptr_t> discovered_layouts;
 
 std::unordered_map<std::uintptr_t, std::vector<ComponentSlot>> discovered_layout_components;
 

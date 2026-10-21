@@ -264,21 +264,25 @@ local function add_resource_target(cache, current, path)
 end
 
 apply_resource_targets = function(cache, setting, desired)
-    -- Each public target uses a fresh snapshot, an original storage claim,
-    -- expected scalar and automatic restoration. The work remains bounded.
+    -- Keep only the session-bound adapter and claim. Its read captures a fresh
+    -- snapshot on every apply, including after earlier fields were written.
     for _ = 1, math.min(12, #cache.targets) do
         if cache.target_cursor > #cache.targets then cache.target_cursor = 1 end
         local entry = cache.targets[cache.target_cursor]
         cache.target_cursor = cache.target_cursor + 1
-        local ok, resource = pcall(game.assets.get_loaded_resource, entry.guid, cache.qualified_type, entry.part)
-        if not ok or not resource then
-            overrides:waiting(cache.label .. ": a discovered resource snapshot is unavailable")
-        else
-            local target, reason = runtime.overrides.resource(resource, entry.path)
-            if target then
-                overrides:apply(target.key, setting, target, desired, true)
-            else overrides:waiting(cache.label .. ": " .. tostring(reason)) end
+        local target = entry.target
+        if not target then
+            local ok, resource = pcall(game.assets.get_loaded_resource, entry.guid, cache.qualified_type, entry.part)
+            if not ok or not resource then
+                overrides:waiting(cache.label .. ": a discovered resource snapshot is unavailable")
+            else
+                local reason
+                target, reason = runtime.overrides.resource(resource, entry.path)
+                if target then entry.target = target
+                else overrides:waiting(cache.label .. ": " .. tostring(reason)) end
+            end
         end
+        if target then overrides:apply(target.key, setting, target, desired, true) end
     end
 end
 

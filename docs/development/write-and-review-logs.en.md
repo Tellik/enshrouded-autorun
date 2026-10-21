@@ -10,7 +10,7 @@ This is the shared logging standard for ShroudForge modules and mods. Logs shoul
 | **WARN** | Work was blocked, paused, degraded, or its result is uncertain, but the application can continue. Include the reason and whether a request was sent. | A required server ID is missing (`request=not-sent`). A timeout leaves the server result unknown. An optional runtime feature is unavailable. |
 | **INFO** | A meaningful state change, operation start, major phase, or confirmed result that helps explain mod behavior. | Mod initialized. Local or dedicated-server target selected. Operation started. Server confirmed live placement. |
 | **DEBUG** | Useful investigation details that most players do not need during normal use. Keep them event-based rather than per frame. | Key/button input, window shown/hidden, effective settings and their source, one-time readiness wait details. |
-| **TRACE** | High-volume or exhaustive diagnostics needed to reconstruct exactly what the UI or runtime observed. | Full visible UI state snapshots, repeated polling details, per-item/per-step data. |
+| **TRACE** | Detailed event diagnostics needed to reconstruct what the UI or runtime observed. | Full visible UI state snapshots when they change, per-item/per-step data for an active operation. |
 
 Use the most severe level justified by the impact. A recoverable block is WARN. A confirmed failure is ERROR, not a vague WARN. Do not log successful routine checks as INFO.
 
@@ -25,11 +25,13 @@ Use the most severe level justified by the impact. A recoverable block is WARN. 
 
 ## Keep volume useful
 
-- Do not write per-frame messages, per-second timers, unchanged state, or repeated successful polling results.
+- Do not write per-frame messages, per-second timers, unchanged state, or repeated successful polling results, including at DEBUG or TRACE.
+- Compare the meaningful state at the owning caller before emitting a status message. Emit changed failure reasons and recovery. Keep counters, elapsed time, pitch and other continuously changing telemetry in explicitly enabled diagnostic samples instead of ordinary status messages.
+- Background manifest revision checks do not log every file open. Actual package reads for startup or changed configuration retain their existing logs.
 - Log meaningful state transitions rather than background polling samples. Every emitted user-visible UI message is retained at its stated level. Full UI snapshots are emitted at TRACE when the visible state changes.
 - DEBUG and TRACE are real log levels. DEBUG entries are recorded when `logging.minimumLevel` is DEBUG or TRACE. TRACE entries are recorded only when it is TRACE.
 
-Network health probes are routine checks. Log the first confirmed probe for a peer as INFO, repeated acknowledgements as DEBUG, and recovery after 15 seconds without new failures as INFO when a later probe is confirmed. Log the first send failure or timeout in an outage as WARN. Keep repeated failures in the same outage at DEBUG so a five-second probe interval does not flood the main log, even when another peer is responding.
+Network health probes are routine checks. Log the first confirmed probe for a peer as INFO and recovery after 15 seconds without new failures as INFO when a later probe is confirmed. Log the first send failure or timeout in an outage as WARN. Repeated acknowledgements and repeated failures in the same outage update the existing service statistics without emitting log messages.
 
 For example, the player should see a short INFO trail for meaningful work:
 

@@ -15,7 +15,7 @@ std::string Status() {
          << ",registrations=" << (component_registry_ready ? component_registry.entries.size() : 0) << '}'
          << " component_index_discovery=" << (discovery_complete ? "complete" : "scanning")
          << '(' << discovery_cursor << '/' << discovery_entities.size()
-         << ",layouts=" << discovered_layouts.size()
+         << ",layouts=" << discovered_layout_components.size()
          << ",templates=" << template_layout_samples.size()
          << ",restarts=" << discovery_restarts << ')'
          << " profile=" << KfcRuntimeCompatibility::EnshroudedClient::status
@@ -68,15 +68,12 @@ std::string Diagnostics() {
         world_operations[operation.name] = {{"available", operation.available}, {"status", operation.status},
             {"abi", operation.abi}, {"thread", operation.thread}, {"context", operation.context}};
     std::unordered_map<std::uint32_t, std::vector<std::string>> names_by_size;
-    std::unordered_set<std::string> profile_names;
     std::size_t dynamic_candidates{};
     std::size_t template_types{}, template_only{};
     if (component_registry_ready) for (const auto& entry : component_registry.entries) {
         template_types += !entry.configuration.name.empty();
         template_only += entry.storage.name.empty();
     }
-    for (const auto& component : KfcRuntimeCompatibility::EnshroudedClient::runtime_components)
-        profile_names.insert(component.qualified_name);
     for (const auto& [name, size] : configured_types) {
         names_by_size[size].push_back(name);
         if (name.starts_with("keen::ecs::Dynamic")) ++dynamic_candidates;
@@ -163,7 +160,7 @@ std::string Diagnostics() {
             {"scannedEntities",discovery_scanned_entities},
             {"totalEntities",discovery_entities.size()},
             {"archetypes",discovery_layout_count},
-            {"distinctLayoutsSeen",discovered_layouts.size()},
+            {"distinctLayoutsSeen",discovered_layout_components.size()},
             {"snapshotRestarts",discovery_restarts},
             {"observedStrideBuckets",observed_indices_by_size.size()},
             {"observedIndexCandidates",observed_indices},

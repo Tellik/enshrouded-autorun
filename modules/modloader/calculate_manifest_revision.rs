@@ -12,7 +12,7 @@ pub fn manifest_revision(package: &Path) -> Result<String, String> {
     for name in ["mod.json", "extended.mod.json"] {
         bytes.extend_from_slice(name.as_bytes());
         bytes.push(0);
-        match package_fs.read_file(name) {
+        match package_fs.open_package_file(name) {
             Ok(mut file) => {
                 file.read_to_end(&mut bytes)
                     .map_err(|error| error.to_string())?;

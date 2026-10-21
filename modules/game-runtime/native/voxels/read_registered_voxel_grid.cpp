@@ -176,8 +176,8 @@ bool region(const Snapshot& world, const Request& request) {
 bool tasks(const Snapshot& world, const Request& request, std::vector<Task>& prepared,
     std::size_t& used) {
     if (!Healthy()) return false;
-    // Each intersecting tile owns at least one requested cell. The caller
-    // allocates one descriptor per cell before entering the original gates.
+    // The caller allocates a conservative bound for intersecting X/Z tiles
+    // before entering the original gates. Valid tile dimensions are >= 8.
     WorldReader reader(world.world);
     if (!reader.address) return false;
     used = 0;
@@ -353,7 +353,11 @@ Result Read(const std::int32_t origin[3], const std::uint32_t dimensions[3],
         const Bindings bindings;
         const auto token = KfcRuntimeWorldSessionId();
         std::vector<std::uint16_t> cells(count + guard_cells * 2, buffer_guard);
-        std::vector<Task> prepared(count);
+        // For any origin, an interval of n cells intersects at most
+        // ceil((n + 7) / 8) tiles when every validated tile is at least 8 wide.
+        const auto maximum_tiles_x = (static_cast<std::size_t>(dimensions[0]) + 14) / 8;
+        const auto maximum_tiles_z = (static_cast<std::size_t>(dimensions[2]) + 14) / 8;
+        std::vector<Task> prepared((std::min)(count, maximum_tiles_x * maximum_tiles_z));
         Request request{cells.data() + guard_cells, count};
         std::copy_n(origin, 3, request.origin.begin());
         std::copy_n(dimensions, 3, request.dimensions.begin());

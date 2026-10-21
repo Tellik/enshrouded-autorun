@@ -80,11 +80,7 @@ impl FileSystem {
             PathBuf::new()
         };
 
-        let file = match self {
-            Self::Disk(fs) => fs.read_file(path.as_ref()),
-            Self::Zip(fs) => fs.read_file(path.as_ref()),
-            Self::Empty => Err(Error::new(ErrorKind::NotFound, "No file system available")),
-        };
+        let file = self.open_package_file(path.as_ref());
 
         debug!(
             event = "read_file",
@@ -94,6 +90,20 @@ impl FileSystem {
         );
 
         file
+    }
+
+    // Revision polling observes package contents without turning each unchanged
+    // observation into activity. Keep the same filesystem and path checks used
+    // by the public, logged read operation.
+    pub(crate) fn open_package_file<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+    ) -> Result<Box<dyn FileRead + '_>> {
+        match self {
+            Self::Disk(fs) => fs.read_file(path.as_ref()),
+            Self::Zip(fs) => fs.read_file(path.as_ref()),
+            Self::Empty => Err(Error::new(ErrorKind::NotFound, "No file system available")),
+        }
     }
 
     pub fn exists<P: AsRef<Path>>(&self, path: P) -> bool {

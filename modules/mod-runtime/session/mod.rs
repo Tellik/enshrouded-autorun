@@ -49,7 +49,8 @@ pub struct AppState {
 
     type_registry: Rc<TypeRegistry>,
     attribute_catalog: OnceCell<Result<crate::lua::ingame::ecs::attributes::Catalog, String>>,
-    inline_fields: RefCell<HashMap<(TypeIndex, String), Rc<crate::lua::values::InlineField>>>,
+    inline_fields:
+        RefCell<HashMap<TypeIndex, HashMap<String, Rc<crate::lua::values::InlineField>>>>,
     inline_field_bytes: Cell<usize>,
 
     ref_file: Rc<KFCFile>,
@@ -144,8 +145,12 @@ impl AppState {
         root: TypeIndex,
         path: &str,
     ) -> Result<Rc<crate::lua::values::InlineField>, String> {
-        let key = (root, path.to_owned());
-        if let Some(plan) = self.inline_fields.borrow().get(&key) {
+        if let Some(plan) = self
+            .inline_fields
+            .borrow()
+            .get(&root)
+            .and_then(|fields| fields.get(path))
+        {
             return Ok(plan.clone());
         }
         let plan = Rc::new(crate::lua::values::inline_field(
@@ -160,12 +165,16 @@ impl AppState {
             .retained_bytes()
             .saturating_add(path.len())
             .saturating_add(128);
-        if fields.len() < 4096
+        let field_count: usize = fields.values().map(HashMap::len).sum();
+        if field_count < 4096
             && self.inline_field_bytes.get().saturating_add(retained) <= 16 * 1024 * 1024
         {
             self.inline_field_bytes
                 .set(self.inline_field_bytes.get() + retained);
-            fields.insert(key, plan.clone());
+            fields
+                .entry(root)
+                .or_default()
+                .insert(path.to_owned(), plan.clone());
         }
         Ok(plan)
     }

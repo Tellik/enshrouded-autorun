@@ -136,9 +136,9 @@ DWORD WINAPI run(void*) {
         if (now >= next_runtime_status) {
             write_runtime_heartbeat(root);
             const auto status = EcsRuntime::Status();
-            log('D', "KFC Runtime details " + status);
             const auto state = runtime_status_state(status);
             if (state != previous_runtime_status) {
+                log('D', "KFC Runtime details " + status);
                 log("KFC Runtime state: " + state);
                 previous_runtime_status = state;
             }

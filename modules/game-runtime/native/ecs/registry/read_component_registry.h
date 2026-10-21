@@ -15,18 +15,25 @@ using Reader = std::function<bool(std::uintptr_t, void*, std::size_t)>;
 struct Type {
     std::string name;
     std::uint32_t hash{}, size{}, metadata_rva{};
+    bool operator==(const Type&) const = default;
 };
-struct Callback { std::uint32_t slot_offset{}, function_rva{}; bool in_record{}; };
+struct Callback {
+    std::uint32_t slot_offset{}, function_rva{};
+    bool in_record{};
+    bool operator==(const Callback&) const = default;
+};
 struct Entry {
     std::uint16_t index{};
     std::string name;
     std::uint32_t hash{}, size{}, flags{}, storage_flags{};
     Type storage, configuration;
     std::vector<Callback> callbacks;
+    bool operator==(const Entry&) const = default;
 };
 struct Snapshot {
     std::uintptr_t owner{}, records{};
     std::vector<Entry> entries;
+    bool operator==(const Snapshot&) const = default;
 };
 
 inline std::uint32_t hash_name(const std::string& name) {

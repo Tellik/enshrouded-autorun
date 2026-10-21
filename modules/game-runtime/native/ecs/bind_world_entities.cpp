@@ -1,4 +1,5 @@
 #include "ecs/component_operation.h"
+#include "ecs/building_prop_query_state.h"
 #include "ecs/registry/component_discovery_state.h"
 #include "engine-context/observe_entity_manager.h"
 #include "engine-hooks/install_engine_hooks.h"
@@ -227,7 +228,14 @@ void Tick() {
 void Shutdown() {
     stop_requested.store(true, std::memory_order_release);
     EngineHooks::Uninstall();
+    std::shared_ptr<PropQueryOperation> retired_prop_query;
+    PropQueryResultCache retired_prop_results;
+    // Exact queries acquire their call lock before operation_mutex too. Keep
+    // both until the binding is invalidated, then retire snapshots outside them.
+    std::scoped_lock query_lock(prop_query_call_mutex);
     std::scoped_lock operation_lock(operation_mutex);
+    pending_prop_query.swap(retired_prop_query);
+    std::swap(prop_query_result_cache, retired_prop_results);
     reset_component_discovery();
     std::scoped_lock lock(state_mutex);
     types.clear();

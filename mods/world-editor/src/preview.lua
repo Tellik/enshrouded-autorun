@@ -1,5 +1,7 @@
 -- Editor preview, selection and progress presentation.
 return function(editor)
+    local last_publish_failure
+
     function editor.process_update(state, operation, phase, completed, total, message, level)
         local next_operation = operation or editor.process_progress.operation
         local next_phase = phase or ""
@@ -109,9 +111,14 @@ return function(editor)
         if text == editor.last_published_editor_state then return true end
         local ok, reason = pcall(io.export, "world-editor/editor-state.txt", text)
         if not ok then
-            shroudforge.log.warn("World Editor could not publish its on-screen helper state: " .. tostring(reason))
+            local failure = tostring(reason)
+            if failure ~= last_publish_failure then
+                shroudforge.log.warn("World Editor could not publish its on-screen helper state: " .. failure)
+                last_publish_failure = failure
+            end
             return false
         end
+        last_publish_failure = nil
         editor.last_published_editor_state = text
         return true
     end

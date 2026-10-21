@@ -349,7 +349,7 @@ return function(editor)
     end
 
     function editor.update_pending_queries(delta)
-        if editor.current_session() == 0 and (editor.pending_world_action or editor.pending_cursor_action or editor.pending_prop_capture) then
+        if (editor.pending_world_action or editor.pending_cursor_action or editor.pending_prop_capture) and editor.current_session() == 0 then
             editor.cancel_pending_queries("The world session became unavailable. Capture cancelled. Mark the selection again after loading.", "ready")
             return
         end

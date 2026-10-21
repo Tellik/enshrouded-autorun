@@ -6,10 +6,10 @@ use serde_json::json;
 
 /// Resolve ownership from the initialized component header on this entity.
 /// Type names select engine-registered storage, never infer attribute identity.
-pub(super) fn resolve_storage(
+pub(super) fn resolve_storage<Snapshot: AsRef<[u8]>>(
     catalog: &Catalog,
     descriptor: &Value,
-    mut read: impl FnMut(&Value) -> Option<Vec<u8>>,
+    mut read: impl FnMut(&Value) -> Option<Snapshot>,
 ) -> Result<(Value, Value, Vec<u8>), String> {
     let _timing =
         shroudforge_runtime_diagnostics::operation_timings::span("attributes.resolve_storage");
@@ -24,7 +24,7 @@ pub(super) fn resolve_storage(
             continue;
         };
         readable += 1;
-        if storage_range(descriptor, component, &bytes).is_err() {
+        if storage_range(descriptor, component, bytes.as_ref()).is_err() {
             continue;
         }
         if found.is_some() {
@@ -37,5 +37,7 @@ pub(super) fn resolve_storage(
         let bound = catalog.bind_storage(descriptor, &component)?;
         found = Some((bound, component, bytes));
     }
-    found.ok_or_else(|| format!("no initialized component on this entity matches attribute root {:#010x} ({readable} compatible component snapshots read)", uint(&descriptor["root_hash"]).unwrap()))
+    found
+        .map(|(descriptor, component, bytes)| (descriptor, component, bytes.as_ref().to_vec()))
+        .ok_or_else(|| format!("no initialized component on this entity matches attribute root {:#010x} ({readable} compatible component snapshots read)", uint(&descriptor["root_hash"]).unwrap()))
 }

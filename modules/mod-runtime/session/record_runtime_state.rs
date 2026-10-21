@@ -63,22 +63,24 @@ impl AppState {
     }
 
     pub(crate) fn report_runtime_effect(&self, id: &str, state: &str, detail: &str) {
+        let detail = detail.chars().take(240).collect::<String>();
+        let mut effects = self.runtime_effects.borrow_mut();
+        if effects.get(id).is_some_and(|previous| {
+            previous["state"].as_str() == Some(state)
+                && previous["detail"].as_str() == Some(detail.as_str())
+        }) {
+            return;
+        }
         let value = serde_json::json!({
             "state": state,
             "processTarget": if self.is_server() { "server" } else { "client" },
             "scope": "this-process",
-            "detail": detail.chars().take(240).collect::<String>(),
+            "detail": detail,
             "updatedAt": std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs()
         });
-        let mut effects = self.runtime_effects.borrow_mut();
-        if effects.get(id).is_some_and(|previous| {
-            previous["state"] == value["state"] && previous["detail"] == value["detail"]
-        }) {
-            return;
-        }
         effects.insert(id.to_owned(), value);
     }
 

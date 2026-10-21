@@ -16,6 +16,7 @@ return function(api, callbacks)
     local server_busy = false
     local deferred_abandons = {}
     local receive_elapsed = 0
+    local last_receive_failure
 
     local function valid_id(value)
         return type(value) == "string" and #value > 0 and #value <= 96 and value:match("^[%w_-]+$") ~= nil
@@ -422,12 +423,20 @@ return function(api, callbacks)
         receive_elapsed = receive_elapsed + delta
         if receive_elapsed < 0.1 then return end
         receive_elapsed = 0
-        if not api.is_server and not client_pending then return end
-        local messages, reason = api.network.receive_mod(16)
-        if not messages then
-            if reason and api.log and api.log.debug then api.log.debug("World Editor P2P receive: " .. tostring(reason)) end
+        if not api.is_server and not client_pending then
+            last_receive_failure = nil
             return
         end
+        local messages, reason = api.network.receive_mod(16)
+        if not messages then
+            local failure = reason and tostring(reason) or nil
+            if failure ~= last_receive_failure then
+                if failure and api.log and api.log.debug then api.log.debug("World Editor P2P receive: " .. failure) end
+                last_receive_failure = failure
+            end
+            return
+        end
+        last_receive_failure = nil
         for _, message in ipairs(messages) do
             if api.is_server then
                 handle_server_message(message)

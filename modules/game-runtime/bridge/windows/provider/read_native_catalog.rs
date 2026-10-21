@@ -17,18 +17,22 @@ pub(in crate::windows) fn fetch_json(
     errors: [&str; 3],
 ) -> Result<serde_json::Value, String> {
     let [invalid_size, invalid_response, repeated_change] = errors;
-    let mut size = fetch(std::ptr::null_mut(), 0);
-    for _ in 0..3 {
-        if !(2..=maximum).contains(&size) {
+    // Registrations and status reports usually fit in one call. A size-only
+    // probe would make the provider construct the same report twice.
+    let mut buffer = vec![0u8; maximum.min(4096)];
+    for attempt in 0..4 {
+        let required = fetch(buffer.as_mut_ptr().cast(), buffer.len());
+        if !(2..=maximum).contains(&required) {
             return Err(invalid_size.into());
         }
-        let mut buffer = vec![0u8; size];
-        let required = fetch(buffer.as_mut_ptr().cast(), buffer.len());
-        if required > size {
-            size = required;
+        if required > buffer.len() {
+            if attempt == 3 {
+                break;
+            }
+            buffer.resize(required, 0);
             continue;
         }
-        if required < 2 || buffer[required - 1] != 0 {
+        if buffer[required - 1] != 0 {
             return Err(invalid_response.into());
         }
         return serde_json::from_slice(&buffer[..required - 1]).map_err(|e| e.to_string());

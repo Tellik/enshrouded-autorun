@@ -58,16 +58,26 @@ bool entity_for_handle(std::uint32_t handle, const ResolvedLayout& layout, Entit
         const auto end = table + count * sizeof(std::uintptr_t);
         if (record.table_slot < table || record.table_slot >= end ||
             !read(record.table_slot, pointer) || pointer != record.pointer) {
-            // Discover the slot once, then validate it on every read. A readable
-            // object with an old ID is insufficient after entity removal.
-            std::array<std::uintptr_t, 256> batch{};
-            record.table_slot = 0;
-            for (std::size_t offset = 0; offset < count && !record.table_slot; offset += batch.size()) {
-                const auto size = (std::min)(batch.size(), static_cast<std::size_t>(count) - offset);
-                if (!read_bytes(table + offset * sizeof(pointer), batch.data(), size * sizeof(pointer))) return false;
-                for (std::size_t index = 0; index < size; ++index) if (batch[index] == record.pointer) {
-                    record.table_slot = table + (offset + index) * sizeof(pointer);
-                    break;
+            if (layout.occupancy_address && layout.keys_address) {
+                // A removed or relocated cached handle must not trigger a
+                // whole-world pointer scan on every component read. Reuse the
+                // original bounded ID lookup and retain generation checks.
+                EntityView current{};
+                std::size_t slot{};
+                if (entity_for_id(record.id, layout, current, slot) != EntityMembership::Present ||
+                    current.pointer != record.pointer || current.generation != record.generation) return false;
+                record.table_slot = table + slot * sizeof(pointer);
+            } else {
+                // Legacy layouts lack the reviewed original ID index.
+                std::array<std::uintptr_t, 256> batch{};
+                record.table_slot = 0;
+                for (std::size_t offset = 0; offset < count && !record.table_slot; offset += batch.size()) {
+                    const auto size = (std::min)(batch.size(), static_cast<std::size_t>(count) - offset);
+                    if (!read_bytes(table + offset * sizeof(pointer), batch.data(), size * sizeof(pointer))) return false;
+                    for (std::size_t index = 0; index < size; ++index) if (batch[index] == record.pointer) {
+                        record.table_slot = table + (offset + index) * sizeof(pointer);
+                        break;
+                    }
                 }
             }
             if (!record.table_slot || !read(record.table_slot, pointer) || pointer != record.pointer) return false;
@@ -89,6 +99,15 @@ void resolve_on_game_thread(void* opaque){
     auto& operation = *static_cast<ResolveOperation*>(opaque);
     ResolvedLayout layout{};
     if (!layout_snapshot(layout)) return;
+    if (layout.occupancy_address && layout.keys_address) {
+        // The reviewed original table already owns an ID index. Resolve with
+        // its checked hash lookup rather than starting a world scan per ID.
+        EntityView entity{};
+        std::size_t slot{};
+        if (entity_for_id(operation.entity_id, layout, entity, slot) == EntityMembership::Present)
+            operation.result = handle_for(entity, slot);
+        return;
+    }
     const auto epoch = current_epoch();
     const auto now_ms = GetTickCount64();
     for (auto iterator = resolve_scans.begin(); iterator != resolve_scans.end();) {
