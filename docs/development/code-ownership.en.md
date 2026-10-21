@@ -215,7 +215,9 @@ Initialize the Git submodules before building. The pinned parser revision includ
 | Build the Windows bootstrap | `./dev/build/build_windows_bootstrap.ps1` | Builds the Windows bootstrap project. |
 | Build Windows proxies | `./dev/build/build_windows_proxies.ps1` | Builds the EML-compatible proxy DLLs. |
 | Scan packaged release files with Microsoft Defender | `./dev/build/scan_release_with_defender.ps1` | Updates Defender signatures, scans release package contents, and writes machine-readable scan results. |
-| Write per-scanner and unified release security reports | `./dev/build/write_release_security_report.py` | Summarizes Trivy SARIF and ClamAV output, then combines all scanner reports for the workflow run. |
+| Scan release ZIP files with the VirusTotal API | `./dev/build/scan_release_with_virustotal.sh` | Uploads each run's release ZIP, waits for the API analysis, and writes the full final Analysis response together with its machine-readable summary in one JSON report. |
+| Write per-scanner and unified release security reports | `./dev/build/write_release_security_report.py` | Normalizes scanner output and writes scanner findings, job outcomes, and unified Markdown and JSON reports. |
+| Package release security reports | `./dev/build/package_release_security_report.py` | Bundles the displayed report and all available scanner files into one release ZIP and writes its SHA-256 sidecar. |
 | Locate Visual Studio | `./dev/build/find_visual_studio.ps1` | Finds the installed x64 C++ toolchain for native builds. |
 | Prepare the parser submodule | `./dev/parser/prepare_parser.ps1` | Accepts the pinned parser integration or applies the recorded patch to the legacy revision. |
 | Package existing build outputs | `./dev/build/package_release.ps1` | Stages product files, writes the version manifest, and creates the ZIP and checksum. |
