@@ -33,20 +33,7 @@ pub(crate) fn restore_gamefiles_worker(root: &Path) -> Result<(), String> {
             "Gamefile restoration is waiting for the game process to exit",
         );
         super::scheduled::wait_for_game_processes(root)?;
-        write_status("restoring", "Verifying and restoring original game files")?;
-        let restored = shroudforge_game_assets::originals::restore_originals(root, target)?;
-        shroudforge_loader_config::config::write_json(
-            &status_path,
-            &serde_json::json!({"schemaVersion":1,"status":"restart-required",
-                "message":"Original game files restored. Restart Enshrouded",
-                "target":target,"result":restored,
-                "updatedAt":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()}),
-        )?;
-        append_log(
-            root,
-            'I',
-            "Original game files restored and verified. Restart required",
-        );
+        crate::restore_gamefiles::restore_original_gamefiles(root, target)?;
         Ok(())
     })();
     if let Err(error) = &result {

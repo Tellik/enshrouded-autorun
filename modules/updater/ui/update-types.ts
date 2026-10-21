@@ -36,7 +36,23 @@ export type UpdateQueueItem = {
     removeMods?: boolean
     resetUserSettings?: boolean
     purgeData?: boolean
+    restoreGamefiles?: boolean
   }
+}
+
+export type BackupManagement = {
+  target: string
+  originals?: {
+    status: string
+    capturedAt?: number
+    source?: string
+    detail?: string
+    files?: Array<{ name: string; valid: boolean }>
+  }
+  workingBaseline?: { kfc: boolean; resources: boolean; complete: boolean }
+  transaction?: { pending: boolean }
+  rollback?: { systemUpdates: number; modPackages: number }
+  restore?: { status: string; message?: string }
 }
 
 export type UpdateQueue = {
@@ -94,6 +110,7 @@ export type UpdaterViewData = {
   installationRootSelected?: boolean
   enabled?: boolean
   updateQueue?: UpdateQueue
+  backupManagement?: BackupManagement
   modUpdates?: ModUpdate[]
   modCheckResult?: ModUpdateCheckResult | null
   modCheckRunning?: boolean

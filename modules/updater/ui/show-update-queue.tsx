@@ -22,10 +22,18 @@ export function UpdateQueuePanel({
   const actionable = items.filter(
     (item) => !['complete', 'downloading', 'installing'].includes(item.state),
   )
+  const isUninstall = (item: (typeof queue.items)[number]) =>
+    item.kind === 'installer' && item.operation === 'uninstall'
+  const uninstallPending = actionable.some(
+    (item) =>
+      isUninstall(item) && !['error', 'cancelled'].includes(item.state),
+  )
   const selected = actionable
     .filter((item) => item.selected)
     .map((item) => item.id)
-  const selectable = actionable.filter((item) => !item.required)
+  const selectable = actionable.filter(
+    (item) => !item.required && (!uninstallPending || isUninstall(item)),
+  )
   const running = queue.run?.state === 'running'
   const runItemIds = new Set(queue.run?.itemIds || [])
   const isSystemInstall = (item: (typeof queue.items)[number] | undefined) =>
@@ -49,6 +57,8 @@ export function UpdateQueuePanel({
     const labels: Record<string, TranslationKey> = {
       queued: 'updates.queue.state.queued',
       downloading: 'updates.queue.state.downloading',
+      restoring: 'updates.queue.state.restoring',
+      uninstalling: 'updates.queue.state.uninstalling',
       waitingForGame: 'updater.waiting',
       verifying: 'updater.verifying',
       extracting: 'updater.extracting',
@@ -130,7 +140,11 @@ export function UpdateQueuePanel({
                     type="checkbox"
                     checked={item.selected}
                     disabled={
-                      disabled || running || item.required || !actionable.includes(item)
+                      disabled ||
+                      running ||
+                      item.required ||
+                      !actionable.includes(item) ||
+                      (uninstallPending && !isUninstall(item))
                     }
                     onChange={(event) =>
                       onCommand('select-update-queue-items', {
@@ -152,6 +166,9 @@ export function UpdateQueuePanel({
                       {item.version || item.operation || item.kind}
                       <> · {stateLabel(item.state)}</>
                     </small>
+                    {isUninstall(item) && item.payload?.restoreGamefiles && (
+                      <small>{t('updater.uninstall.queueRestoreLabel')}</small>
+                    )}
                     {itemMessage && <small>{itemMessage}</small>}
                   </span>
                 </label>

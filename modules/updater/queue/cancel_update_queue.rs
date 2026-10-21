@@ -13,6 +13,9 @@ pub fn cancel_update_queue(root: &std::path::Path) -> Result<(), String> {
             return Ok(());
         }
     };
+    if queue["run"]["installing"] == true && queue["run"]["cancelable"] != true {
+        return Err("the current update step cannot be cancelled safely".into());
+    }
     let run_token = crate::update_queue_storage::update_queue_run_token(&queue["run"]);
     // Signal first so the worker can stop a long operation even while it owns
     // the shared installation lock used to persist queue state.

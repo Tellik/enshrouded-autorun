@@ -3,6 +3,7 @@ import type {
   Release,
   UpdateQueue,
   Catalog,
+  BackupManagement,
 } from '../../updater/ui/update-types'
 import type { Settings } from '../../loader-config/ui/loader-settings'
 import type { ModInfo } from './mod-types'
@@ -49,20 +50,7 @@ export type Snapshot = {
     releaseUrl?: string | null
   }
   updateQueue?: UpdateQueue
-  backupManagement?: {
-    target: string
-    originals?: {
-      status: string
-      capturedAt?: number
-      source?: string
-      detail?: string
-      files?: Array<{ name: string; valid: boolean }>
-    }
-    workingBaseline?: { kfc: boolean; resources: boolean; complete: boolean }
-    transaction?: { pending: boolean }
-    rollback?: { systemUpdates: number; modPackages: number }
-    restore?: { status: string; message?: string }
-  }
+  backupManagement?: BackupManagement
   settings: Settings
   catalog?: Catalog
   locale: string

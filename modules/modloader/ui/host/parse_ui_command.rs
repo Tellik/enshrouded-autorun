@@ -34,6 +34,8 @@ pub(crate) struct UiCommand {
     #[serde(default)]
     pub(crate) remove_mods: Option<bool>,
     #[serde(default)]
+    pub(crate) restore_gamefiles: Option<bool>,
+    #[serde(default)]
     pub(crate) reset_user_settings: Option<bool>,
     #[serde(default)]
     pub(crate) purge_data: Option<bool>,

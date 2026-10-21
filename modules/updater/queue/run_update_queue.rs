@@ -194,6 +194,7 @@ pub(crate) fn run_update_queue(root: &std::path::Path) -> Result<(), String> {
                 )?;
                 crate::system_uninstall::uninstall_program_files(
                     root,
+                    item["payload"]["restoreGamefiles"].as_bool() == Some(true),
                     item["payload"]["removeMods"].as_bool() == Some(true),
                     item["payload"]["resetUserSettings"].as_bool() == Some(true),
                     item["payload"]["purgeData"].as_bool() == Some(true),

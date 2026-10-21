@@ -243,4 +243,4 @@ html,body,#root{width:100%;height:100%;margin:0;overflow:hidden}body{color:var(-
 .zoom-setting-control{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:10px}
 .zoom-setting-value{min-width:40px;color:var(--sf-gold-bright);font-size:11px;font-variant-numeric:tabular-nums;text-align:right}
 .updater-installation-path{display:grid;gap:2px;min-width:0;max-width:min(52vw,650px)}.updater-installation-path>span,.updater-installation-path>small{overflow:hidden;color:var(--sf-muted);font-size:11px;text-overflow:ellipsis;white-space:nowrap}.updater-installation-path>small{font-size:9px}
-.updater-uninstall-option{display:flex;align-items:center;gap:7px;color:var(--sf-muted);font-size:11px}
+.updater-installation-actions{width:100%;margin-bottom:20px}.updater-installation-action-row{justify-content:flex-end;margin:0}.updater-uninstall-option{display:flex;min-height:28px;align-items:center;gap:7px;color:var(--sf-muted);font-size:11px;cursor:pointer}.updater-uninstall-option input{flex:0 0 auto}

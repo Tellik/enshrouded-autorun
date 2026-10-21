@@ -91,6 +91,16 @@ export function Updates({
           </button>
         }
       />
+      <SystemInstallationActions
+        selectedRoot={data.installationRoot || ''}
+        rootSelected={data.installationRootSelected !== false}
+        updaterAvailable={updaterAvailable}
+        installationDetected={data.release.installationDetected === true}
+        latestVersion={data.release.latestVersion}
+        backupManagement={data.backupManagement}
+        queue={queue}
+        onCommand={onCommand}
+      />
       {commandError && !commandErrorAlreadyShown && (
         <p
           className={moduleUnavailable ? 'notice warning' : 'notice error'}
@@ -186,14 +196,6 @@ export function Updates({
         />
       ) : (
         <>
-          <SystemInstallationActions
-            selectedRoot={data.installationRoot || ''}
-            rootSelected={data.installationRootSelected !== false}
-            updaterAvailable={updaterAvailable}
-            installationDetected={data.release.installationDetected === true}
-            queue={queue}
-            onCommand={onCommand}
-          />
           <SystemUpdate
             release={systemRelease}
             queued={queuedSystem}

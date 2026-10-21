@@ -16,6 +16,7 @@ const FALLBACK_PROGRAM_FILES: &[&str] = &[
 
 pub(crate) fn uninstall_program_files(
     root: &Path,
+    restore_gamefiles: bool,
     remove_mods: bool,
     reset_user_settings: bool,
     purge_data: bool,
@@ -25,7 +26,7 @@ pub(crate) fn uninstall_program_files(
         root,
         'I',
         &format!(
-            "Starting ShroudForge uninstall. remove_mods={remove_mods}, reset_user_settings={reset_user_settings}, purge_data={purge_data}"
+            "Starting ShroudForge uninstall. restore_gamefiles={restore_gamefiles}, remove_mods={remove_mods}, reset_user_settings={reset_user_settings}, purge_data={purge_data}"
         ),
     );
     crate::scheduled::write_status(
@@ -84,30 +85,53 @@ pub(crate) fn uninstall_program_files(
             backup_entry.display()
         ),
     );
-    if let Err(error) =
-        ensure_uninstall_can_continue(root, remove_mods, reset_user_settings, purge_data)
-    {
-        return match fs::remove_dir_all(&backup_entry) {
-            Ok(()) => Err(error),
-            Err(cleanup_error) if cleanup_error.kind() == std::io::ErrorKind::NotFound => {
-                Err(error)
-            }
-            Err(cleanup_error) => {
-                let detail = format!(
-                    "{error}. Could not remove the unused recovery copy at {}: {cleanup_error}",
-                    backup_entry.display()
-                );
-                log_uninstall(root, 'E', &detail);
-                Err(detail)
-            }
-        };
+    if let Err(error) = ensure_uninstall_can_continue(
+        root,
+        restore_gamefiles,
+        remove_mods,
+        reset_user_settings,
+        purge_data,
+    ) {
+        return Err(discard_unused_recovery_copy(root, &backup_entry, error));
     }
 
-    crate::scheduled::write_status(
-        root,
-        "uninstalling",
-        uninstall_action_message(remove_mods, reset_user_settings, purge_data),
+    if restore_gamefiles {
+        crate::set_active_queue_item_state(
+            root,
+            "installer:uninstall",
+            "restoring",
+            Some("Restoring original Enshrouded game files"),
+        )?;
+        let target = if root.join("enshrouded_server.exe").is_file() {
+            "server"
+        } else {
+            "client"
+        };
+        let restore_result = crate::restore_gamefiles::disable_all_mods_for_gamefile_restore(root)
+            .and_then(|()| {
+                crate::restore_gamefiles::restore_original_gamefiles(root, target).map(|_| ())
+            });
+        if let Err(error) = restore_result {
+            return Err(discard_unused_recovery_copy(root, &backup_entry, error));
+        }
+        set_uninstall_cancelable(root, true)?;
+        if let Err(error) = crate::scheduled::check_update_cancelled(root) {
+            return Err(discard_unused_recovery_copy(root, &backup_entry, error));
+        }
+    }
+
+    let action_message = uninstall_action_message(
+        restore_gamefiles,
+        remove_mods,
+        reset_user_settings,
+        purge_data,
     );
+    crate::set_active_queue_item_state(
+        root,
+        "installer:uninstall",
+        "uninstalling",
+        Some(&action_message),
+    )?;
     let result = (|| {
         for relative in &paths {
             crate::scheduled::check_update_cancelled(root)?;
@@ -128,6 +152,11 @@ pub(crate) fn uninstall_program_files(
         Ok(())
     })();
     if let Err(error) = result {
+        let error = if restore_gamefiles {
+            format!("{error}. Original game files were restored before removal failed")
+        } else {
+            error
+        };
         log_uninstall(
             root,
             'E',
@@ -176,8 +205,13 @@ pub(crate) fn uninstall_program_files(
         return Err(error);
     }
 
-    let message =
-        uninstall_success_message(used_fallback, remove_mods, reset_user_settings, purge_data);
+    let message = uninstall_success_message(
+        used_fallback,
+        restore_gamefiles,
+        remove_mods,
+        reset_user_settings,
+        purge_data,
+    );
     crate::scheduled::write_status(root, "uninstalled", &message);
     log_uninstall(
         root,
@@ -195,6 +229,7 @@ pub(crate) fn uninstall_program_files(
 
 fn ensure_uninstall_can_continue(
     root: &Path,
+    restore_gamefiles: bool,
     remove_mods: bool,
     reset_user_settings: bool,
     purge_data: bool,
@@ -206,7 +241,7 @@ fn ensure_uninstall_can_continue(
         }
         let active_item_id = queue["run"]["activeItemId"].as_str().map(str::to_owned);
         queue["run"]["installing"] = serde_json::Value::Bool(true);
-        queue["run"]["cancelable"] = serde_json::Value::Bool(true);
+        queue["run"]["cancelable"] = serde_json::Value::Bool(!restore_gamefiles);
         if let Some(active_item_id) = active_item_id
             && let Some(item) = queue["items"].as_array_mut().and_then(|items| {
                 items
@@ -216,9 +251,25 @@ fn ensure_uninstall_can_continue(
         {
             item["state"] = serde_json::Value::String("installing".into());
             item["message"] = serde_json::Value::String(
-                uninstall_action_message(remove_mods, reset_user_settings, purge_data).into(),
+                uninstall_action_message(
+                    restore_gamefiles,
+                    remove_mods,
+                    reset_user_settings,
+                    purge_data,
+                )
+                .into(),
             );
         }
+        Ok(())
+    })
+}
+
+fn set_uninstall_cancelable(root: &Path, cancelable: bool) -> Result<(), String> {
+    crate::update_queue_storage::update_update_queue(root, |queue| {
+        if queue["run"]["state"] != "running" || queue["run"]["installing"] != true {
+            return Err("the update queue stopped during game file restoration".into());
+        }
+        queue["run"]["cancelable"] = serde_json::Value::Bool(cancelable);
         Ok(())
     })
 }
@@ -440,15 +491,34 @@ fn reset_loader_settings(root: &Path) -> Result<(), String> {
 }
 
 fn uninstall_action_message(
+    restore_gamefiles: bool,
     remove_mods: bool,
     reset_user_settings: bool,
     purge_data: bool,
 ) -> &'static str {
     if purge_data {
-        return if remove_mods {
+        return if restore_gamefiles && remove_mods {
+            "Restoring original game files, removing ShroudForge and selected mods, then purging all ShroudForge data"
+        } else if restore_gamefiles {
+            "Restoring original game files, removing ShroudForge, then purging all ShroudForge data"
+        } else if remove_mods {
             "Removing ShroudForge files and selected mods, then purging all ShroudForge data"
         } else {
             "Removing ShroudForge files, then purging all ShroudForge data"
+        };
+    }
+    if restore_gamefiles {
+        return match (remove_mods, reset_user_settings) {
+            (true, true) => {
+                "Restoring original game files, removing ShroudForge and selected mods, and resetting user settings"
+            }
+            (true, false) => {
+                "Restoring original game files before removing ShroudForge and selected mods"
+            }
+            (false, true) => {
+                "Restoring original game files before removing ShroudForge and resetting user settings"
+            }
+            (false, false) => "Restoring original game files before removing ShroudForge",
         };
     }
     match (remove_mods, reset_user_settings) {
@@ -461,6 +531,7 @@ fn uninstall_action_message(
 
 fn uninstall_success_message(
     used_fallback: bool,
+    restore_gamefiles: bool,
     remove_mods: bool,
     reset_user_settings: bool,
     purge_data: bool,
@@ -484,7 +555,27 @@ fn uninstall_success_message(
     } else {
         "ShroudForge settings and personal data were kept."
     };
-    format!("{program_files} {mods} {settings}")
+    let gamefiles = if restore_gamefiles {
+        "Original Enshrouded game files were restored and verified."
+    } else {
+        "Original Enshrouded game files were not restored."
+    };
+    format!("{gamefiles} {program_files} {mods} {settings}")
+}
+
+fn discard_unused_recovery_copy(root: &Path, backup_entry: &Path, error: String) -> String {
+    match fs::remove_dir_all(backup_entry) {
+        Ok(()) => error,
+        Err(cleanup_error) if cleanup_error.kind() == std::io::ErrorKind::NotFound => error,
+        Err(cleanup_error) => {
+            let detail = format!(
+                "{error}. Could not remove the unused recovery copy at {}: {cleanup_error}",
+                backup_entry.display()
+            );
+            log_uninstall(root, 'E', &detail);
+            detail
+        }
+    }
 }
 
 fn remove_empty_program_directories(root: &Path, file: &Path) {

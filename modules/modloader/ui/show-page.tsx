@@ -73,6 +73,7 @@ export function Page({
           installationRootSelected: true,
           enabled: data.settings.modulePreferences?.updates?.enabled === true,
           updateQueue: data.updateQueue,
+          backupManagement: data.backupManagement,
           modUpdates:
             data.settings.modulePreferences?.updates?.mods?.latestUpdates,
           modCheckResult:

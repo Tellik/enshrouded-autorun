@@ -4,6 +4,7 @@ import { useI18n } from '../../ui-resources/i18n'
 import { Icon } from '../../ui-resources/show-icon'
 import { Updates } from './show-updates'
 import type {
+  BackupManagement,
   ModUpdate,
   ModUpdateCheckResult,
   Release,
@@ -18,6 +19,7 @@ type UpdaterSnapshot = {
   version: string
   release: Release
   queue: UpdateQueue
+  backupManagement?: BackupManagement
   modUpdates?: ModUpdate[]
   modCheckResult?: ModUpdateCheckResult | null
   modCheckRunning?: boolean
@@ -72,6 +74,7 @@ export function UpdaterApp() {
     installationRootSelected: snapshot.installationRootSelected ?? Boolean(snapshot.root),
     enabled: snapshot.updatesEnabled === true,
     updateQueue: snapshot.queue,
+    backupManagement: snapshot.backupManagement,
     modUpdates: snapshot.modUpdates,
     modCheckResult: snapshot.modCheckResult,
     modCheckRunning: snapshot.modCheckRunning,

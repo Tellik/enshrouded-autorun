@@ -68,6 +68,7 @@ pub fn queue_latest_installation(root: &Path) -> Result<serde_json::Value, Strin
 
 pub fn queue_uninstall(
     root: &Path,
+    restore_gamefiles: bool,
     remove_mods: bool,
     reset_user_settings: bool,
     purge_data: bool,
@@ -77,8 +78,22 @@ pub fn queue_uninstall(
         if !shroudforge_loader_config::paths::shroudforge_program_files_present(root) {
             return Err("No ShroudForge program files were found in this game folder.".into());
         }
+        if restore_gamefiles {
+            let target = if root.join("enshrouded_server.exe").is_file() {
+                "server"
+            } else {
+                "client"
+            };
+            if shroudforge_game_assets::originals::originals_status(root, target)["status"]
+                != "ready"
+            {
+                return Err(
+                    "verified original game files are not available for this game build".into(),
+                );
+            }
+        }
         let id = "installer:uninstall";
-        crate::enqueue_update_item(
+        let queued = crate::enqueue_update_item(
             root,
             serde_json::json!({
                 "id":id,
@@ -88,12 +103,16 @@ pub fn queue_uninstall(
                 "state":"queued",
                 "selected":true,
                 "payload":{
+                    "restoreGamefiles":restore_gamefiles,
                     "removeMods":remove_mods,
                     "resetUserSettings":reset_user_settings && !purge_data,
                     "purgeData":purge_data
                 }
             }),
         )?;
+        if !queued {
+            return Err("A ShroudForge uninstall task is already queued.".into());
+        }
         Ok(serde_json::json!({
             "queued":true,
             "successMessage":"updater.uninstall.queued"
@@ -101,7 +120,13 @@ pub fn queue_uninstall(
     }
     #[cfg(not(windows))]
     {
-        let _ = (root, remove_mods, reset_user_settings, purge_data);
+        let _ = (
+            root,
+            restore_gamefiles,
+            remove_mods,
+            reset_user_settings,
+            purge_data,
+        );
         Err("ShroudForge uninstallation is available on Windows only".into())
     }
 }

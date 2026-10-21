@@ -1,5 +1,62 @@
 use std::path::Path;
 
+#[cfg(windows)]
+pub(crate) fn restore_original_gamefiles(
+    root: &Path,
+    target: &str,
+) -> Result<serde_json::Value, String> {
+    let status_path =
+        shroudforge_loader_config::paths::backups_dir(root).join("gamefiles-restore-status.json");
+    let write_status = |status: &str, message: &str, result: Option<&serde_json::Value>| {
+        let mut value = serde_json::json!({
+            "schemaVersion":1,
+            "status":status,
+            "message":message,
+            "updatedAt":std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            "target":target
+        });
+        if let Some(result) = result {
+            value["result"] = result.clone();
+        }
+        shroudforge_loader_config::config::write_json(&status_path, &value)
+    };
+
+    write_status(
+        "restoring",
+        "Verifying and restoring original game files",
+        None,
+    )?;
+    match shroudforge_game_assets::originals::restore_originals(root, target) {
+        Ok(restored) => {
+            write_status(
+                "restart-required",
+                "Original game files restored. Restart Enshrouded",
+                Some(&restored),
+            )?;
+            let _ = shroudforge_logging::append(
+                root,
+                'I',
+                "updater",
+                "Original game files restored and verified. Restart required",
+            );
+            Ok(restored)
+        }
+        Err(error) => {
+            let _ = write_status("error", &error, None);
+            let _ = shroudforge_logging::append(
+                root,
+                'E',
+                "updater",
+                &format!("Gamefile restoration failed: {error}"),
+            );
+            Err(error)
+        }
+    }
+}
+
 pub fn request_gamefiles_restore(root: &Path) -> Result<(), String> {
     #[cfg(windows)]
     {
@@ -34,7 +91,7 @@ pub fn request_gamefiles_restore(root: &Path) -> Result<(), String> {
 }
 
 #[cfg(windows)]
-fn disable_all_mods_for_gamefile_restore(root: &Path) -> Result<(), String> {
+pub(crate) fn disable_all_mods_for_gamefile_restore(root: &Path) -> Result<(), String> {
     let enabled = read_installed_mod_configurations(root)
         .into_iter()
         .filter(|mod_config| mod_config.enabled)
@@ -68,7 +125,7 @@ fn disable_all_mods_for_gamefile_restore(root: &Path) -> Result<(), String> {
         }
     }
     Err(format!(
-        "Could not disable every mod. Game files were not queued for restoration. {}",
+        "Could not disable every mod. Game files were not restored. {}",
         errors.join(", ")
     ))
 }

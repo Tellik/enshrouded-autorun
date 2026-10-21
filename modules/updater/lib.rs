@@ -289,6 +289,7 @@ pub fn run_request(
         "queue-latest-installation" => queue_latest_installation(root),
         "queue-uninstall" => queue_uninstall(
             root,
+            request["restoreGamefiles"].as_bool() == Some(true),
             request["removeMods"].as_bool() == Some(true),
             request["resetUserSettings"].as_bool() == Some(true),
             request["purgeData"].as_bool() == Some(true),

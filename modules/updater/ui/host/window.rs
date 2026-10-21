@@ -206,6 +206,12 @@ fn cancel_running_queue_before_close(root: &Path) -> Result<bool, String> {
     {
         return Ok(false);
     }
+    if queue
+        .as_ref()
+        .is_ok_and(|queue| queue["run"]["installing"] == true && queue["run"]["cancelable"] != true)
+    {
+        return Ok(false);
+    }
     let run_token = queue
         .as_ref()
         .ok()
@@ -580,6 +586,10 @@ fn read_snapshot(
         "version": release.current_version,
         "release": release,
         "queue": crate::read_update_queue(root),
+        "backupManagement": shroudforge_game_assets::originals::management_status(
+            root,
+            if root.join("enshrouded_server.exe").is_file() { "server" } else { "client" },
+        ),
         "modUpdates": config.pointer("/modules/updates/mods/latestUpdates").cloned().unwrap_or_else(|| serde_json::json!([])),
         "modCheckResult": config.pointer("/modules/updates/mods/lastCheckResult").cloned(),
         "modCheckRunning": mod_check_running.lock().is_ok_and(|value| *value),
