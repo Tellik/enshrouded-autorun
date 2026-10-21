@@ -36,6 +36,7 @@ jobs:
           severity: MEDIUM,HIGH,CRITICAL
           ignore-unfixed: true
           skip-dirs: .git,target,build,x64
+          trivyignores: dev/build/source-trivy-ignore.yaml
           format: sarif
           output: trivy-results.sarif
           exit-code: "0"
@@ -478,7 +479,7 @@ jobs:
             build/shroudforge-*.zip.sha256
             release-security-report/*.zip
             release-security-report/*.zip.sha256
-          body_path: release-security-report/unpacked/release-body.md
+          body_path: changelog/${{ needs.build.outputs.version }}.md
           generate_release_notes: true
           prerelease: true
           make_latest: false
