@@ -1,5 +1,6 @@
 #include "building/building_request_state.h"
 #include "engine-context/world_context_state.h"
+#include "impact/submit_entity_destruction.h"
 
 using namespace WorldRuntime::Implementation;
 
@@ -145,8 +146,10 @@ bool DestroyEntity(const double position[3], const double rotation[4], const flo
     return false;
 }
 
-bool DestroyEntityHandle(std::uint32_t entity_handle, std::uint32_t* outcome) {
+namespace {
+bool destroy_entity_handle_once(std::uint64_t expected_session, std::uint32_t entity_handle, std::uint32_t* outcome) {
     if (!entity_handle || !outcome) return false;
+    if (KfcRuntimeWorldSessionId() != expected_session) { *outcome = 5; return false; }
     KfcRuntimePropRecord prop{};
     if (!KfcRuntimeWorldEntityGetTransform(entity_handle, &prop)) {
         *outcome = 1;
@@ -157,74 +160,61 @@ bool DestroyEntityHandle(std::uint32_t entity_handle, std::uint32_t* outcome) {
         *outcome = 1;
         return false;
     }
-    if (!OperationAvailable("runtime.world.entity.destroy") ||
-        !OperationAvailable("runtime.world.entity.finish_building")) { *outcome = 1; return false; }
     std::scoped_lock lock(removal_mutex);
-    // Resolve the live handle again after acquiring the single-request lock,
-    // then preserve its exact fixed-point transform and scale for native removal.
-    if (!KfcRuntimeWorldEntityGetTransform(entity_handle, &prop) || prop.item_id != recipe.item_id) {
-        *outcome = 1;
-        return false;
-    }
-    const auto* context_profile = find_operation("runtime.world.context.active");
-    if (context_profile && context_profile->actor_context) {
-        // The headless server has no local player-input callback to consume
-        // queue_removal(). Dispatch this exact handle through the server's
-        // profiled prop-update frame, which carries the validated actor and
-        // placement context used by its native destroy operation.
-        auto request = std::make_shared<EntityRequest>();
-        request->kind = EntityRequest::Kind::Destroy;
-        request->has_exact_transform = true;
-        std::copy_n(prop.position, 3, request->exact_transform.position);
-        std::copy_n(prop.orientation, 4, request->exact_transform.rotation);
-        std::copy_n(prop.scale, 3, request->exact_transform.scale);
-        std::copy_n(recipe.bounds, 6, request->bounds);
-        request->tracking = recipe.item_id;
-        request->feedback = recipe.feedback;
-        if (!invoke_entity_request(request, outcome)) return false;
-        for (int attempt = 0; attempt < 200; ++attempt) {
-            KfcRuntimePropRecord current{};
-            if (!KfcRuntimeWorldEntityGetTransform(entity_handle, &current)) {
-                *outcome = 0;
-                return true;
-            }
-            Sleep(10);
+    const auto submitted = expected_session
+        ? ImpactRuntime::SubmitEntityDestruction(expected_session, entity_handle)
+        : ImpactRuntime::DestructionResult::Unavailable;
+    if (submitted == ImpactRuntime::DestructionResult::Submitted) {
+        // The original engine owns the queued command. All original Scene and
+        // session gates were released before waiting for its normal drain.
+        try {
+            const auto deadline = GetTickCount64() + 2000;
+            do {
+                KfcRuntimePropRecord current{};
+                const auto status = KfcRuntimeWorldEntityReadTransformForSession(
+                    entity_handle, expected_session, &current);
+                if (status == 6) { *outcome = 0; return true; }
+                if (status == 4) {
+                    // Status 4 also covers temporary owner loss. Fence the
+                    // published command without needing those owners again.
+                    *outcome = EcsRuntime::MarkSessionWriteUncertain(expected_session,
+                        "registered-destroy-completion-owner-unavailable") ? 6 : 5;
+                    return false;
+                }
+                if (status == 7) { *outcome = 6; return false; }
+                if (GetTickCount64() < deadline) Sleep(10);
+            } while (GetTickCount64() < deadline);
+            *outcome = EcsRuntime::MarkSessionWriteUncertain(expected_session,
+                "registered-destroy-completion-not-confirmed") ? 6 : 5;
+            return false;
+        } catch (...) {
+            EcsRuntime::MarkSessionWriteUncertain(expected_session,
+                "registered-destroy-completion-exception");
+            *outcome = 6;
+            return false;
         }
-        *outcome = 4;
-        return false;
     }
-    EngineTransform transform{};
-    std::copy_n(prop.position, 3, transform.position);
-    std::copy_n(prop.orientation, 4, transform.rotation);
-    std::copy_n(prop.scale, 3, transform.scale);
-    const auto actor_hooks_before = actor_placement_hook_hits.load(std::memory_order_acquire);
-    const auto actor_requests_before = actor_placement_request_hits.load(std::memory_order_acquire);
-    const auto dispatch_hooks_before = building_dispatch_hook_hits.load(std::memory_order_acquire);
-    const auto dispatch_requests_before = building_dispatch_request_hits.load(std::memory_order_acquire);
-    if (!queue_removal(transform, recipe.bounds, recipe.item_id, recipe.feedback)) {
-        const auto phase = InterlockedCompareExchange(&pending_removal.phase, 0, 0);
-        if (phase == 0) {
-            // Preserve hook evidence in the API result so the Lua error written
-            // to shroudforge.log identifies which native callback actually ran.
-            std::uint32_t flags{};
-            if (actor_placement_hook_hits.load(std::memory_order_acquire) != actor_hooks_before) flags |= 1u;
-            if (actor_placement_request_hits.load(std::memory_order_acquire) != actor_requests_before) flags |= 2u;
-            if (building_dispatch_hook_hits.load(std::memory_order_acquire) != dispatch_hooks_before) flags |= 4u;
-            if (building_dispatch_request_hits.load(std::memory_order_acquire) != dispatch_requests_before) flags |= 8u;
-            if (GameThreadDispatcher::EntityContextReady()) flags |= 16u;
-            *outcome = 30u + flags;
-        } else {
-            *outcome = 2;
-        }
-        return false;
-    }
-    for (int attempt = 0; attempt < 200; ++attempt) {
-        KfcRuntimePropRecord current{};
-        if (!KfcRuntimeWorldEntityGetTransform(entity_handle, &current)) { *outcome = 0; return true; }
-        Sleep(10);
-    }
-    *outcome = 4;
+    *outcome = submitted == ImpactRuntime::DestructionResult::Rejected ||
+        submitted == ImpactRuntime::DestructionResult::Unavailable ? 1 :
+        submitted == ImpactRuntime::DestructionResult::StaleSession ? 5 : 6;
     return false;
+}
+}
+
+bool DestroyEntityHandle(std::uint32_t entity_handle, std::uint32_t* outcome) {
+    if (!entity_handle || !outcome) return false;
+    *outcome = 1;
+    const auto session = KfcRuntimeWorldSessionId();
+    if (!session) return false;
+    const auto dispatch_deadline = GetTickCount64() + 250;
+    for (;;) {
+        if (KfcRuntimeWorldSessionId() != session) { *outcome = 5; return false; }
+        const bool result = destroy_entity_handle_once(session, entity_handle, outcome);
+        if (result || *outcome != 1 || GetTickCount64() >= dispatch_deadline) return result;
+        // Only a proved rejection before publication may be retried. There is
+        // no hook fallback and no original Scene/session guard survives here.
+        Sleep(2);
+    }
 }
 }
 

@@ -62,6 +62,12 @@ const char* write_fault_reason{};
 
 bool write_fault_active_locked(){ return write_fault_epoch == layout_epoch && write_fault_reason; }
 
+void mark_write_uncertain_locked(std::uint64_t epoch, const char* reason){
+    write_fault_epoch = epoch;
+    write_fault_reason = reason;
+    last_write_reason.store(reason, std::memory_order_relaxed);
+}
+
 std::mutex write_mutex;
 
 std::atomic<bool> stop_requested{};
@@ -134,11 +140,31 @@ const EngineContext::EcsView& SessionGuard::View() const { return state_->view; 
 
 bool SessionGuard::WritesAllowed() const { return state_ && !write_fault_active_locked(); }
 
+bool SessionGuard::ResolveEntityIdentity(std::uint32_t handle,
+    std::uint32_t& id, std::uint32_t& generation) const {
+    if (!state_ || !handle || state_->epoch != layout_epoch) return false;
+    const auto found = handles.find(handle);
+    if (found == handles.end() || found->second.epoch != state_->epoch) return false;
+    const auto& expected = found->second;
+    EntityView entity;
+    if (!entity_view(expected.pointer, live_layout, entity) || !entity.id || entity.id != expected.id ||
+        entity.generation != expected.generation) return false;
+    id = entity.id;
+    generation = entity.generation;
+    return true;
+}
+
 void SessionGuard::MarkWriteUncertain(const char* reason) {
     if (!state_ || !reason) return;
-    write_fault_epoch = state_->epoch;
-    write_fault_reason = reason;
-    last_write_reason.store(reason, std::memory_order_relaxed);
+    mark_write_uncertain_locked(state_->epoch, reason);
+}
+
+bool MarkSessionWriteUncertain(std::uint64_t expected_session, const char* reason) {
+    if (!expected_session || !reason) return false;
+    std::scoped_lock lock(state_mutex);
+    if (expected_session != layout_epoch + 1) return false;
+    mark_write_uncertain_locked(layout_epoch, reason);
+    return true;
 }
 
 bool Initialize() {

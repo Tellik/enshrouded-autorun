@@ -1,4 +1,5 @@
 #include "impact/resolve_registered_operation.h"
+#include "impact/owned_operation_arguments.h"
 #include "abi/runtime_api.h"
 #include "ecs/entity_session.h"
 #include <windows.h>
@@ -6,41 +7,9 @@
 #include <cstring>
 
 namespace {
-struct Variable {
-    std::uint32_t name{}, config{}, type{};
-    std::uint16_t size{}, offset{};
-    std::uint64_t debug_name{};
-    bool operator==(const Variable&) const = default;
-};
-static_assert(sizeof(Variable) == 24 && offsetof(Variable, offset) == 14);
-
-struct Arguments {
-    const std::uint32_t* indices{};
-    std::uint64_t count{};
-    bool operator==(const Arguments&) const = default;
-};
-
-struct Context {
-    const Variable* variables{};
-    std::uint64_t variable_count{};
-    const std::uint32_t* data{};
-    std::uint64_t data_extent{};
-    std::array<std::uintptr_t,2> reserved{};
-    const void* execution_context{};
-    bool operator==(const Context&) const = default;
-};
-static_assert(sizeof(Context) == 56 && offsetof(Context, variable_count) == 8 &&
-    offsetof(Context, data) == 16 && offsetof(Context, data_extent) == 24 &&
-    offsetof(Context, execution_context) == 48);
-
-bool invoke(std::uintptr_t callback, void* result, const Arguments* arguments,
-    const Context* context, void*& returned){
-    using Callback = void*(__fastcall*)(void*, const void*, const void*);
-    __try {
-        returned = reinterpret_cast<Callback>(callback)(result, arguments, context);
-        return true;
-    } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
-}
+using ImpactRuntime::OwnedVm::Variable;
+using ImpactRuntime::OwnedVm::Arguments;
+using ImpactRuntime::OwnedVm::Context;
 
 bool readable_output(std::uint8_t* output){
     __try { const volatile auto current = *output; (void)current; return true; }
@@ -80,7 +49,7 @@ extern "C" std::uint32_t __cdecl KfcRuntimeImpactCompareEntityIds(
         auto* result = storage.data() + 16;
         void* returned{};
         if (KfcRuntimeWorldSessionId() != expected_session) return 4;
-        if (!invoke(operation.callback, result, &arguments, &context, returned)) return 6;
+        if (!ImpactRuntime::OwnedVm::Invoke(operation.callback, result, &arguments, &context, returned)) return 6;
         std::uint32_t detail{};
         std::memcpy(&detail, result + 4, sizeof(detail));
         if (returned != result || result[0] || detail || result[8] > 1 ||

@@ -5,6 +5,23 @@ if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
 endif()
 
 enable_language(RC)
+enable_language(C)
+
+# Two typed original-operation adapters inspect directed call edges. Decode
+# actual instructions rather than scanning E8 bytes or storing function RVAs.
+include(FetchContent)
+set(ZYDIS_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(ZYDIS_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(ZYDIS_BUILD_DOXYGEN OFF CACHE BOOL "" FORCE)
+set(ZYDIS_FEATURE_ENCODER OFF CACHE BOOL "" FORCE)
+set(ZYDIS_BUILD_SHARED_LIB OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(zydis
+    GIT_REPOSITORY https://github.com/zyantific/zydis.git
+    GIT_TAG a2278f1d254e492f6a6b39f6cb5d1f5d515659dc
+    GIT_SHALLOW FALSE)
+FetchContent_MakeAvailable(zydis)
+set_property(TARGET Zydis Zycore PROPERTY MSVC_RUNTIME_LIBRARY
+    "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 # Each approved build is a complete, single-file compatibility profile.
 file(GLOB_RECURSE profile_json_files CONFIGURE_DEPENDS
@@ -56,6 +73,11 @@ file(MAKE_DIRECTORY "${generated_dir}")
 set(profile_resource_rc "${generated_dir}/embedded_profiles.rc")
 set(profile_resource_header "${generated_dir}/embedded_profile_ids.h")
 set(profile_rc_content "#include <windows.h>\n")
+file(TO_CMAKE_PATH "${zydis_SOURCE_DIR}/LICENSE" zydis_license_path)
+file(TO_CMAKE_PATH "${zydis_SOURCE_DIR}/dependencies/zycore/LICENSE" zycore_license_path)
+string(APPEND profile_rc_content
+    "\"ZYDIS_LICENSE\" RCDATA \"${zydis_license_path}\"\n"
+    "\"ZYCORE_LICENSE\" RCDATA \"${zycore_license_path}\"\n")
 set(profile_header_content "#pragma once\nnamespace KfcRuntimeEmbedded {\ninline constexpr int profile_resource_ids[] = {")
 set(resource_read_header_content "inline constexpr int resource_read_profile_ids[] = {")
 
@@ -87,6 +109,7 @@ set_source_files_properties("${profile_resource_rc}" PROPERTIES
 add_library(kfc-runtime SHARED
     ecs/bind_world_entities.cpp
     ecs/resolve_entity_handle.cpp
+    ecs/resolve_entity_command_queue.cpp
     ecs/read_entity_membership.cpp
     ecs/read_entity_components.cpp
     ecs/write_entity_components.cpp
@@ -128,8 +151,12 @@ add_library(kfc-runtime SHARED
     named-services/read_and_update_named_service.cpp
     impact/resolve_registered_operation.cpp
     impact/compare_entity_ids.cpp
+    impact/submit_entity_destruction.cpp
+    impact/submit_building_prop_spawn.cpp
+    voxels/write_registered_voxel_grid.cpp
     host/manage_runtime_lifecycle.cpp
     code-inventory/export_function_inspection.cpp
+    code-inventory/resolve_original_call_graph.cpp
     host/describe_runtime.cpp
     game-thread/run_game_thread_operations.cpp
     engine-hooks/scan_executable_signature.cpp
@@ -157,7 +184,7 @@ target_include_directories(kfc-runtime PRIVATE
 target_compile_features(kfc-runtime PRIVATE cxx_std_20)
 target_compile_definitions(kfc-runtime PRIVATE
     KFC_RUNTIME_BUILD WIN32_LEAN_AND_MEAN NOMINMAX)
-target_link_libraries(kfc-runtime PRIVATE bcrypt)
+target_link_libraries(kfc-runtime PRIVATE bcrypt Zydis)
 set_property(TARGET kfc-runtime PROPERTY MSVC_RUNTIME_LIBRARY
     "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 foreach(configuration DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
@@ -208,7 +235,7 @@ foreach(test_target kfc-runtime-test-prop-query kfc-runtime-test-ecs-read kfc-ru
     target_include_directories(${test_target} PRIVATE ${prop_test_includes})
     target_compile_features(${test_target} PRIVATE cxx_std_20)
     target_compile_definitions(${test_target} PRIVATE KFC_RUNTIME_BUILD WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_link_libraries(${test_target} PRIVATE bcrypt)
+    target_link_libraries(${test_target} PRIVATE bcrypt Zydis)
     set_property(TARGET ${test_target} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endforeach()
 
@@ -232,6 +259,25 @@ add_executable(kfc-runtime-dev EXCLUDE_FROM_ALL
     "${profile_development_directory}/cli/approve_runtime_profile.cpp")
 add_executable(kfc-runtime-test-building-input EXCLUDE_FROM_ALL
     ../tests/building_input_test.cpp player-input/apply_building_input.cpp)
+
+add_executable(kfc-runtime-test-entity-command-queue EXCLUDE_FROM_ALL
+    ../tests/entity_command_queue_test.cpp)
+add_executable(kfc-runtime-test-entity-destruction EXCLUDE_FROM_ALL
+    ../tests/submit_entity_destruction_test.cpp)
+add_executable(kfc-runtime-test-original-code EXCLUDE_FROM_ALL
+    ../tests/original_call_graph_test.cpp)
+add_executable(kfc-runtime-test-native-mutation-contract EXCLUDE_FROM_ALL
+    ../tests/native_world_mutation_contract_test.cpp)
+foreach(test_target kfc-runtime-test-entity-command-queue kfc-runtime-test-entity-destruction kfc-runtime-test-original-code kfc-runtime-test-native-mutation-contract)
+    target_compile_features(${test_target} PRIVATE cxx_std_20)
+    target_include_directories(${test_target} PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/json/single_include")
+    target_compile_definitions(${test_target} PRIVATE KFC_RUNTIME_BUILD WIN32_LEAN_AND_MEAN NOMINMAX)
+    set_property(TARGET ${test_target} PROPERTY MSVC_RUNTIME_LIBRARY
+        "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endforeach()
+target_link_libraries(kfc-runtime-test-original-code PRIVATE Zydis)
+target_link_libraries(kfc-runtime-test-native-mutation-contract PRIVATE Zydis)
 target_compile_features(kfc-runtime-test-building-input PRIVATE cxx_std_20)
 target_include_directories(kfc-runtime-test-building-input PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/player-input"
@@ -319,5 +365,5 @@ add_executable(kfc-runtime-test-world-context EXCLUDE_FROM_ALL
 target_include_directories(kfc-runtime-test-world-context PRIVATE ${prop_test_includes})
 target_compile_features(kfc-runtime-test-world-context PRIVATE cxx_std_20)
 target_compile_definitions(kfc-runtime-test-world-context PRIVATE KFC_RUNTIME_BUILD WIN32_LEAN_AND_MEAN NOMINMAX)
-target_link_libraries(kfc-runtime-test-world-context PRIVATE bcrypt)
+target_link_libraries(kfc-runtime-test-world-context PRIVATE bcrypt Zydis)
 set_property(TARGET kfc-runtime-test-world-context PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")

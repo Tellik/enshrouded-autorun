@@ -91,13 +91,18 @@ pub(crate) fn available(state: &AppState, r#mod: &Mod, feature: &str) -> bool {
                 && runtime_provider::world_entity_query_props_ready()
                 && runtime_provider::can_write_component("keen::ecs::CurrentTransform")
         }
-        "runtime.world.entity.spawn"
-        | "runtime.world.entity.query_props"
+        "runtime.world.entity.destroy" | "runtime.world.entity.spawn" => {
+            state.phase() == RuntimePhase::Ingame
+                && state.api().has_runtime(feature)
+                && has_capability(r#mod, Capability::Runtime)
+                && runtime_provider::world_operation_available(feature)
+                && runtime_provider::world_entity_query_props_ready()
+        }
+        "runtime.world.entity.query_props"
         | "runtime.world.entity.query_props_in_bounds"
         | "runtime.world.entity.register_prop_recipes"
         | "runtime.world.entity.get_transform"
         | "runtime.world.entity.place"
-        | "runtime.world.entity.destroy"
         | "runtime.world.entity.finish_building" => {
             state.phase() == RuntimePhase::Ingame
                 && state.api().has_runtime(feature)
@@ -227,6 +232,9 @@ pub(super) fn operation_status(
         } else if feature == "runtime.world.entity.set_scale" {
             runtime_provider::world_entity_query_props_ready()
                 && runtime_provider::can_write_component("keen::ecs::CurrentTransform")
+        } else if feature == "runtime.world.entity.destroy" || feature == "runtime.world.entity.spawn" {
+            runtime_provider::world_operation_available(&feature)
+                && runtime_provider::world_entity_query_props_ready()
         } else if feature == "runtime.world.entity.query_props"
             || feature == "runtime.world.entity.query_props_in_bounds"
             || feature == "runtime.world.entity.register_prop_recipes"

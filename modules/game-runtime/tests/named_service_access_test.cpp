@@ -285,6 +285,175 @@ int main(int argc, char** argv) {
     live_table = reinterpret_cast<std::uintptr_t>(entity_table);
     layout_epoch = 19;
     const std::uint64_t session = layout_epoch+1;
+
+    // Completion must fence the published epoch even when the live owners or
+    // normal admission flags are temporarily unavailable. No original gate is
+    // needed, and a genuinely newer epoch must retain its own fault state.
+    {
+        const auto saved_fault_epoch = write_fault_epoch;
+        const auto* saved_fault_reason = write_fault_reason;
+        const auto* saved_last_reason = last_write_reason.load(std::memory_order_relaxed);
+        const auto saved_root_pointer = root.pointer;
+        const auto saved_stop = stop_requested.load(std::memory_order_acquire);
+        const auto saved_ready = layout_ready;
+        const auto saved_registry_ready = component_registry_ready;
+        const auto saved_registry_bound = component_registry_world_bound;
+        const auto saved_read_only = read_only_binding;
+        constexpr const char* reason = "private-completion-outcome-uncertain";
+        const auto reset_admission = [&] {
+            root.pointer = saved_root_pointer;
+            stop_requested.store(saved_stop,std::memory_order_release);
+            layout_ready = saved_ready;
+            component_registry_ready = saved_registry_ready;
+            component_registry_world_bound = saved_registry_bound;
+            read_only_binding = saved_read_only;
+        };
+        for (unsigned blocked = 0; blocked < 6; ++blocked) {
+            reset_admission();
+            write_fault_epoch = 0; write_fault_reason = nullptr;
+            if (blocked == 0) root.pointer = 0;
+            if (blocked == 1) component_registry_ready = false;
+            if (blocked == 2) component_registry_world_bound = false;
+            if (blocked == 3) layout_ready = false;
+            if (blocked == 4) stop_requested.store(true,std::memory_order_release);
+            if (blocked == 5) read_only_binding = false;
+            {
+                EcsRuntime::SessionGuard unavailable;
+                check(!unavailable.TryAcquire(session));
+            }
+            thread_gate = static_cast<LONG>(0x80000000u); scene.gate = 1;
+            check(EcsRuntime::MarkSessionWriteUncertain(session,reason));
+            check(write_fault_active_locked() && write_fault_epoch == layout_epoch && write_fault_reason == reason);
+            check(last_write_reason.load(std::memory_order_relaxed) == reason);
+            check(thread_gate == static_cast<LONG>(0x80000000u) && scene.gate == 1);
+            thread_gate = 0; scene.gate = 0;
+            reset_admission();
+            EcsRuntime::SessionGuard restored;
+            check(restored.TryAcquire(session) && !restored.WritesAllowed());
+        }
+        check(!EcsRuntime::MarkSessionWriteUncertain(0,reason));
+        check(!EcsRuntime::MarkSessionWriteUncertain(session,nullptr));
+        check(write_fault_epoch == layout_epoch && write_fault_reason == reason);
+        ++layout_epoch;
+        write_fault_epoch = 0; write_fault_reason = nullptr;
+        check(!EcsRuntime::MarkSessionWriteUncertain(session,reason) && !write_fault_active_locked());
+        constexpr const char* newer_reason = "private-newer-epoch-fault";
+        write_fault_epoch = layout_epoch; write_fault_reason = newer_reason;
+        check(!EcsRuntime::MarkSessionWriteUncertain(session,reason));
+        check(write_fault_epoch == layout_epoch && write_fault_reason == newer_reason);
+        --layout_epoch;
+        reset_admission();
+        write_fault_epoch = saved_fault_epoch; write_fault_reason = saved_fault_reason;
+        last_write_reason.store(saved_last_reason,std::memory_order_relaxed);
+        check(scene.gate == 0 && thread_gate == 0);
+        EcsRuntime::SessionGuard restored;
+        check(restored.TryAcquire(session) && restored.WritesAllowed());
+    }
+
+    // Resolve the actual opaque-handle implementation with the existing
+    // SessionGuard and original Scene gates. The occupied ID index remains
+    // authoritative even when a removed object's memory is still readable.
+    {
+        const auto saved_layout = live_layout;
+        const auto saved_handles = handles;
+        const auto saved_reverse_handles = reverse_handles;
+        const auto saved_next_handle = next_handle;
+        std::array<unsigned char,64> identity_entity{}, replacement_entity{};
+        std::array<unsigned char,16> identity_layout{}, identity_storage{};
+        constexpr std::uint32_t identity_id = 0x12345678, identity_generation = 7;
+        std::uint64_t identity_occupancy = 1;
+        std::uint32_t identity_keys[1]{identity_id};
+        live_layout.entity_id = 16; live_layout.entity_generation = 20;
+        live_layout.entity_layout = 24; live_layout.entity_storage = 32;
+        live_layout.entity_definition = 40; live_layout.entity_row = 48;
+        live_layout.occupancy_address = read_only_view.manager + 336;
+        live_layout.keys_address = read_only_view.manager + 368;
+        put(execution.manager,336,reinterpret_cast<std::uintptr_t>(&identity_occupancy));
+        put(execution.manager,368,reinterpret_cast<std::uintptr_t>(identity_keys));
+        put(identity_entity.data(),16,identity_id);
+        put(identity_entity.data(),20,identity_generation);
+        put(identity_entity.data(),24,reinterpret_cast<std::uintptr_t>(identity_layout.data()));
+        put(identity_entity.data(),32,reinterpret_cast<std::uintptr_t>(identity_storage.data()));
+        entity_table[0] = reinterpret_cast<std::uintptr_t>(identity_entity.data());
+        EcsImplementation::EntityView identity_view;
+        check(entity_view(entity_table[0],live_layout,identity_view));
+        const auto identity_handle = handle_for(identity_view,0);
+        check(identity_handle && identity_handle != identity_id);
+        auto reject_identity = [&](const EcsRuntime::SessionGuard& held, std::uint32_t handle) {
+            std::uint32_t id = 0xaaaaaaaa, generation = 0xbbbbbbbb;
+            check(!held.ResolveEntityIdentity(handle,id,generation));
+            check(id == 0xaaaaaaaa && generation == 0xbbbbbbbb);
+        };
+        {
+            EcsRuntime::SessionGuard unpinned;
+            reject_identity(unpinned,identity_handle);
+            check(!unpinned.TryAcquire(session-1));
+            reject_identity(unpinned,identity_handle);
+        }
+        {
+            EcsRuntime::SessionGuard held;
+            check(held.TryAcquire(session));
+            EngineContext::EcsWriteGuard held_scene;
+            check(held_scene.TryAcquire(held.View()) && held_scene.Validate());
+            check(scene.gate == static_cast<LONG>(0x80000000u) && thread_gate == 1);
+            std::uint32_t id{}, generation{};
+            check(held.ResolveEntityIdentity(identity_handle,id,generation) &&
+                id == identity_id && generation == identity_generation);
+            reject_identity(held,0);
+            reject_identity(held,identity_handle+1);
+            put(identity_entity.data(),20,identity_generation+1);
+            reject_identity(held,identity_handle);
+            put(identity_entity.data(),20,identity_generation);
+            identity_occupancy = 0;
+            reject_identity(held,identity_handle);
+            identity_occupancy = 1;
+            identity_keys[0] ^= 1;
+            reject_identity(held,identity_handle);
+            identity_keys[0] = identity_id;
+            entity_table[0] = 0;
+            reject_identity(held,identity_handle);
+            // A different object with the same numeric identity must not
+            // make the old borrowed pointer into the registered object.
+            replacement_entity = identity_entity;
+            entity_table[0] = reinterpret_cast<std::uintptr_t>(replacement_entity.data());
+            reject_identity(held,identity_handle);
+            entity_table[0] = reinterpret_cast<std::uintptr_t>(identity_entity.data());
+            put(identity_entity.data(),16,std::uint32_t{});
+            reject_identity(held,identity_handle);
+            put(identity_entity.data(),16,identity_id);
+            put(identity_entity.data(),32,std::uintptr_t{});
+            reject_identity(held,identity_handle);
+            put(identity_entity.data(),32,reinterpret_cast<std::uintptr_t>(identity_storage.data()));
+            ++handles.at(identity_handle).epoch;
+            reject_identity(held,identity_handle);
+            --handles.at(identity_handle).epoch;
+            // Simulate binding invalidation while retaining the old guard.
+            // No lifecycle API is reentered while its state mutex is pinned.
+            ++layout_epoch;
+            reject_identity(held,identity_handle);
+            --layout_epoch;
+            check(held.ResolveEntityIdentity(identity_handle,id,generation) &&
+                id == identity_id && generation == identity_generation && held_scene.Validate());
+        }
+        check(scene.gate == 0 && thread_gate == 0);
+        ++layout_epoch;
+        {
+            EcsRuntime::SessionGuard next_binding;
+            check(next_binding.TryAcquire(session+1));
+            EngineContext::EcsWriteGuard held_scene;
+            check(held_scene.TryAcquire(next_binding.View()) && held_scene.Validate());
+            reject_identity(next_binding,identity_handle);
+        }
+        --layout_epoch;
+        check(scene.gate == 0 && thread_gate == 0);
+        live_layout = saved_layout;
+        handles = saved_handles;
+        reverse_handles = saved_reverse_handles;
+        next_handle = saved_next_handle;
+        entity_table[0] = 1;
+        put(execution.manager,336,std::uintptr_t{});
+        put(execution.manager,368,std::uintptr_t{});
+    }
     ServicePayload snapshot{};
     auto load = [&](std::uint64_t token = UINT64_MAX) {
         if (token == UINT64_MAX) token = session;

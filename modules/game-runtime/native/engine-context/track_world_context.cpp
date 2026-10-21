@@ -4,6 +4,9 @@
 #include "engine-context/world_context_state.h"
 #include "engine-context/engine_owners.h"
 #include "voxels/read_registered_voxel_grid.h"
+#include "impact/submit_entity_destruction.h"
+#include "impact/submit_building_prop_spawn.h"
+#include "voxels/write_registered_voxel_grid.h"
 
 using namespace WorldRuntime::Implementation;
 
@@ -185,11 +188,12 @@ bool OperationAvailable(const char* name) {
         return BuildingInput::Available();
     if (name && std::strcmp(name, "runtime.world.cursor.get") == 0)
         return InterlockedCompareExchange(&cursor_mailbox.hook_ready, 0, 0) != 0 || LocalCursorInputAvailable();
-    if (name && std::strcmp(name, "runtime.world.voxel.write") == 0) {
-        std::uintptr_t world{};
-        const auto* operation = find_operation(name);
-        return operation && operation->available && resolve_voxel_world(world);
-    }
+    if (name && std::strcmp(name, "runtime.world.entity.destroy") == 0 &&
+        ImpactRuntime::EntityDestructionAvailable()) return true;
+    if (name && std::strcmp(name, "runtime.world.entity.spawn") == 0)
+        return ImpactRuntime::BuildingPropSpawnAvailable();
+    if (name && std::strcmp(name, "runtime.world.voxel.write") == 0)
+        return RegisteredVoxelGrid::WriteAvailable();
     const auto* operation = find_operation(name);
     return operation && operation->available;
 }

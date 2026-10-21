@@ -98,6 +98,49 @@ ResolveResult select(const Table& current, const Occupancy& bits,
 
 }
 
+ResolveResult ResolveRegisteredOperationPinned(const NamedServiceImplementation::BindingContract& binding,
+    const EngineContext::EcsView& owner, const char* exact_name, RegisteredOperation& output){
+    if (!exact_name || binding.key != "impact::ImpactSystem")
+        return ResolveResult::UnsupportedContract;
+    std::size_t length{};
+    while (length < 32 && exact_name[length]) ++length;
+    if (!length || length == 32) return ResolveResult::UnsupportedContract;
+    std::uintptr_t service{}, again{};
+    if (!NamedServiceImplementation::resolve_binding(binding, owner, service))
+        return ResolveResult::RegistryUnavailable;
+    Table current, repeated;
+    if (!table(service, current)) return ResolveResult::RegistryUnavailable;
+    if (current.buckets < 2 || current.buckets > maximum_buckets ||
+        (current.buckets & (current.buckets - 1)) || !current.count || current.count > current.buckets)
+        return ResolveResult::UnsupportedContract;
+    const auto words = static_cast<std::size_t>((current.buckets + 63) / 64);
+    if (!range(current.bits, words * sizeof(std::uint64_t)) ||
+        !range(current.keys, static_cast<std::size_t>(current.buckets) * sizeof(std::uint32_t)) ||
+        !range(current.records, static_cast<std::size_t>(current.buckets) * sizeof(OperationRecord)))
+        return ResolveResult::UnsupportedContract;
+    Occupancy bits{}, bits_again{};
+    if (!copy(bits.data(), reinterpret_cast<const void*>(current.bits), words * sizeof(std::uint64_t)))
+        return ResolveResult::RegistryUnavailable;
+    if (current.buckets < 64 && (bits[0] >> current.buckets)) return ResolveResult::UnsupportedContract;
+    Selection selected, selected_again;
+    auto result = select(current, bits, exact_name, length, selected);
+    if (result != ResolveResult::Found) return result;
+    if (!table(service, repeated) || repeated != current ||
+        !copy(bits_again.data(), reinterpret_cast<const void*>(current.bits), words * sizeof(std::uint64_t)) ||
+        bits_again != bits) return ResolveResult::RegistryUnavailable;
+    result = select(repeated, bits_again, exact_name, length, selected_again);
+    if (result != ResolveResult::Found) return result;
+    if (selected_again != selected || !table(service, repeated) || repeated != current ||
+        !copy(bits_again.data(), reinterpret_cast<const void*>(current.bits), words * sizeof(std::uint64_t)) ||
+        bits_again != bits ||
+        !NamedServiceImplementation::resolve_binding(binding, owner, again) || again != service)
+        return ResolveResult::RegistryUnavailable;
+    if (!selected.record.callback || !NamedServiceImplementation::executable_callback(selected.record.callback))
+        return ResolveResult::UnsupportedContract;
+    output = {selected.record.callback, selected.record.arguments};
+    return ResolveResult::Found;
+}
+
 ResolveResult ResolveRegisteredOperation(std::uint64_t expected_session,
     const char* exact_name, RegisteredOperation& output){
     if (!expected_session || !exact_name || !*exact_name || std::strlen(exact_name) >= 32)
@@ -105,7 +148,6 @@ ResolveResult ResolveRegisteredOperation(std::uint64_t expected_session,
     if (KfcRuntimeWorldSessionId() != expected_session) return ResolveResult::SessionChanged;
     try {
         const auto binding = NamedServiceImplementation::binding_contract("impact::ImpactSystem");
-        const auto length = std::strlen(exact_name);
         RegisteredOperation found;
         {
             std::scoped_lock operation(NamedServiceImplementation::operation_mutex);
@@ -114,43 +156,12 @@ ResolveResult ResolveRegisteredOperation(std::uint64_t expected_session,
             EngineContext::EcsWriteGuard scene;
             if (!scene.TryAcquire(session.View())) return ResolveResult::RegistryUnavailable;
             if (!scene.Validate()) return ResolveResult::SessionChanged;
-            std::uintptr_t service{}, again{};
-            if (!NamedServiceImplementation::resolve_binding(binding, session.View(), service))
-                return ResolveResult::RegistryUnavailable;
-            Table current, repeated;
-            if (!table(service, current)) return ResolveResult::RegistryUnavailable;
-            if (current.buckets < 2 || current.buckets > maximum_buckets ||
-                (current.buckets & (current.buckets - 1)) || !current.count || current.count > current.buckets)
-                return ResolveResult::UnsupportedContract;
-            const auto words = static_cast<std::size_t>((current.buckets + 63) / 64);
-            if (!range(current.bits, words * sizeof(std::uint64_t)) ||
-                !range(current.keys, static_cast<std::size_t>(current.buckets) * sizeof(std::uint32_t)) ||
-                !range(current.records, static_cast<std::size_t>(current.buckets) * sizeof(OperationRecord)))
-                return ResolveResult::UnsupportedContract;
-            Occupancy bits{}, bits_again{};
-            if (!copy(bits.data(), reinterpret_cast<const void*>(current.bits), words * sizeof(std::uint64_t)))
-                return ResolveResult::RegistryUnavailable;
-            if (current.buckets < 64 && (bits[0] >> current.buckets)) return ResolveResult::UnsupportedContract;
-            Selection selected, selected_again;
-            auto result = select(current, bits, exact_name, length, selected);
+            const auto result = ResolveRegisteredOperationPinned(binding, session.View(), exact_name, found);
             if (result != ResolveResult::Found) return result;
-            if (!table(service, repeated) || repeated != current ||
-                !copy(bits_again.data(), reinterpret_cast<const void*>(current.bits), words * sizeof(std::uint64_t)) ||
-                bits_again != bits) return ResolveResult::RegistryUnavailable;
-            result = select(repeated, bits_again, exact_name, length, selected_again);
-            if (result != ResolveResult::Found) return result;
-            if (selected_again != selected || !table(service, repeated) || repeated != current ||
-                !copy(bits_again.data(), reinterpret_cast<const void*>(current.bits), words * sizeof(std::uint64_t)) ||
-                bits_again != bits ||
-                !NamedServiceImplementation::resolve_binding(binding, session.View(), again) || again != service)
-                return ResolveResult::RegistryUnavailable;
             if (!scene.Validate()) return ResolveResult::SessionChanged;
-            found = {selected.record.callback, selected.record.arguments};
         }
         // No borrowed service data or locks survive this point. Main-image code
         // remains loaded independently of the world and operation table lifetime.
-        if (!found.callback || !NamedServiceImplementation::executable_callback(found.callback))
-            return ResolveResult::UnsupportedContract;
         if (KfcRuntimeWorldSessionId() != expected_session) return ResolveResult::SessionChanged;
         output = found;
         return ResolveResult::Found;

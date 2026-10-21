@@ -247,6 +247,94 @@ struct Bindings {
 };
 }
 
+struct PinnedRegion::State {
+    Bindings bindings;
+    std::vector<std::uint16_t> cells;
+    std::vector<Task> prepared;
+    Request request;
+    Snapshot snapshot;
+    std::size_t used{};
+    bool valid{}, pinned{};
+};
+
+PinnedRegion::PinnedRegion(const std::int32_t origin[3], const std::uint32_t dimensions[3])
+    : state_(std::make_unique<State>()) {
+    std::size_t count{};
+    if (!origin || !Implementation::cell_count(dimensions, count)) return;
+    auto& s = *state_;
+    s.cells.resize(count + guard_cells * 2, buffer_guard);
+    const auto maximum_tiles_x = (static_cast<std::size_t>(dimensions[0]) + 14) / 8;
+    const auto maximum_tiles_z = (static_cast<std::size_t>(dimensions[2]) + 14) / 8;
+    s.prepared.resize((std::min)(count, maximum_tiles_x * maximum_tiles_z));
+    s.request = Request{s.cells.data() + guard_cells, count};
+    std::copy_n(origin, 3, s.request.origin.begin());
+    std::copy_n(dimensions, 3, s.request.dimensions.begin());
+    s.valid = true;
+}
+
+PinnedRegion::~PinnedRegion() = default;
+
+bool PinnedRegion::AvailablePinned(const EngineContext::EcsView& owner) const {
+    if (!state_ || !state_->valid || !Healthy()) return false;
+    const auto& b = state_->bindings;
+    Snapshot first, second;
+    return read_snapshot(b.grid, b.world, owner, first) &&
+        read_snapshot(b.grid, b.world, owner, second) && first == second && Healthy();
+}
+
+bool PinnedRegion::ValidatePinned(const EngineContext::EcsView& owner) const {
+    if (!state_ || !state_->pinned || !Healthy()) return false;
+    const auto& s = *state_;
+    return revalidate(s.bindings.grid, s.bindings.world, owner, s.snapshot, s.prepared, s.used);
+}
+
+std::uintptr_t PinnedRegion::WorldPayload() const {
+    return state_ && state_->pinned ? state_->snapshot.world : 0;
+}
+
+Result PinnedRegion::ReadPinned(const EngineContext::EcsView& owner,
+    std::uint16_t* output, std::size_t capacity) {
+    if (!state_ || !state_->valid || !output || state_->request.count > capacity) return Result::Rejected;
+    if (!Healthy()) return Result::Fault;
+    auto& s = *state_;
+    if (!s.pinned) {
+        if (!read_snapshot(s.bindings.grid, s.bindings.world, owner, s.snapshot))
+            return Healthy() ? Result::Pending : Result::Fault;
+        if (!region(s.snapshot, s.request)) return Result::Rejected;
+        if (!tasks(s.snapshot, s.request, s.prepared, s.used))
+            return Healthy() ? Result::Pending : Result::Fault;
+        s.pinned = true;
+    }
+    if (!ValidatePinned(owner)) return Healthy() ? Result::Pending : Result::Fault;
+    for (std::size_t index = 0; index < s.used; ++index) {
+        const auto flat = (s.prepared[index].slot - s.snapshot.level.handles) / sizeof(std::uint32_t);
+        Point point;
+        point.values = {static_cast<float>(s.snapshot.origin[0] +
+            (flat % s.snapshot.level.count_x * s.snapshot.level.tile_x + 0.5) * cell_size),
+            s.snapshot.origin[1], static_cast<float>(s.snapshot.origin[2] +
+            (flat / s.snapshot.level.count_x * s.snapshot.level.tile_z + 0.5) * cell_size), 0};
+        const auto before = point;
+        bool ready{};
+        if (!invoke_ready(s.snapshot.backend.callbacks[2], s.snapshot.wrapper, &point, ready)) return Result::Fault;
+        if (point != before) { reader_fault.store(true, std::memory_order_release); return Result::Fault; }
+        if (!ready || !Healthy()) return Healthy() ? Result::Pending : Result::Fault;
+    }
+    if (!ValidatePinned(owner)) return Healthy() ? Result::Pending : Result::Fault;
+    std::fill(s.cells.begin(), s.cells.end(), buffer_guard);
+    const auto before = s.request;
+    bool read{};
+    if (!invoke_read(s.snapshot.backend.callbacks[0], &s.request, s.snapshot.wrapper, read)) return Result::Fault;
+    if (s.request != before ||
+        !std::all_of(s.cells.begin(), s.cells.begin() + guard_cells, [](auto v) { return v == buffer_guard; }) ||
+        !std::all_of(s.cells.end() - guard_cells, s.cells.end(), [](auto v) { return v == buffer_guard; })) {
+        reader_fault.store(true, std::memory_order_release);
+        return Result::Fault;
+    }
+    if (!read || !ValidatePinned(owner)) return Healthy() ? Result::Pending : Result::Fault;
+    return copy(output, s.cells.data() + guard_cells, static_cast<std::size_t>(s.request.count) * sizeof(std::uint16_t))
+        ? Result::Success : Result::Rejected;
+}
+
 bool Healthy() noexcept { return !reader_fault.load(std::memory_order_acquire); }
 
 Result ReadForSession(std::uint64_t expected_session, const std::int32_t origin[3],
@@ -256,23 +344,26 @@ Result ReadForSession(std::uint64_t expected_session, const std::int32_t origin[
         !Implementation::cell_count(dimensions, count) || count > capacity) return Result::Rejected;
     if (!Healthy()) return Result::Fault;
     if (KfcRuntimeWorldSessionId() != expected_session) return Result::StaleSession;
-    // Resolve ecs::VoxelGrid and VoxelWorld from the live named-service registry,
-    // then call their original registered interface roles. Read() owns its
-    // Scene and task validation and publishes only after its original reader
-    // has completed. Keep caller memory untouched until the session is checked
-    // again and the complete staging buffer is ready.
     try {
+        // PinnedRegion is the canonical original reader for both public reads
+        // and the writer's snapshot/readback transaction. Prepare every buffer
+        // before acquiring any original gate and publish caller memory last.
         std::vector<std::uint16_t> staging(count);
-        std::size_t read{};
-        const auto result = Read(origin, dimensions, staging.data(), staging.size(), &read);
-        if (result != Result::Success) {
-            if (KfcRuntimeWorldSessionId() != expected_session) return Result::StaleSession;
-            return Healthy() ? result : Result::Fault;
+        PinnedRegion region(origin, dimensions);
+        {
+            std::scoped_lock operation(NamedServiceImplementation::operation_mutex);
+            EcsRuntime::SessionGuard session;
+            if (!session.TryAcquire(expected_session)) return Result::StaleSession;
+            EngineContext::EcsWriteGuard scene;
+            if (!scene.TryAcquire(session.View())) return Result::Pending;
+            const auto result = region.ReadPinned(session.View(), staging.data(), staging.size());
+            if (result != Result::Success) return result;
+            if (!scene.Validate()) return Result::Pending;
         }
-        if (KfcRuntimeWorldSessionId() != expected_session) return Result::StaleSession;
-        if (read != count) return Result::Rejected;
+        if (!Healthy()) return Result::Fault;
         EcsRuntime::SessionGuard publish;
         if (!publish.TryAcquire(expected_session)) return Result::StaleSession;
+        if (!Healthy()) return Result::Fault;
         if (!copy(output, staging.data(), count * sizeof(std::uint16_t)) ||
             !copy(actual, &count, sizeof(count))) return Result::Rejected;
         return Result::Success;
@@ -345,74 +436,8 @@ Result GetSpecForSession(std::uint64_t expected_session, const char* grid_id, Kf
 
 Result Read(const std::int32_t origin[3], const std::uint32_t dimensions[3],
     std::uint16_t* output, std::size_t capacity, std::size_t* actual) {
-    std::size_t count{};
-    if (!origin || !output || !actual || !Implementation::cell_count(dimensions, count) || count > capacity)
-        return Result::Rejected;
-    if (!Healthy()) return Result::Fault;
-    try {
-        const Bindings bindings;
-        const auto token = KfcRuntimeWorldSessionId();
-        std::vector<std::uint16_t> cells(count + guard_cells * 2, buffer_guard);
-        // For any origin, an interval of n cells intersects at most
-        // ceil((n + 7) / 8) tiles when every validated tile is at least 8 wide.
-        const auto maximum_tiles_x = (static_cast<std::size_t>(dimensions[0]) + 14) / 8;
-        const auto maximum_tiles_z = (static_cast<std::size_t>(dimensions[2]) + 14) / 8;
-        std::vector<Task> prepared((std::min)(count, maximum_tiles_x * maximum_tiles_z));
-        Request request{cells.data() + guard_cells, count};
-        std::copy_n(origin, 3, request.origin.begin());
-        std::copy_n(dimensions, 3, request.dimensions.begin());
-        const auto original_request = request;
-        {
-            std::scoped_lock operation(NamedServiceImplementation::operation_mutex);
-            EcsRuntime::SessionGuard session;
-            if (!session.TryAcquire(token)) return Result::Unavailable;
-            EngineContext::EcsWriteGuard scene;
-            if (!scene.TryAcquire(session.View())) return Result::Pending;
-            Snapshot snapshot;
-            std::size_t used{};
-            if (!scene.Validate() || !read_snapshot(bindings.grid, bindings.world, session.View(), snapshot))
-                return Healthy() ? Result::Pending : Result::Fault;
-            if (!region(snapshot, request)) return Result::Rejected;
-            if (!tasks(snapshot, request, prepared, used) ||
-                !revalidate(bindings.grid, bindings.world, session.View(), snapshot, prepared, used) || !Healthy())
-                return Healthy() ? Result::Pending : Result::Fault;
-            for (std::size_t index = 0; index < used; ++index) {
-                const auto flat = (prepared[index].slot - snapshot.level.handles) / sizeof(std::uint32_t);
-                Point point;
-                point.values = {static_cast<float>(snapshot.origin[0] +
-                    (flat % snapshot.level.count_x * snapshot.level.tile_x + 0.5) * cell_size),
-                    snapshot.origin[1], static_cast<float>(snapshot.origin[2] +
-                    (flat / snapshot.level.count_x * snapshot.level.tile_z + 0.5) * cell_size), 0};
-                const auto before = point;
-                bool ready{};
-                // The short metadata reader has ended. No World/Task reader
-                // survives across this original nested-locking callback.
-                if (!Healthy() || !invoke_ready(snapshot.backend.callbacks[2], snapshot.wrapper, &point, ready))
-                    return Result::Fault;
-                if (point != before) { reader_fault.store(true, std::memory_order_release); return Result::Fault; }
-                if (!ready || !Healthy()) return Healthy() ? Result::Pending : Result::Fault;
-            }
-            if (!scene.Validate() || !revalidate(bindings.grid, bindings.world, session.View(), snapshot, prepared, used) || !Healthy())
-                return Healthy() ? Result::Pending : Result::Fault;
-            bool read{};
-            if (!invoke_read(snapshot.backend.callbacks[0], &request, snapshot.wrapper, read)) return Result::Fault;
-            if (request != original_request ||
-                !std::all_of(cells.begin(), cells.begin() + guard_cells, [](auto value) { return value == buffer_guard; }) ||
-                !std::all_of(cells.end() - guard_cells, cells.end(), [](auto value) { return value == buffer_guard; })) {
-                reader_fault.store(true, std::memory_order_release);
-                return Result::Fault;
-            }
-            if (!Healthy() || !read || !scene.Validate() ||
-                !revalidate(bindings.grid, bindings.world, session.View(), snapshot, prepared, used) || !Healthy())
-                return Healthy() ? Result::Pending : Result::Fault;
-        }
-        if (!Healthy()) return Result::Fault;
-        EcsRuntime::SessionGuard publish;
-        if (!publish.TryAcquire(token)) return Result::StaleSession;
-        if (!Healthy()) return Result::Fault;
-        if (!copy(output, cells.data() + guard_cells, count * sizeof(std::uint16_t)) ||
-            !copy(actual, &count, sizeof(count))) return Result::Rejected;
-        return Result::Success;
-    } catch (...) { return Result::Unavailable; }
+    const auto session = KfcRuntimeWorldSessionId();
+    if (!session) return Result::Unavailable;
+    return ReadForSession(session, origin, dimensions, output, capacity, actual);
 }
 }

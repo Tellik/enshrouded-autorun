@@ -22,8 +22,6 @@ bool plan_write_region(const std::int32_t* origin, const std::uint32_t* dimensio
 
 using NativeRead = bool (__fastcall*)(CellSpan*, const std::uint32_t*, const void*, std::uint32_t, const std::int32_t*);
 
-using NativeWrite = void (__fastcall*)(void*, CellSpan*, const std::uint32_t*, const std::int32_t*);
-
 struct Operation {
     enum class Kind { Read, Write } kind{};
     std::array<std::int32_t, 3> origin{};
@@ -37,9 +35,6 @@ struct Operation {
 
 bool safe_read(NativeRead function, CellSpan* span, const std::uint32_t* dimensions,
                const void* world, std::uint32_t mode, const std::int32_t* origin);
-
-bool safe_write(NativeWrite function, void* world, CellSpan* span,
-                const std::uint32_t* dimensions, const std::int32_t* origin);
 
 void execute(void* opaque);
 

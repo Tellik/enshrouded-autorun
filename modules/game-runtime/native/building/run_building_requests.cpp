@@ -16,8 +16,9 @@ void complete_entity_request(const std::shared_ptr<EntityRequest>& request, bool
 void execute_entity_request(const std::shared_ptr<EntityRequest>& request, void* execution_view, void* actor_frame){
     if (!request || request->cancelled.load(std::memory_order_acquire) || request->done.load(std::memory_order_acquire)) return;
     if (request->kind == EntityRequest::Kind::Spawn) {
-        const auto ok = actor_frame_matches_active_world(actor_frame) && perform_spawn(request, execution_view);
-        complete_entity_request(request, ok, request->queue_token);
+        // Spawn is published only by the named, session-pinned queue adapter.
+        // Stale legacy requests may never enter an address-based hook fallback.
+        complete_entity_request(request, false);
         return;
     }
     const auto* place_profile = find_operation(request->kind == EntityRequest::Kind::Destroy

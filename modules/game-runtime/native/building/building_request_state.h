@@ -78,8 +78,6 @@ bool native_finish(void* context, bool complete);
 
 void complete_entity_request(const std::shared_ptr<EntityRequest>& request, bool success, std::uint32_t token = 0);
 
-bool perform_spawn(const std::shared_ptr<EntityRequest>& request, void* execution_view);
-
 void execute_entity_request(const std::shared_ptr<EntityRequest>& request, void* execution_view, void* actor_frame);
 
 void execute_pending_removal(void* execution_view, void* actor_frame);
@@ -92,9 +90,6 @@ bool invoke_entity_request(const std::shared_ptr<EntityRequest>& request, std::u
 bool matching_prop_handles(const EntityRequest& request, std::vector<std::uint32_t>& handles);
 
 bool count_spawn_matches(const EntityRequest& request, std::size_t& matches);
-
-bool verify_spawn(const EntityRequest& request, const std::unordered_set<std::uint32_t>& before_ids,
-                  std::uint32_t& created_handle);
 
 bool verify_destroy(const EntityRequest& request, std::size_t previous_matches);
 

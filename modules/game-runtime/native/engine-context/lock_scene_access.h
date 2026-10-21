@@ -7,9 +7,10 @@ class ResourceLifeGuard;
 bool EcsComponentWriteSupported(const EcsView& expected, std::uint16_t component_index);
 // Owns the original native-thread registration and Scene execution gates.
 // Acquire is nonblocking. Callers prepare buffers and take their own mutexes
-// before entry, then perform bounded memory operations. TrackChange is the one
-// separately validated native tracker. The current policy admits only its
-// no-op branch for registrations with both original tracking bits clear.
+// before entry, then perform bounded memory operations. Native calls require
+// their own complete contract, such as TrackChange's admitted no-op branch or
+// the typed original destroyEntity queue append. Owning this guard alone never
+// authorizes an arbitrary callback, system frame or memory mutation.
 class EcsWriteGuard {
 public:
     EcsWriteGuard();

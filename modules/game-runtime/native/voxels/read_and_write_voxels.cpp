@@ -1,6 +1,7 @@
 #include "voxels/voxel_request.h"
 #include "engine-context/world_context_state.h"
 #include "voxels/read_registered_voxel_grid.h"
+#include "voxels/write_registered_voxel_grid.h"
 #include "named-services/named_service_contract.h"
 
 using namespace WorldRuntime::Implementation;
@@ -36,20 +37,16 @@ bool safe_read(NativeRead function, CellSpan* span, const std::uint32_t* dimensi
     __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 
-bool safe_write(NativeWrite function, void* world, CellSpan* span,
-                const std::uint32_t* dimensions, const std::int32_t* origin){
-    __try { function(world, span, dimensions, origin); return true; }
-    __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
-}
-
 void execute(void* opaque){
     auto& op = *static_cast<Operation*>(opaque);
+    // The legacy game-thread reader never accepts a mutation request. Public
+    // writes use the named, session-pinned Store adapter exclusively.
+    if (op.kind != Operation::Kind::Read) return;
     std::uintptr_t world{};
     const bool direct_context = resolve_voxel_world(world);
     if (!direct_context && (op.kind != Operation::Kind::Read || !resolve_client_read_world(world))) return;
     if (op.kind == Operation::Kind::Read && op.context_generation != context_resets.load(std::memory_order_acquire)) return;
     const auto* read_profile = find_operation("runtime.world.voxel.read");
-    const auto* write_profile = find_operation("runtime.world.voxel.write");
     const auto base = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
     if (!read_profile || !read_profile->available) return;
     auto read_fn = reinterpret_cast<NativeRead>(base + read_profile->function_rva);
@@ -62,51 +59,6 @@ void execute(void* opaque){
         }
         return;
     }
-    if (!write_profile || !write_profile->available) return;
-    auto write_fn = reinterpret_cast<NativeWrite>(base + write_profile->function_rva);
-    WriteRegion region;
-    if (!plan_write_region(op.origin.data(),op.dimensions.data(),region)) return;
-    const auto& expanded_origin=region.origin;
-    const auto& expanded_dimensions=region.dimensions;
-    const auto& offset=region.offset;
-    const auto expanded_count=region.count;
-    std::vector<Cell> expanded(expanded_count);
-    CellSpan expanded_span{expanded.data(), expanded.size()};
-    if (!safe_read(read_fn, &expanded_span, expanded_dimensions.data(), reinterpret_cast<void*>(world), read_profile->mode, expanded_origin.data())) return;
-    auto original = expanded;
-    for (std::size_t z = 0; z < op.dimensions[2]; ++z)
-        for (std::size_t y = 0; y < op.dimensions[1]; ++y)
-            for (std::size_t x = 0; x < op.dimensions[0]; ++x) {
-                const auto source = (z * op.dimensions[1] + y) * op.dimensions[0] + x;
-                const auto target = ((z + offset[2]) * expanded_dimensions[1] + y + offset[1]) * expanded_dimensions[0] + x + offset[0];
-                expanded[target] = op.cells[source];
-            }
-    const auto restore_original = [&]() {
-        CellSpan restore_span{original.data(), original.size()};
-        if (!safe_write(write_fn, reinterpret_cast<void*>(world), &restore_span, expanded_dimensions.data(), expanded_origin.data())) return;
-        std::vector<Cell> restored(expanded_count);
-        CellSpan restored_span{restored.data(), restored.size()};
-        op.rollback_verified = safe_read(read_fn, &restored_span, expanded_dimensions.data(), reinterpret_cast<void*>(world), read_profile->mode, expanded_origin.data()) &&
-            std::memcmp(restored.data(), original.data(), original.size() * sizeof(Cell)) == 0;
-    };
-    op.result = false;
-    op.write_attempted = true;
-    if (!safe_write(write_fn, reinterpret_cast<void*>(world), &expanded_span, expanded_dimensions.data(), expanded_origin.data())) {
-        restore_original();
-        op.result = false;
-        return;
-    }
-    std::vector<Cell> verify(expanded_count);
-    CellSpan verify_span{verify.data(), verify.size()};
-    if (!safe_read(read_fn, &verify_span, expanded_dimensions.data(), reinterpret_cast<void*>(world), read_profile->mode, expanded_origin.data()) ||
-        std::memcmp(verify.data(), expanded.data(), expanded.size() * sizeof(Cell)) != 0) {
-        restore_original();
-        op.result = false;
-        return;
-    }
-    op.result = true;
-    std::uintptr_t unset{};
-    preferred_voxel_world.compare_exchange_strong(unset, world, std::memory_order_acq_rel);
 }
 
 bool cell_count(const std::uint32_t dimensions[3], std::size_t& count){
@@ -142,27 +94,28 @@ bool ReadVoxels(const std::int32_t origin[3], const std::uint32_t dimensions[3],
 bool WriteVoxels(const std::int32_t origin[3], const std::uint32_t dimensions[3],
                  const std::uint16_t* values, std::size_t count, std::uint32_t* outcome) {
     if (!outcome) return false;
-    *outcome = 1; // rejected before writing
+    *outcome = 1;
     std::size_t expected{};
+    WriteRegion expanded;
     if (!origin || !values || !cell_count(dimensions, expected) || count != expected ||
-        !OperationAvailable("runtime.world.voxel.read") ||
-        !OperationAvailable("runtime.world.voxel.write") || !GameThreadDispatcher::Ready()) return false;
-    auto op = std::make_shared<Operation>();
-    op->kind = Operation::Kind::Write;
-    std::copy_n(origin, 3, op->origin.begin());
-    std::copy_n(dimensions, 3, op->dimensions.begin());
-    op->cells.resize(count);
-    for (std::size_t i = 0; i < count; ++i) {
-        op->cells[i].material = static_cast<std::uint8_t>(values[i]);
-        op->cells[i].density = static_cast<std::uint8_t>(values[i] >> 8);
+        !plan_write_region(origin, dimensions, expanded)) return false;
+    const auto session = KfcRuntimeWorldSessionId();
+    if (!session) return false;
+    constexpr ULONGLONG retry_budget_ms = 250;
+    const auto started = GetTickCount64();
+    for (;;) {
+        if (KfcRuntimeWorldSessionId() != session) return false;
+        const bool result = RegisteredVoxelGrid::WriteForSession(session, origin,
+            dimensions, values, count, outcome);
+        // Only outcome 1 guarantees that no native mutation was dispatched.
+        // Every attempt has released its operation, session and Scene guards
+        // before returning here. Never retry a verified rollback or uncertainty.
+        if (result || *outcome != 1) return result;
+        const auto elapsed = GetTickCount64() - started;
+        if (elapsed >= retry_budget_ms) return false;
+        Sleep(static_cast<DWORD>((std::min)(ULONGLONG{2}, retry_budget_ms - elapsed)));
+        if (GetTickCount64() - started >= retry_budget_ms) return false;
     }
-    if (!GameThreadDispatcher::Invoke(execute, op, 500)) {
-        *outcome = 3; // the game-thread request may have started before timeout
-        return false;
-    }
-    if (op->result) { *outcome = 0; return true; }
-    *outcome = op->write_attempted ? (op->rollback_verified ? 2u : 3u) : 1u;
-    return false;
 }
 }
 
