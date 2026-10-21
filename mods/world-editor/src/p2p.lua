@@ -8,12 +8,17 @@ return function(api, callbacks)
     local client_response_timeout_seconds = 60
     local client_stall_notice_seconds = 10
     local uploads, completed = {}, {}
-    local completed_order, active_upload_peer = {}, nil
+    local completed_order = {}
+    local upload_count, upload_bytes = 0, 0
+    local server_queue, queued_keys, queued_peers = {}, {}, {}
+    local queued_bytes, active_request = 0, nil
+    local maximum_queued_requests = 32
     local outgoing = {}
     local next_id = 0
     local client_pending = nil
     local last_abandon = nil
     local server_busy = false
+    local capture_response = nil
     local deferred_abandons = {}
     local receive_elapsed = 0
     local last_receive_failure
@@ -48,6 +53,48 @@ return function(api, callbacks)
         return tostring(value or ""):gsub("[|\r\n]", " "):sub(1, 180)
     end
 
+    local function valid_selection(metadata)
+        if type(metadata) ~= "table" or (metadata.axis ~= "x" and metadata.axis ~= "y" and metadata.axis ~= "z") then return false end
+        for _, point in ipairs({metadata.a, metadata.b}) do
+            if type(point) ~= "table" then return false end
+            for index=1,3 do if not finite(point[index]) then return false end end
+        end
+        return type(metadata.a) == "table" and type(metadata.b) == "table"
+    end
+
+    local function valid_transfer(bytes, chunks, checksum)
+        return bytes and bytes % 1 == 0 and bytes > 0 and bytes <= maximum_blueprint_bytes and
+            chunks and chunks % 1 == 0 and chunks == math.ceil(bytes / chunk_bytes) and
+            type(checksum) == "string" and checksum:match("^%x%x%x%x%x%x%x%x$") ~= nil
+    end
+
+    local function append_chunk(transfer, request_id, sequence, body)
+        if not transfer or request_id ~= transfer.request_id or not sequence or sequence % 1 ~= 0 or
+           sequence ~= #transfer.parts + 1 or sequence > transfer.chunk_count or #body == 0 or #body > chunk_bytes then
+            return false, "invalid-blueprint-chunk"
+        end
+        if transfer.received_bytes + #body > transfer.byte_count then return false, "blueprint-size-limit-exceeded" end
+        transfer.parts[sequence] = body
+        transfer.received_bytes = transfer.received_bytes + #body
+        return true
+    end
+
+    local function transfer_content(transfer)
+        if not transfer or #transfer.parts ~= transfer.chunk_count then return nil end
+        local content = table.concat(transfer.parts)
+        if #content ~= transfer.byte_count or adler32(content) ~= transfer.checksum then return nil end
+        return content
+    end
+
+    local function enqueue_blueprint(peer, request_id, header, content)
+        outgoing[#outgoing + 1] = {peer=peer,payload=header}
+        for index=1,math.ceil(#content / chunk_bytes) do
+            local first = (index - 1) * chunk_bytes + 1
+            outgoing[#outgoing + 1] = {peer=peer,
+                payload="C|" .. request_id .. "|" .. index .. "|v1\n" .. content:sub(first, first + chunk_bytes - 1)}
+        end
+    end
+
     local function send(peer, payload)
         if type(peer) ~= "string" or peer == "" then return false, "peer Steam ID is not configured" end
         local ok, reason = api.network.send_mod(peer, mod_id, payload, {reliable = true})
@@ -73,7 +120,7 @@ return function(api, callbacks)
         end
     end
 
-    local function queue_result(request_id, operation, ok, transaction, reason, uncertain)
+    local function queue_result(request_id, operation, ok, transaction, reason, uncertain, content)
         local pending = client_pending
         if not pending or pending.request_id ~= request_id or pending.operation ~= operation then return end
         client_pending = nil
@@ -81,7 +128,7 @@ return function(api, callbacks)
             last_abandon = nil
         end
         if callbacks.on_result then callbacks.on_result(operation, ok, transaction, reason, pending.peer,
-            request_id, uncertain == true) end
+            request_id, uncertain == true, content) end
     end
 
     local function allowed(peer)
@@ -100,15 +147,24 @@ return function(api, callbacks)
             return
         end
         if server_busy then
+            if not deferred_abandons[key] then
+                local count=0
+                for _ in pairs(deferred_abandons) do count=count+1 end
+                if count >= maximum_queued_requests then
+                    reply(peer,request_id,"abandon",false,nil,"server-release-queue-limit-reached")
+                    return
+                end
+            end
             deferred_abandons[key] = {peer = peer, request_id = request_id,
                 transaction = transaction, target_request_id = target_request_id}
             return
         end
         server_busy = true
+        active_request = {peer=peer,request_id=request_id,operation="abandon",key=key}
         local finished = false
         local function done(ok, reason)
             if finished then return end
-            finished, server_busy = true, false
+            finished, server_busy, active_request = true, false, nil
             remember(key, {operation = "abandon", ok = ok, transaction = nil, reason = clean(reason)})
             reply(peer, request_id, "abandon", ok, nil, reason)
             local next_key, next_abandon = next(deferred_abandons)
@@ -132,34 +188,99 @@ return function(api, callbacks)
         dispatch_abandon(item.peer, item.request_id, item.transaction, item.target_request_id)
     end
 
+    local function drop_upload(peer)
+        local upload = uploads[peer]
+        if upload then
+            upload_count, upload_bytes = upload_count-1, upload_bytes-upload.byte_count
+            uploads[peer] = nil
+        end
+    end
+
+    local function request_pending(peer, request_id, operation, transaction)
+        local key = peer .. ":" .. request_id
+        local pending = queued_keys[key] or (server_busy and active_request and active_request.key == key and active_request)
+        if not pending then return false end
+        if pending.operation ~= operation or (operation == "undo" and pending.transaction ~= transaction) then
+            reply(peer,request_id,operation,false,nil,"request-id-operation-mismatch")
+        else
+            report_progress(peer,request_id,operation,0,0,"Queued on server","The server already owns this request. It will execute it once.")
+        end
+        return true
+    end
+
+    local function queue_server_request(peer, request_id, operation, bytes, run, transaction)
+        if request_pending(peer,request_id,operation,transaction) then return end
+        local reason
+        local session = api.world.session_id()
+        if session == 0 then reason="server-world-session-unavailable"
+        elseif #server_queue >= maximum_queued_requests or queued_peers[peer] or queued_bytes+bytes > maximum_blueprint_bytes then
+            reason="server-request-queue-limit-reached"
+        end
+        if reason then
+            remember(peer .. ":" .. request_id,{operation=operation,ok=false,transaction=transaction,reason=reason})
+            reply(peer,request_id,operation,false,transaction,reason)
+            return
+        end
+        local item={peer=peer,request_id=request_id,operation=operation,bytes=bytes,run=run,
+            transaction=transaction,session=session,key=peer .. ":" .. request_id,elapsed=0}
+        server_queue[#server_queue+1]=item
+        queued_keys[item.key],queued_peers[peer]=item,true
+        queued_bytes=queued_bytes+bytes
+        report_progress(peer,request_id,operation,#server_queue,0,"Queued on server","Waiting for earlier requests. The server executes one world operation at a time.")
+    end
+
+    local function remove_queued(index)
+        local item=table.remove(server_queue,index)
+        queued_keys[item.key],queued_peers[item.peer]=nil,nil
+        queued_bytes=queued_bytes-item.bytes
+        return item
+    end
+
+    local function pump_server_queue()
+        if server_busy or #server_queue == 0 then return end
+        local item=remove_queued(1)
+        local reason
+        if not allowed(item.peer) then reason="server-peer-no-longer-authorized"
+        elseif item.session ~= api.world.session_id() then reason="server-world-session-changed-before-dispatch"
+        elseif item.elapsed >= 45 then reason="server-request-expired-before-dispatch" end
+        if reason then
+            remember(item.key,{operation=item.operation,ok=false,transaction=item.transaction,reason=reason})
+            reply(item.peer,item.request_id,item.operation,false,item.transaction,reason)
+            return
+        end
+        active_request,server_busy=item,true
+        item.run()
+    end
+
     local function finish_upload(peer, upload)
         if #upload.parts ~= upload.chunk_count then return end
-        local content = table.concat(upload.parts)
-        uploads[peer], active_upload_peer = nil, nil
-        if #content ~= upload.byte_count or adler32(content) ~= upload.checksum then
+        local content = transfer_content(upload)
+        drop_upload(peer)
+        if upload.session == 0 or upload.session ~= api.world.session_id() then
+            reply(peer,upload.request_id,"paste",false,nil,"server-world-session-changed-during-upload")
+            return
+        end
+        if not content then
             reply(peer, upload.request_id, "paste", false, nil, "blueprint-integrity-check-failed")
             return
         end
-        if server_busy then
-            reply(peer, upload.request_id, "paste", false, nil, "server-world-editor-is-busy")
-            return
-        end
-        server_busy = true
-        local finished = false
-        local function progress(phase, completed, total, message)
-            report_progress(peer, upload.request_id, "paste", completed, total, phase, message)
-        end
-        local function done(ok, transaction, reason)
-            if finished then return end
-            finished, server_busy = true, false
-            remember(peer .. ":" .. upload.request_id, {operation = "paste", ok = ok,
-                transaction = transaction, reason = clean(reason)})
-            reply(peer, upload.request_id, "paste", ok, transaction, reason)
-            drain_deferred_abandons()
-        end
-        progress("Validating blueprint", 1, 5, "The server received the complete blueprint and is validating it.")
-        local ok, reason = pcall(callbacks.on_paste, peer, upload.request_id, content, upload.metadata, done, progress)
-        if not ok then done(false, nil, "server-paste-handler-failed: " .. tostring(reason)) end
+        queue_server_request(peer,upload.request_id,"paste",#content,function()
+            local finished = false
+            local function progress(phase, completed, total, message)
+                report_progress(peer, upload.request_id, "paste", completed, total, phase, message)
+            end
+            local function done(ok, transaction, reason)
+                if finished then return end
+                finished, server_busy, active_request = true, false, nil
+                remember(peer .. ":" .. upload.request_id, {operation = "paste", ok = ok,
+                    transaction = transaction, reason = clean(reason)})
+                reply(peer, upload.request_id, "paste", ok, transaction, reason)
+                drain_deferred_abandons()
+            end
+            progress("Validating blueprint", 1, 5, "The server received the complete blueprint and is validating it.")
+            local ok, reason = pcall(callbacks.on_paste, peer, upload.request_id, content, upload.metadata, done, progress)
+            if not ok then done(false, nil, "server-paste-handler-failed: " .. tostring(reason)) end
+        end)
     end
 
     local function handle_server_message(message)
@@ -171,16 +292,57 @@ return function(api, callbacks)
         local fields = {}
         for field in (header .. "|"):gmatch("(.-)|") do fields[#fields + 1] = field end
         local command = fields[1]
-        if command == "B" and #fields == 12 then
+        if command == "Q" and #fields == 10 and fields[10] == "v1" then
+            local request_id = fields[2]
+            local metadata = {a={tonumber(fields[3]),tonumber(fields[4]),tonumber(fields[5])},
+                b={tonumber(fields[6]),tonumber(fields[7]),tonumber(fields[8])},axis=fields[9]}
+            if not valid_id(request_id) or not valid_selection(metadata) then
+                reply(peer, request_id or "invalid", "capture", false, nil, "invalid-capture-selection")
+                return
+            end
+            if completed[peer .. ":" .. request_id] then
+                reply(peer, request_id, "capture", false, nil, "capture-already-completed-use-a-new-request")
+                return
+            end
+            queue_server_request(peer,request_id,"capture",0,function()
+                local finished = false
+                local function done(content, reason)
+                    if finished then return end
+                    finished = true
+                    if type(content) ~= "string" or #content == 0 or #content > maximum_blueprint_bytes then
+                        server_busy, active_request = false, nil
+                        reason = reason or "server-capture-exceeds-transfer-limit"
+                        remember(peer .. ":" .. request_id, {operation="capture",ok=false,reason=clean(reason)})
+                        reply(peer, request_id, "capture", false, nil, reason)
+                        drain_deferred_abandons()
+                        return
+                    end
+                    capture_response = {peer=peer,request_id=request_id}
+                    enqueue_blueprint(peer, request_id,
+                        table.concat({"D",request_id,#content,math.ceil(#content / chunk_bytes),adler32(content),"v1"},"|"),content)
+                    outgoing[#outgoing + 1] = {peer=peer,
+                        payload=table.concat({"R",request_id,"capture","1","-","capture-confirmed"},"|"),
+                        on_sent=function()
+                            capture_response, server_busy, active_request = nil, false, nil
+                            remember(peer .. ":" .. request_id, {operation="capture",ok=true,reason="capture-confirmed"})
+                            drain_deferred_abandons()
+                        end}
+                end
+                if not callbacks.on_capture then done(nil,"server-capture-handler-unavailable");return end
+                local function progress(phase, completed, total, detail)
+                    report_progress(peer, request_id, "capture", completed, total, phase, detail)
+                end
+                local ok, reason = pcall(callbacks.on_capture, peer, request_id, metadata, done, progress)
+                if not ok then done(nil,"server-capture-handler-failed: " .. tostring(reason)) end
+            end)
+            return
+        elseif command == "B" and #fields == 12 then
             local request_id, byte_count, chunk_count = fields[2], tonumber(fields[3]), tonumber(fields[4])
             local checksum, turns = fields[5], tonumber(fields[6])
             local anchor = {tonumber(fields[7]), tonumber(fields[8]), tonumber(fields[9])}
             local voxel_mode, prop_mode = fields[10], fields[11]
             local reserved = fields[12]
-            if not valid_id(request_id) or not byte_count or byte_count < 1 or byte_count > maximum_blueprint_bytes or
-               not chunk_count or chunk_count % 1 ~= 0 or chunk_count < 1 or chunk_count > math.ceil(maximum_blueprint_bytes / chunk_bytes) or
-               byte_count % 1 ~= 0 or
-               type(checksum) ~= "string" or not checksum:match("^%x%x%x%x%x%x%x%x$") or
+            if not valid_id(request_id) or not valid_transfer(byte_count, chunk_count, checksum) or
                not turns or turns % 1 ~= 0 or turns < 0 or turns > 3 or
                not finite(anchor[1]) or not finite(anchor[2]) or not finite(anchor[3]) or
                (voxel_mode ~= "add" and voxel_mode ~= "replace") or
@@ -190,65 +352,67 @@ return function(api, callbacks)
             end
             if completed[peer .. ":" .. request_id] then
                 local old = completed[peer .. ":" .. request_id]
-                reply(peer, request_id, "paste", old.ok, old.transaction, old.reason)
+                if old.operation ~= "paste" then reply(peer,request_id,"paste",false,nil,"request-id-operation-mismatch")
+                else reply(peer, request_id, "paste", old.ok, old.transaction, old.reason) end
                 return
             end
-            if server_busy then
-                reply(peer, request_id, "paste", false, nil, "server-world-editor-is-busy")
-                return
-            end
-            if active_upload_peer and active_upload_peer ~= peer then
-                reply(peer, request_id, "paste", false, nil, "another-client-upload-is-in-progress")
+            if request_pending(peer,request_id,"paste") then return end
+            if upload_count >= maximum_queued_requests or upload_bytes+byte_count > maximum_blueprint_bytes then
+                reply(peer,request_id,"paste",false,nil,"server-upload-limit-reached")
                 return
             end
             if uploads[peer] then
+                if uploads[peer].request_id == request_id then
+                    report_progress(peer,request_id,"paste",0,0,"Receiving blueprint","This upload is already in progress.")
+                    return
+                end
                 reply(peer, request_id, "paste", false, nil, "client-upload-already-in-progress")
                 return
             end
-            active_upload_peer = peer
+            upload_count,upload_bytes=upload_count+1,upload_bytes+byte_count
             uploads[peer] = {request_id = request_id, byte_count = byte_count, chunk_count = chunk_count,
                 checksum = checksum:lower(), parts = {}, received_bytes = 0,
                 metadata = {turns = turns, anchor = anchor, voxelMode = voxel_mode, targetPropMode = prop_mode},
-                elapsed = 0}
+                elapsed = 0, session = api.world.session_id()}
             return
         elseif command == "C" and #fields == 4 and fields[4] == "v1" then
             local request_id, sequence = fields[2], tonumber(fields[3])
             local upload = uploads[peer]
-            if not upload or request_id ~= upload.request_id or not sequence or sequence % 1 ~= 0 or
-               sequence ~= #upload.parts + 1 or sequence > upload.chunk_count or #body == 0 or #body > chunk_bytes then
-                return
+            local appended, reason = append_chunk(upload, request_id, sequence, body)
+            if not appended and reason == "blueprint-size-limit-exceeded" then
+                drop_upload(peer)
+                reply(peer, request_id, "paste", false, nil, reason)
             end
-            upload.parts[sequence] = body
-            upload.received_bytes = upload.received_bytes + #body
-            if upload.received_bytes > upload.byte_count then
-                uploads[peer], active_upload_peer = nil, nil
-                reply(peer, request_id, "paste", false, nil, "blueprint-size-limit-exceeded")
-                return
-            end
+            if not appended then return end
             if sequence == upload.chunk_count then finish_upload(peer, upload) end
             return
         elseif command == "U" and #fields == 4 then
             local request_id, transaction = fields[2], fields[3]
             if not valid_id(request_id) or not valid_id(transaction) then return end
             local cached = completed[peer .. ":" .. request_id]
-            if cached then reply(peer, request_id, "undo", cached.ok, transaction, cached.reason); return end
-            if server_busy then reply(peer, request_id, "undo", false, transaction, "server-world-editor-is-busy"); return end
-            server_busy = true
-            local finished = false
-            local function progress(phase, completed, total, message)
-                report_progress(peer, request_id, "undo", completed, total, phase, message)
+            if cached then
+                if cached.operation ~= "undo" or cached.transaction ~= transaction then
+                    reply(peer,request_id,"undo",false,transaction,"request-id-operation-mismatch")
+                else reply(peer, request_id, "undo", cached.ok, transaction, cached.reason) end
+                return
             end
-            local function done(ok, reason)
-                if finished then return end
-                finished, server_busy = true, false
-                remember(peer .. ":" .. request_id, {operation = "undo", ok = ok,
-                    transaction = transaction, reason = clean(reason)})
-                reply(peer, request_id, "undo", ok, transaction, reason)
-                drain_deferred_abandons()
-            end
-            progress("Checking undo journal", 1, 4, "The server is checking the saved undo journal.")
-            local ok, reason = pcall(callbacks.on_undo, peer, request_id, transaction, done, progress)
-            if not ok then done(false, "server-undo-handler-failed: " .. tostring(reason)) end
+            queue_server_request(peer,request_id,"undo",0,function()
+                local finished = false
+                local function progress(phase, completed, total, message)
+                    report_progress(peer, request_id, "undo", completed, total, phase, message)
+                end
+                local function done(ok, reason)
+                    if finished then return end
+                    finished, server_busy, active_request = true, false, nil
+                    remember(peer .. ":" .. request_id, {operation = "undo", ok = ok,
+                        transaction = transaction, reason = clean(reason)})
+                    reply(peer, request_id, "undo", ok, transaction, reason)
+                    drain_deferred_abandons()
+                end
+                progress("Checking undo journal", 1, 4, "The server is checking the saved undo journal.")
+                local ok, reason = pcall(callbacks.on_undo, peer, request_id, transaction, done, progress)
+                if not ok then done(false, "server-undo-handler-failed: " .. tostring(reason)) end
+            end,transaction)
             return
         elseif command == "A" and #fields == 5 and fields[5] == "v1" then
             local request_id, transaction, target_request_id = fields[2], fields[3], fields[4]
@@ -261,7 +425,14 @@ return function(api, callbacks)
             end
             local upload = uploads[peer]
             if upload and (target_request_id == "-" or upload.request_id == target_request_id) then
-                uploads[peer], active_upload_peer = nil, nil
+                drop_upload(peer)
+            end
+            for index=#server_queue,1,-1 do
+                local item=server_queue[index]
+                if item.peer==peer and item.request_id==target_request_id then
+                    remove_queued(index)
+                    remember(item.key,{operation=item.operation,ok=false,transaction=item.transaction,reason="request-cancelled-before-dispatch"})
+                end
             end
             dispatch_abandon(peer, request_id,
                 transaction ~= "-" and transaction or nil,
@@ -306,12 +477,7 @@ return function(api, callbacks)
         local head = table.concat({"B", request_id, #content, chunk_count, adler32(content),
             metadata.turns, anchor[1], anchor[2], anchor[3], metadata.voxelMode,
             metadata.targetPropMode, "v1"}, "|")
-        outgoing[#outgoing + 1] = {peer = peer, payload = head}
-        for index = 1, chunk_count do
-            local first = (index - 1) * chunk_bytes + 1
-            outgoing[#outgoing + 1] = {peer = peer,
-                payload = "C|" .. request_id .. "|" .. index .. "|v1\n" .. content:sub(first, first + chunk_bytes - 1)}
-        end
+        enqueue_blueprint(peer, request_id, head, content)
         client_pending = {request_id = request_id, operation = "paste", peer = peer, elapsed = 0}
         return true, request_id
     end
@@ -323,6 +489,23 @@ return function(api, callbacks)
         outgoing[#outgoing + 1] = {peer = peer, payload = table.concat({"U", request_id, transaction, "v1"}, "|")}
         client_pending = {request_id = request_id, operation = "undo", peer = peer, elapsed = 0}
         return true, request_id
+    end
+
+    function M.start_capture(peer, metadata)
+        if client_pending then return false, "A World Editor P2P request is already waiting for the server." end
+        if not valid_selection(metadata) then return false, "Mark two finite world positions and choose a valid blueprint axis." end
+        local request_id = make_request_id()
+        local a, b = metadata.a, metadata.b
+        outgoing[#outgoing + 1] = {peer=peer,payload=table.concat({"Q",request_id,a[1],a[2],a[3],b[1],b[2],b[3],metadata.axis,"v1"},"|")}
+        client_pending = {request_id=request_id,operation="capture",peer=peer,elapsed=0}
+        return true, request_id
+    end
+
+    function M.cancel_capture()
+        if not client_pending or client_pending.operation ~= "capture" then return false end
+        outgoing = {}
+        queue_result(client_pending.request_id,"capture",false,nil,"capture-cancelled")
+        return true
     end
 
     function M.start_abandon(peer, transaction, target_request_id)
@@ -363,6 +546,46 @@ return function(api, callbacks)
 
     function M.pending() return client_pending ~= nil end
 
+    local function receive_capture_part(payload)
+        if not client_pending or client_pending.operation ~= "capture" then return false end
+        local header, body = payload:match("^([^\n]*)\n(.*)$")
+        header, body = header or payload, body or ""
+        local fields = {}
+        for field in (header .. "|"):gmatch("(.-)|") do fields[#fields+1]=field end
+        if fields[1] ~= "D" and fields[1] ~= "C" then return false end
+        if fields[2] ~= client_pending.request_id then return true end
+        if fields[1] == "D" then
+            local bytes, chunks = tonumber(fields[3]), tonumber(fields[4])
+            if #fields ~= 6 or fields[6] ~= "v1" or client_pending.download or
+               not valid_transfer(bytes,chunks,fields[5]) then
+                queue_result(fields[2],"capture",false,nil,"invalid-server-blueprint-header")
+                return true
+            end
+            client_pending.download = {request_id=fields[2],byte_count=bytes,chunk_count=chunks,
+                checksum=fields[5]:lower(),parts={},received_bytes=0}
+        else
+            local download = client_pending.download
+            local appended, reason
+            if #fields == 4 and fields[4] == "v1" and download and not download.content then
+                appended, reason = append_chunk(download,fields[2],tonumber(fields[3]),body)
+            end
+            if not appended then
+                queue_result(fields[2],"capture",false,nil,reason or "invalid-server-blueprint-chunk")
+                return true
+            end
+            if #download.parts == download.chunk_count then
+                download.content = transfer_content(download)
+                if not download.content then
+                    queue_result(fields[2],"capture",false,nil,"server-blueprint-integrity-check-failed")
+                    return true
+                end
+                download.parts = {}
+            end
+        end
+        client_pending.since_progress, client_pending.stall_notified = 0, false
+        return true
+    end
+
     function M.tick(delta_seconds)
         local delta = math.max(0, tonumber(delta_seconds) or 0)
         if client_pending then
@@ -384,6 +607,9 @@ return function(api, callbacks)
                     if callbacks.on_result then callbacks.on_result("abandon", false, nil,
                         "server-release-not-confirmed-after-60-seconds. Press F6 to resend the same release",
                         pending.peer, pending.request_id, true) end
+                elseif pending.operation == "capture" then
+                    outgoing = {}
+                    queue_result(pending.request_id,"capture",false,nil,"no-response-from-server-capture-after-60-seconds")
                 else
                     outgoing = {}
                     queue_result(pending.request_id, pending.operation, false, nil,
@@ -395,8 +621,17 @@ return function(api, callbacks)
         for peer, upload in pairs(uploads) do
             upload.elapsed = upload.elapsed + delta
             if upload.elapsed >= 60 then
-                uploads[peer], active_upload_peer = nil, nil
+                drop_upload(peer)
                 reply(peer, upload.request_id, "paste", false, nil, "blueprint-upload-expired")
+            end
+        end
+        for index, item in ipairs(server_queue) do
+            item.elapsed=item.elapsed+delta
+            item.report_elapsed=(item.report_elapsed or 0)+delta
+            if item.report_elapsed >= 2 then
+                item.report_elapsed=0
+                report_progress(item.peer,item.request_id,item.operation,index,0,"Queued on server",
+                    "Waiting for earlier requests. The server executes one world operation at a time.")
             end
         end
         local sent_count = 0
@@ -414,10 +649,15 @@ return function(api, callbacks)
                 else
                     if client_pending then queue_result(client_pending.request_id, client_pending.operation, false, nil, reason, true) end
                     outgoing = {}
+                    if capture_response then
+                        capture_response, server_busy, active_request = nil, false, nil
+                        drain_deferred_abandons()
+                    end
                 end
                 break
             end
             table.remove(outgoing, 1)
+            if item.on_sent then item.on_sent() end
             sent_count = sent_count + 1
         end
         receive_elapsed = receive_elapsed + delta
@@ -441,22 +681,30 @@ return function(api, callbacks)
             if api.is_server then
                 handle_server_message(message)
             elseif message.from_mod == mod_id and client_pending and message.peer_steam_id == client_pending.peer then
-                local request_id, operation, state, completed, total, phase, detail =
-                    message.payload:match("^P|([^|]+)|([^|]+)|([^|]+)|(%d+)|(%d+)|([^|]*)|([^|]*)$")
-                if request_id == client_pending.request_id and operation == client_pending.operation then
-                    client_pending.since_progress, client_pending.stall_notified = 0, false
-                    if callbacks.on_progress then
-                        callbacks.on_progress(operation, state, tonumber(completed), tonumber(total), phase, detail, client_pending.peer)
-                    end
-                else
-                    local result_id, result_operation, ok, transaction, result_detail =
-                        message.payload:match("^R|([^|]+)|([^|]+)|([01])|([^|]+)|([^|]*)$")
-                    if result_id == client_pending.request_id and result_operation == client_pending.operation then
-                        queue_result(result_id, result_operation, ok == "1", transaction ~= "-" and transaction or nil, result_detail)
+                if not receive_capture_part(message.payload) then
+                    local request_id, operation, state, completed, total, phase, detail =
+                        message.payload:match("^P|([^|]+)|([^|]+)|([^|]+)|(%d+)|(%d+)|([^|]*)|([^|]*)$")
+                    if request_id == client_pending.request_id and operation == client_pending.operation then
+                        client_pending.since_progress, client_pending.stall_notified = 0, false
+                        if callbacks.on_progress then
+                            callbacks.on_progress(operation, state, tonumber(completed), tonumber(total), phase, detail, client_pending.peer)
+                        end
+                    else
+                        local result_id, result_operation, ok, transaction, result_detail =
+                            message.payload:match("^R|([^|]+)|([^|]+)|([01])|([^|]+)|([^|]*)$")
+                        if result_id == client_pending.request_id and result_operation == client_pending.operation then
+                            local content
+                            if result_operation == "capture" and ok == "1" then
+                                content = client_pending.download and client_pending.download.content
+                                if not content then ok, result_detail = "0", "server-capture-result-without-complete-blueprint" end
+                            end
+                            queue_result(result_id, result_operation, ok == "1", transaction ~= "-" and transaction or nil, result_detail, false, content)
+                        end
                     end
                 end
             end
         end
+        if api.is_server then pump_server_queue() end
     end
 
     return M

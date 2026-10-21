@@ -34,6 +34,9 @@ editor.pending_prop_capture = nil
 editor.pending_world_action = nil
 editor.readiness_logged = false
 editor.readiness_wait_logged = false
+editor.native_readiness_state = "waiting"
+editor.native_readiness_reason = "Waiting for the first native world readiness sample."
+editor.last_readiness_signature = nil
 editor.maximum_blueprint_bytes = 256 * 1024 * 1024
 editor.maximum_supported_props = 1000000
 editor.default_maximum_copyable_props = 60000
@@ -53,6 +56,7 @@ editor.last_published_editor_state = nil
 editor.last_execution_backend = nil
 editor.last_logged_p2p_target = nil
 editor.p2p_target_check_elapsed = 0
+editor.native_readiness_elapsed = 0
 editor.p2p_bridge = nil
 editor.remote_undo = nil
 editor.remote_request_pending = false
@@ -63,7 +67,9 @@ editor.remote_stalled = false
 editor.abandon_remote = nil
 editor.server_remote_paste = nil
 editor.server_remote_transaction = nil
+editor.server_remote_transactions = {}
 editor.server_remote_undo = nil
+editor.server_remote_capture = nil
 editor.paste_remote = nil
 editor.undo_remote = nil
 editor.observed_session = nil
@@ -91,14 +97,14 @@ editor.p2p_bridge = editor.create_p2p_bridge()
 
 editor.feature = function(feature_name)
     if runtime.has(feature_name) then return true end
+    local status = runtime.status(feature_name)
     local native_mutation_unavailable = editor.native_mutation_unavailable_reason and
-        editor.native_mutation_unavailable_reason(feature_name)
+        editor.native_mutation_unavailable_reason(feature_name, status)
     if native_mutation_unavailable then
         editor.set_editor_message("selected", native_mutation_unavailable)
         shroudforge.log.warn("World Editor blocked " .. feature_name .. ": " .. native_mutation_unavailable)
         return false
     end
-    local status = runtime.status(feature_name)
     editor.set_editor_message(nil, "Waiting for " .. feature_name .. ". " .. tostring(status and status.reason or "Runtime feature unavailable."))
     shroudforge.log.warn("World Editor: " .. feature_name .. " unavailable: " ..
         tostring(status and status.reason or "feature unavailable"))
@@ -147,7 +153,7 @@ editor.on_action("listProps", editor.list_props)
 editor.on_action("resolveRecipes", editor.report_recipe_catalog)
 
 return {
-    update_interval_ms = 30,
+    update_interval_ms = 100,
     on_load = function()
         if editor.editor_is_server then
             local status = runtime.network and runtime.network.status and runtime.network.status() or nil
@@ -187,6 +193,24 @@ return {
     end,
     on_update = function(_delta_seconds)
         editor.update_world_session()
+        local reset = false
+        if not editor.editor_is_server then
+            local rotate = editor.key_pressed("F3")
+            local undo = editor.key_pressed("F4")
+            local mark = editor.key_pressed("F5")
+            reset = editor.key_pressed("F6")
+            local paste = editor.key_pressed("F7")
+            local capture = editor.key_pressed("F8")
+            if reset then
+                editor.reset_editor()
+            else
+                if rotate then editor.rotate_blueprint() end
+                if undo then editor.undo_voxels() end
+                if mark then editor.mark_cursor_next() end
+                if paste then editor.paste_voxels(true) end
+                if capture then editor.capture_and_save() end
+            end
+        end
         editor.update_pending_queries(_delta_seconds)
         if editor.p2p_bridge then
             editor.p2p_bridge.tick(_delta_seconds)
@@ -194,31 +218,50 @@ return {
         if editor.editor_is_server then
             editor.update_server_remote_paste(_delta_seconds)
             editor.update_server_remote_undo(_delta_seconds)
+            editor.update_server_remote_capture(_delta_seconds)
             return
         end
         editor.p2p_target_check_elapsed = editor.p2p_target_check_elapsed + math.max(0, tonumber(_delta_seconds) or 0)
         if editor.p2p_target_check_elapsed >= 1 then
             editor.p2p_target_check_elapsed = 0
             editor.log_p2p_target_if_changed()
-            if not editor.readiness_logged then
-                local props_ready = runtime.has("runtime.world.entity.query_props_in_bounds")
-                local cursor_ready = runtime.has("runtime.world.cursor.get")
-                local write_feature = "runtime.world.entity.spawn"
-                local spawn_ready = runtime.has(write_feature)
-                local read_ready = runtime.has("runtime.world.voxel.read")
-                if props_ready and cursor_ready and spawn_ready and read_ready then
-                    editor.readiness_logged = true
+        end
+        editor.native_readiness_elapsed = editor.native_readiness_elapsed + math.max(0, tonumber(_delta_seconds) or 0)
+        if editor.native_readiness_elapsed >= 2 and editor.process_progress.state ~= "running" and
+           not editor.pending_world_action and not editor.pending_cursor_action and not editor.pending_prop_capture then
+            editor.native_readiness_elapsed = 0
+            local missing, permanently_unavailable = {}, false
+            local required_features = {"runtime.world.entity.query_props_in_bounds", "runtime.world.cursor.get",
+                "runtime.world.entity.spawn", "runtime.world.voxel.read", "runtime.world.voxel.write",
+                "runtime.world.entity.destroy"}
+            for _, prop in ipairs(editor.clipboard and editor.clipboard.props or {}) do
+                if not editor.prop_scale_is_unit({prop.sx, prop.sy, prop.sz}) then
+                    required_features[#required_features + 1] = "runtime.world.entity.set_scale"
+                    break
+                end
+            end
+            for _, feature in ipairs(required_features) do
+                if not runtime.has(feature) then
+                    local status = runtime.status(feature)
+                    local reason = status and status.reason or "native world readiness is being refreshed"
+                    if not (status and status.available) and not editor.world_feature_pending(reason) then
+                        permanently_unavailable = true
+                    end
+                    missing[#missing + 1] = feature .. ": " .. tostring(reason)
+                end
+            end
+            editor.readiness_logged = #missing == 0
+            editor.readiness_wait_logged = not editor.readiness_logged
+            editor.native_readiness_state = editor.readiness_logged and "ready" or
+                (permanently_unavailable and "unavailable" or "waiting")
+            editor.native_readiness_reason = editor.readiness_logged and "Native world APIs are ready." or table.concat(missing, ", ")
+            local signature = tostring(editor.current_session()) .. "|" .. editor.native_readiness_state .. "|" .. editor.native_readiness_reason
+            if signature ~= editor.last_readiness_signature then
+                editor.last_readiness_signature = signature
+                if editor.readiness_logged then
                     shroudforge.log.info("World Editor native entity APIs ready: F3 rotate, F4 undo, F5 mark A/B, F6 reset, F7 paste, F8 capture/save.")
-                elseif not editor.readiness_wait_logged then
-                    editor.readiness_wait_logged = true
-                    local props = runtime.status("runtime.world.entity.query_props_in_bounds")
-                    local cursor = runtime.status("runtime.world.cursor.get")
-                    local spawn = runtime.status(write_feature)
-                    local read = runtime.status("runtime.world.voxel.read")
-                    shroudforge.log.debug("World Editor waiting for runtime readiness: cursor=" .. tostring(cursor and cursor.reason or "ready") ..
-                        ", props=" .. tostring(props and props.reason or "ready") ..
-                        ", spawn=" .. tostring(spawn and spawn.reason or "ready") ..
-                        ", worldRead=" .. tostring(read and read.reason or "ready"))
+                else
+                    shroudforge.log.debug("World Editor runtime readiness " .. editor.native_readiness_state .. ": " .. editor.native_readiness_reason)
                 end
             end
         end
@@ -234,18 +277,7 @@ return {
                 shroudforge.log.debug("World Editor automatic target is waiting for a validated world session")
             end
         end
-        local rotate = editor.key_pressed("F3")
-        local undo = editor.key_pressed("F4")
-        local mark = editor.key_pressed("F5")
-        local reset = editor.key_pressed("F6")
-        local paste = editor.key_pressed("F7")
-        local capture = editor.key_pressed("F8")
-        if reset then editor.reset_editor(); return end
-        if rotate then editor.rotate_blueprint() end
-        if undo then editor.undo_voxels() end
-        if mark then editor.mark_cursor_next() end
-        if paste then editor.paste_voxels(true) end
-        if capture then editor.capture_and_save() end
+        if reset then return end
         editor.publish_editor_state()
     end,
     on_unload = function()

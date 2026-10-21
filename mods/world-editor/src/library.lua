@@ -25,6 +25,36 @@ return function(editor)
         return true
     end
 
+    -- Both local and server captures use one non-overwriting save path.
+    function editor.save_capture()
+        local name
+        for index = 1, 999999 do
+            local candidate = "capture-" .. tostring(index)
+            local ok, exists = pcall(io.export_exists, "world-editor/blueprints/" .. candidate .. ".sfbp")
+            if not ok then
+                editor.set_editor_message("ready", "Capture stopped. The blueprint folder could not be checked. Check the export folder and try F8 again.")
+                shroudforge.log.error("World Editor cannot safely choose a capture name because export storage could not be inspected: " .. tostring(exists))
+                editor.finish_process("error", "Could not inspect the blueprint folder: " .. tostring(exists), "error")
+                return false
+            end
+            if exists == false then name = candidate; break end
+        end
+        if not name or not editor.save_blueprint_named(name) then
+            editor.set_editor_message("ready", "Capture is ready, but the blueprint could not be saved. Check the export folder and try F8 again.")
+            shroudforge.log.error("World Editor captured the region but could not save a unique persistent blueprint")
+            if editor.process_progress.state == "running" then
+                editor.finish_process("error", "The capture is ready, but the blueprint file could not be saved.", "error")
+            end
+            return false
+        end
+        editor.active_blueprint_name = name
+        editor.editor_stage = "selected"
+        editor.set_editor_message("selected", "Blueprint " .. name .. " saved and selected. Press F7 to place it. Open Manage to add a cover from F12 screenshots.")
+        editor.finish_save_progress()
+        shroudforge.log.debug("World Editor help: blueprint saved as '" .. name .. "' and selected. Click to select or double-click to manage it. Press F7 to place it.")
+        return editor.save_progress.state == "complete"
+    end
+
     editor.save_blueprint_named = function(name)
         if not editor.clipboard then
             editor.set_editor_message("need_a", "There is no capture to save. Mark both corners with F5 first.")

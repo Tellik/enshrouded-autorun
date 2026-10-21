@@ -12,6 +12,11 @@
     "support-bmac": "https://buymeacoffee.com/bonsaibauer"
   },
   "changelog": [
+    "Adds online F8 capture: the dedicated server reads the marked terrain and props, returns the complete V7 blueprint over Steam P2P, and the client validates and saves it locally. Verified live with 648 cells and two props, followed by placement and undo.",
+    "Queues P2P requests by authenticated client and request ID, separates concurrent uploads and each client's latest undo journal, and allows repeated F7 placement after confirmation. F4 undoes the latest placement. Incomplete recovery still blocks that client's next paste.",
+    "Fixes native F7 placement and F4 undo for terrain, voxel cells, and original-size props, including rotated blueprints. The editor's own journal restores terrain and removes placed props independently of the game's limited undo history.",
+    "Uses the same guarded placement and undo flow for local worlds and Dedicated Server Steam P2P requests. Removes duplicate readiness checks and unnecessary scale-writer requirements, and waits for temporary grid unavailability instead of rejecting a valid target. Verified live with 1,170 cells and one prop on both targets.",
+    "Runs editor updates every 100 ms and limits additional readiness checks to at most once every two seconds, pausing those checks during active operations.",
     "Moves remote server discovery fallback and client authorization into the loader-owned Network module; the editor now uses its automatic health-probe discovery.",
     "Discovers the current SteamID of a local Dedicated Server after every restart and reports unanswered P2P requests after 60 seconds with an explicit unknown-outcome warning.",
     "Persists the server-issued undo token across client restarts and automatically resumes it instead of losing the server's unresolved journal.",

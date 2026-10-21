@@ -2,7 +2,7 @@
   "$schema": "../../modules/modloader/manifest/manifest.schema.json",
   "id": "world-editor",
   "name": "World Editor",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Copy, rotate, save, and paste parts of the world.",
   "authors": [
     "bonsaibauer"

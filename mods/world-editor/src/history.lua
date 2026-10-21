@@ -15,7 +15,16 @@ return function(editor)
                 ", it cannot be replayed in session " .. tostring(session))
         end
         editor.undo_state = nil
-        if editor.editor_is_server then editor.server_remote_transaction = nil end
+        if editor.editor_is_server then
+            for peer, transaction in pairs(editor.server_remote_transactions) do
+                if transaction.undo then
+                    editor.retired_sessions[#editor.retired_sessions+1] = {session=transaction.session,
+                        peer=peer,transaction=transaction.transaction,undo=transaction.undo}
+                end
+            end
+            editor.server_remote_transactions = {}
+            editor.server_remote_transaction = nil
+        end
         editor.pending_cursor_action, editor.pending_prop_capture, editor.pending_world_action = nil, nil, nil
         editor.selection_a, editor.selection_b, editor.selection_target, editor.placement_preview = nil, nil, nil, nil
         editor.live_prop_cache, editor.voxel_grid_spec = {}, nil
@@ -139,8 +148,13 @@ return function(editor)
             editor.begin_process("Undo placement", "Checking undo journal", 4,
                 "Checking the target world before restoring the previous state.")
         end
+        local restore_scale_required = false
+        for _, prop in ipairs(editor.undo_state.removed_props or {}) do
+            if prop.scale and not editor.prop_scale_is_unit(prop.scale) then restore_scale_required = true end
+        end
         if #(editor.undo_state.removed_props or {}) > 0 and
-           (not editor.feature("runtime.world.entity.spawn") or not editor.feature("runtime.world.entity.set_scale")) then
+           (not editor.feature("runtime.world.entity.spawn") or
+            (restore_scale_required and not editor.feature("runtime.world.entity.set_scale"))) then
             editor.finish_process("error", "Required native prop restoration features are unavailable.", "warn")
             return
         end
@@ -182,10 +196,13 @@ return function(editor)
         local entities = editor.undo_state.entities or {}
         local index = editor.undo_state.entity_index or #entities
         local removed_index = editor.undo_state.removed_prop_index or 0
+        -- Lock the journal immediately before each mutation so a partial undo
+        -- cannot be replaced by F7. Read-only preflight refusals need no new lock.
         -- Restore voxel cells before props so one unreadable prop cannot block the
         -- independent terrain snapshot. The journal preserves any remaining work.
         if editor.undo_state.hasVoxels and editor.undo_state.voxel_written then
             editor.process_step("Restoring terrain", 1, 4, "Restoring and verifying the saved terrain snapshot.")
+            editor.undo_state.recovery_required = true
             local ok, reason = runtime.world.voxel.write(region.x, region.y, region.z,
                 region.sx, region.sy, region.sz, editor.undo_state.cells)
             if not ok then
@@ -275,6 +292,7 @@ return function(editor)
             else
             -- Remove the exact server/local prop handle from the same runtime that
             -- created it; handles never leave this process.
+            editor.undo_state.recovery_required = true
             local removed, remove_reason = runtime.world.entity.destroy(entity.entityHandle)
             if runtime.world.session_id() ~= editor.undo_state.session then
                 editor.set_editor_message("recovery", "World session changed during removal. Undo progress is retained for inspection."); return
@@ -315,12 +333,14 @@ return function(editor)
             if not editor.feature("runtime.world.entity.spawn") then return end
             local entity_handle, spawn_reason = prop.restoreHandle
             if not entity_handle then
+                editor.undo_state.recovery_required = true
                 entity_handle, spawn_reason = runtime.world.entity.spawn(prop.templateUuidHighHex or prop.recipe.uuidHigh,
                     prop.templateUuidLowHex or prop.recipe.uuidLow,
                     prop.position, prop.rotation, prop.recipe.id, 0)
                 prop.restoreHandle = entity_handle
             end
-            if entity_handle then
+            if entity_handle and not editor.prop_scale_is_unit(prop.scale) then
+                editor.undo_state.recovery_required = true
                 local scaled, scale_reason = runtime.world.entity.set_scale(entity_handle, prop.scale)
                 if not scaled then
                     editor.set_editor_message("recovery", "Undo paused while restoring a replaced prop's scale. Press F4 to retry.")
@@ -377,7 +397,9 @@ return function(editor)
 
     function editor.reset_editor()
         editor.cancel_pending_queries("Capture cancelled by editor reset.", nil, "Save cancelled")
-        if editor.abandon_remote and (editor.remote_recovery_required or editor.remote_release_pending or editor.remote_request_pending or
+        if editor.remote_active_request and editor.remote_active_request.operation == "capture" and editor.p2p_bridge then
+            editor.p2p_bridge.cancel_capture()
+        elseif editor.abandon_remote and (editor.remote_recovery_required or editor.remote_release_pending or editor.remote_request_pending or
            editor.remote_active_request or (editor.p2p_bridge and editor.p2p_bridge.pending())) then
             editor.abandon_remote()
         end
@@ -457,6 +479,19 @@ return function(editor)
         shroudforge.log.info("World Editor: undo request sent to the dedicated server. Waiting for confirmation.")
     end
 
+    function editor.finish_server_remote_undo(job, ok, reason)
+        if editor.server_remote_undo ~= job then return end
+        if editor.pending_world_action then editor.cancel_pending_queries(reason, "recovery") end
+        local retained = editor.server_remote_transactions[job.peer]
+        if retained and retained.transaction == job.transaction then
+            if ok then editor.server_remote_transactions[job.peer] = nil
+            elseif editor.undo_state then retained.undo = editor.undo_state end
+        end
+        editor.server_remote_transaction, editor.server_remote_undo, editor.undo_state = nil, nil, nil
+        editor.remote_progress_callback = nil
+        job.done(ok, reason)
+    end
+
     function editor.update_server_remote_undo(delta_seconds)
         local job = editor.server_remote_undo
         if not job then return end
@@ -464,50 +499,32 @@ return function(editor)
         local transaction = editor.server_remote_transaction
         if not transaction or transaction.peer ~= job.peer or transaction.transaction ~= job.transaction or
            transaction.session ~= editor.current_session() then
-            editor.server_remote_undo = nil
-            editor.remote_progress_callback = nil
             editor.finish_process("error", "The server undo token belongs to another or ended world session.", "warn")
-            job.done(false, "server-world-session-changed-or-undo-token-expired")
-            return
-        end
-        if editor.undo_state and editor.undo_state.hasVoxels and
-           (not runtime.has("runtime.world.voxel.read") or not runtime.has("runtime.world.voxel.write")) then
-            if job.elapsed >= 45 then
-                editor.server_remote_undo = nil
-                editor.remote_progress_callback = nil
-                editor.finish_process("error", "The server terrain APIs did not become ready for undo.", "warn")
-                job.done(false, "server-voxel-runtime-did-not-become-ready")
-            end
+            editor.finish_server_remote_undo(job, false, "server-world-session-changed-or-undo-token-expired")
             return
         end
         if not editor.undo_state then
-            editor.server_remote_transaction, editor.server_remote_undo = nil, nil
-            editor.remote_progress_callback = nil
-            job.done(true, "undo-already-complete")
+            editor.finish_server_remote_undo(job, true, "undo-already-complete")
             return
         end
         if not job.started then
+            -- Use the same guarded restoration and readiness continuation as
+            -- local F4, without another pair of non-reserving Scene samples.
             editor.undo_voxels()
             job.started = true
         end
         if not editor.undo_state then
-            editor.server_remote_transaction, editor.server_remote_undo = nil, nil
-            editor.remote_progress_callback = nil
-            job.done(true, "undo-confirmed")
+            editor.finish_server_remote_undo(job, true, "undo-confirmed")
         elseif editor.pending_world_action then
             if job.elapsed >= 45 then
-                editor.server_remote_undo = nil
-                editor.remote_progress_callback = nil
                 editor.finish_process("error", "The server world context did not become ready for undo.", "warn")
-                job.done(false, "server-undo-world-context-did-not-become-ready")
+                editor.finish_server_remote_undo(job, false, "server-undo-world-context-did-not-become-ready")
             end
         else
-            editor.server_remote_undo = nil
-            editor.remote_progress_callback = nil
             if editor.process_progress.state == "running" then
                 editor.finish_process("error", "Server undo paused: " .. tostring(editor.editor_hint), "warn")
             end
-            job.done(false, editor.editor_hint or "server-undo-needs-recovery. Retry F4")
+            editor.finish_server_remote_undo(job, false, editor.editor_hint or "server-undo-needs-recovery. Retry F4")
         end
     end
 end

@@ -31,6 +31,20 @@ return function(editor)
         return type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge
     end
 
+    function editor.prop_scale_is_unit(scale)
+        return type(scale) == "table" and scale[1] == 1 and scale[2] == 1 and scale[3] == 1
+    end
+
+    function editor.prop_scale_matches(prop, scale)
+        local actual = prop and prop.transform and prop.transform.scale
+        if not actual or type(scale) ~= "table" then return false end
+        for index, axis in ipairs({"x", "y", "z"}) do
+            if not editor.finite_number(actual[axis]) or not editor.finite_number(scale[index]) or
+               math.abs(actual[axis] - scale[index]) > 1e-7 then return false end
+        end
+        return true
+    end
+
     function editor.maximum_copyable_props()
         local configured = tonumber(editor.setting("maximumCopyableProps"))
         if not editor.finite_number(configured) then configured = editor.default_maximum_copyable_props end

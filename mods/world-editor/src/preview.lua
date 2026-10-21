@@ -105,6 +105,8 @@ return function(editor)
             "panelPositionY=" .. tostring(panel_position_y),
             "processRole=" .. (runtime.is_server and "dedicated-server" or "client"),
             "executionBackend=" .. editor.execution_backend_label(editor.execution_backend()),
+            "runtimeReadiness=" .. editor.native_readiness_state,
+            "runtimeReadinessReason=" .. editor.native_readiness_reason,
             "sessionGeneration=" .. tostring(editor.current_session()),
             "archivedSessions=" .. tostring(#editor.retired_sessions),
         }, "\n") .. "\n"
@@ -202,7 +204,8 @@ return function(editor)
         end
         local occupied = 0
         for _, cell in ipairs(plan.cells or {}) do if cell ~= 0 then occupied = occupied + 1 end end
-        editor.placement_preview = {blueprint = editor.clipboard, target = target, anchor = anchor, turns = turns, axis = axis, plan = plan}
+        editor.placement_preview = {blueprint = editor.clipboard, target = target, anchor = anchor, turns = turns, axis = axis,
+            plan = plan, bounds = editor.plan_world_bounds(plan, anchor)}
         editor.set_editor_message("selected", "Preview ready. No world changes were made. Press F7 to place the blueprint.")
         shroudforge.log.info(string.format(
             "World Editor placement plan prepared: axis=%s turns=%d anchor=%.3f,%.3f,%.3f voxels=%s size=%d,%d,%d occupied=%d props=%d. No world changes were made.",

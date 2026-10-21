@@ -46,9 +46,14 @@ return function(editor)
         ["runtime.world.entity.finish_building"] = "building completion",
     }
 
-    function editor.native_mutation_unavailable_reason(operation)
+    function editor.native_mutation_unavailable_reason(operation, status)
         local label = unavailable_native_mutations[operation]
         if not label or editor.execution_backend() ~= "direct" then return nil end
+        status = status or runtime.status(operation)
+        -- Availability is a live, nonblocking Scene observation. A missed gate
+        -- is not evidence that the registered adapter is absent. In particular,
+        -- has() and status() can see different readiness on consecutive calls.
+        if status and (status.available or editor.world_feature_pending(status.reason)) then return nil end
         return "No verified native ECS " .. label .. " operation is available for this world session. No world changes were sent."
     end
 
@@ -88,6 +93,7 @@ return function(editor)
     function editor.unavailable_world_reason(operation)
         if runtime.has(operation) then return nil end
         local status = runtime.status(operation)
+        if status and status.available then return "world operation is not ready" end
         return status and status.reason or (operation .. " is unavailable")
     end
 
@@ -103,12 +109,13 @@ return function(editor)
     end
 
     function editor.world_feature_pending(reason)
-        return type(reason) == "string" and (
+        return editor.query_is_pending(reason) or type(reason) == "string" and (
             reason:find("world operation is not ready", 1, true) ~= nil or
-            reason:find("active voxel world context is not available", 1, true) ~= nil)
+            reason:find("active voxel world context is not available", 1, true) ~= nil or
+            reason == "runtime provider is not ready for this operation")
     end
 
-    function editor.defer_world_action(operation, action, elapsed)
+    function editor.defer_world_action(operation, action, elapsed, guarded_read)
         if editor.pending_world_action then
             editor.set_editor_message(nil, "A world operation is already running. Wait for it to finish, then try again.")
             shroudforge.log.debug("World Editor is already waiting for the live world context")
@@ -119,7 +126,8 @@ return function(editor)
             editor.set_editor_message("ready", "The world session is unavailable. Wait for loading to finish, then retry the action.")
             return false
         end
-        editor.pending_world_action = {operation = operation, action = action, session = session, elapsed = elapsed or 0}
+        editor.pending_world_action = {operation = operation, action = action, session = session,
+            elapsed = elapsed or 0, guarded_read = guarded_read == true}
         editor.set_editor_message(nil, "Waiting for the live world to become ready. The requested action will continue automatically.")
         if not elapsed or elapsed == 0 then
             shroudforge.log.debug("World Editor is waiting for the validated world context. The requested action will continue automatically.")
@@ -129,13 +137,13 @@ return function(editor)
 
     function editor.require_world_feature(operation, action, elapsed)
         if runtime.has(operation) then return true end
-        local unavailable = editor.native_mutation_unavailable_reason(operation)
+        local status = runtime.status(operation)
+        local unavailable = editor.native_mutation_unavailable_reason(operation, status)
         if unavailable then
             editor.set_editor_message("selected", unavailable)
             shroudforge.log.warn("World Editor blocked " .. operation .. ": " .. unavailable)
             return false
         end
-        local status = runtime.status(operation)
         local reason = status and status.reason or (operation .. " is unavailable")
         if (status and status.available) or editor.world_feature_pending(reason) then
             return editor.defer_world_action(operation, action, elapsed)
@@ -359,21 +367,21 @@ return function(editor)
             local session = editor.current_session()
             if session ~= pending.session or pending.elapsed >= editor.world_wait_timeout then
                 local reason = session ~= pending.session and "World session changed or became unavailable" or
-                    "The client world context did not become readable within the retry window"
-                editor.cancel_pending_queries(reason .. ". Action cancelled. Retry when the world is ready.", "ready")
+                    ("Native operation " .. pending.operation .. " remained unavailable within the retry window")
+                editor.cancel_pending_queries(reason .. ". Action cancelled before its next world change.", "ready")
                 shroudforge.log.warn("World Editor cancelled " .. pending.operation .. ": " .. reason)
-            elseif runtime.has(pending.operation) then
+            elseif pending.guarded_read or runtime.has(pending.operation) then
                 editor.pending_world_action = nil
                 pending.action(pending.elapsed)
             else
                 local status = runtime.status(pending.operation)
                 local reason = status and status.reason
-                local mutation_unavailable = editor.native_mutation_unavailable_reason(pending.operation)
+                local mutation_unavailable = editor.native_mutation_unavailable_reason(pending.operation, status)
                 if mutation_unavailable then
                     editor.cancel_pending_queries(mutation_unavailable, "selected")
                     shroudforge.log.warn("World Editor stopped " .. pending.operation .. ": " .. mutation_unavailable)
                 elseif not (status and status.available) and not editor.world_feature_pending(reason) then
-                    editor.cancel_pending_queries("Capture cancelled: " .. tostring(reason or "World API unavailable"),
+                    editor.cancel_pending_queries("Action cancelled: " .. tostring(reason or "World API unavailable"),
                         editor.editor_stage == "capturing" and "ready" or nil)
                     shroudforge.log.warn("World Editor world query stopped: " .. tostring(reason or "world operation unavailable"))
                 end
@@ -396,20 +404,18 @@ return function(editor)
         if editor.pending_prop_capture then
             local pending = editor.pending_prop_capture
             pending.elapsed = pending.elapsed + math.max(0, tonumber(delta) or 0)
-            if not runtime.has("runtime.world.entity.query_props_in_bounds") then
-                editor.pending_prop_capture = nil
-                editor.editor_stage = "ready"
-                editor.editor_hint = "Capture cancelled: the world became unavailable. Mark the selection again."
-                editor.publish_editor_state()
-                shroudforge.log.warn("World Editor cancelled pending prop capture after world change, no blueprint was saved")
-                editor.finish_process("error", "Prop scanning stopped because the world is no longer available.", "warn")
-                return
-            end
+            -- A single busy Scene sample cannot invalidate an in-flight scan.
+            -- capture_region_props returns the current reason and the native
+            -- scan watchdog still bounds missing progress.
             local props, reason = editor.capture_region_props(pending.region)
             if props then
                 editor.pending_prop_capture = nil
                 shroudforge.log.info("World Editor capture: prop scan completed, " .. tostring(#props) .. " props")
                 pending.callback(props)
+            elseif editor.world_feature_pending(reason) and pending.elapsed >= editor.world_wait_timeout and
+                   not (type(reason) == "string" and reason:find("still scanning", 1, true)) then
+                editor.cancel_pending_queries("The prop API did not become available within the retry window. Action cancelled.",
+                    editor.editor_stage == "capturing" and "ready" or nil)
             elseif not editor.query_is_pending(reason) then
                 editor.pending_prop_capture = nil
                 if editor.editor_stage == "capturing" then
@@ -459,32 +465,7 @@ return function(editor)
                 #props, extent[1], extent[2], extent[3]))
         end
         if save_and_select then
-            local name
-            for index = 1, 999999 do
-                local candidate = "capture-" .. tostring(index)
-                local path = "world-editor/blueprints/" .. candidate .. ".sfbp"
-                local ok, exists = pcall(io.export_exists, path)
-                if not ok then
-                    editor.set_editor_message("ready", "Capture stopped. The blueprint folder could not be checked. Check the export folder and try F8 again.")
-                    shroudforge.log.error("World Editor cannot safely choose a capture name because export storage could not be inspected: " .. tostring(exists))
-                    editor.finish_process("error", "Could not inspect the blueprint folder: " .. tostring(exists), "error")
-                    return
-                end
-                if exists == false then name = candidate; break end
-            end
-            if not name or not editor.save_blueprint_named(name) then
-                editor.set_editor_message("ready", "Capture is ready, but the blueprint could not be saved. Check the export folder and try F8 again.")
-                shroudforge.log.error("World Editor captured the region but could not save a unique persistent blueprint")
-                if editor.process_progress.state == "running" then
-                    editor.finish_process("error", "The capture is ready, but the blueprint file could not be saved.", "error")
-                end
-                return
-            end
-            editor.active_blueprint_name = name
-            editor.editor_stage = "selected"
-            editor.set_editor_message("selected", "Blueprint " .. name .. " saved and selected. Press F7 to place it. Open Manage to add a cover from F12 screenshots.")
-            editor.finish_save_progress()
-            shroudforge.log.debug("World Editor help: blueprint saved as '" .. name .. "' and selected. Click to select or double-click to manage it. Press F7 to place it.")
+            editor.save_capture()
         elseif editor.process_progress.operation == "Capture blueprint data" or
            editor.process_progress.operation == "Capture props only" then
             editor.process_step("Capture complete", 1, 1,
@@ -510,7 +491,7 @@ return function(editor)
         local region, reason = editor.voxel_region(true)
         if not region then
             if editor.query_is_pending(reason) then
-                editor.defer_world_action("runtime.world.voxel.read", retry, retry_elapsed)
+                editor.defer_world_action("runtime.world.voxel.read", retry, retry_elapsed, true)
                 return
             end
             editor.set_editor_message("ready", "Capture stopped. " .. tostring(reason) .. " Choose a smaller or valid selection, then try again.")
@@ -527,7 +508,7 @@ return function(editor)
         end
         if not cells then
             if editor.query_is_pending(read_reason) then
-                editor.defer_world_action("runtime.world.voxel.read", retry, retry_elapsed)
+                editor.defer_world_action("runtime.world.voxel.read", retry, retry_elapsed, true)
                 return
             end
             editor.set_editor_message("ready", "Capture stopped because terrain data could not be read. Check runtime status, then try F8 again.")
@@ -586,6 +567,10 @@ return function(editor)
             shroudforge.log.debug("World Editor help: aim at the opposite corner and press F5 before capturing with F8.")
             return
         end
+        if not editor.editor_is_server and editor.execution_backend() == "p2p" then
+            editor.capture_remote()
+            return
+        end
         editor.editor_stage = "capturing"
         editor.editor_hint = "Capturing props and voxels, creating the blueprint file, and adding it to the library…"
         editor.publish_editor_state()
@@ -622,10 +607,14 @@ return function(editor)
         end)
     end
 
-    function editor.paste_voxels(use_current_cursor, cursor_override, captured_props, target_override)
+    function editor.paste_voxels(use_current_cursor, cursor_override, captured_props, target_override, retry_elapsed, preparation)
         if not editor.clipboard then
             editor.set_editor_message("need_a", "No blueprint is active. Press F5 to create one or select a saved blueprint.")
             shroudforge.log.warn("World Editor: capture or load a blueprint before pasting")
+            return
+        end
+        if editor.pending_world_action then
+            editor.set_editor_message(nil, "Waiting for the live world to become ready. The requested action will continue automatically.")
             return
         end
         if editor.remote_release_pending then
@@ -658,9 +647,41 @@ return function(editor)
             if editor.paste_remote then editor.paste_remote(use_current_cursor, cursor_override) end
             return
         end
-        if editor.clipboard.hasVoxels and not editor.require_world_feature("runtime.world.voxel.write", function()
-            editor.paste_voxels(use_current_cursor, cursor_override, captured_props, target_override)
-        end) then return end
+        preparation = preparation or {features = {}, session = editor.current_session()}
+        if editor.process_progress.state ~= "running" or editor.process_progress.operation ~= "Place blueprint" then
+            editor.begin_process("Place blueprint", "Checking world APIs", 5,
+                "Checking the native APIs before preparing the placement. No world changes have been sent.")
+        end
+        local blueprint = editor.clipboard
+        local function retry(elapsed)
+            if editor.clipboard ~= blueprint then
+                editor.cancel_pending_queries("Placement cancelled because the active blueprint changed.", "selected")
+                editor.finish_process("error", "The active blueprint changed while placement was waiting.", "warn")
+                return
+            end
+            editor.paste_voxels(use_current_cursor, cursor_override, captured_props,
+                preparation.context or target_override, elapsed, preparation)
+        end
+        local function require_placement_feature(operation)
+            -- A successful readiness sample does not reserve the Scene gate.
+            -- Retain this preflight result across later read-only waits rather
+            -- than requiring all independent samples to succeed in one frame.
+            -- Every actual native operation still acquires and validates its
+            -- own original gates and the current session before dispatch.
+            if preparation.features[operation] then return true end
+            if editor.require_world_feature(operation, retry, retry_elapsed) then
+                preparation.features[operation] = true
+                return true
+            end
+            if editor.pending_world_action then
+                editor.process_step("Waiting for world APIs", 0, 5,
+                    "Waiting for " .. operation .. ". Placement will continue automatically before any world change.", "debug")
+            else
+                editor.finish_process("error", "Required native placement feature is unavailable: " .. operation, "warn")
+            end
+            return false
+        end
+        if editor.clipboard.hasVoxels and not require_placement_feature("runtime.world.voxel.write") then return end
         local context, reason
         if target_override then context = target_override
         elseif editor.placement_preview and editor.placement_preview.blueprint == editor.clipboard and
@@ -676,6 +697,7 @@ return function(editor)
             if not anchor then
                 editor.set_editor_message("selected", "Placement stopped. " .. tostring(reason) .. " Aim at a valid target and try again.")
                 shroudforge.log.warn("World Editor: " .. tostring(reason))
+                editor.finish_process("error", "The placement target is unavailable: " .. tostring(reason), "warn")
                 return
             end
             local turns = editor.rotation_turns()
@@ -685,8 +707,13 @@ return function(editor)
             local target
             target, reason = editor.voxel_target_region(rotated, anchor)
             if editor.clipboard.hasVoxels and not target then
+                if editor.query_is_pending(reason) then
+                    editor.defer_world_action("runtime.world.voxel.read", retry, retry_elapsed, true)
+                    return
+                end
                 editor.set_editor_message("selected", "Placement stopped. " .. tostring(reason) .. " Aim at a grid-aligned target and try again.")
                 shroudforge.log.warn("World Editor: " .. tostring(reason))
+                editor.finish_process("error", "The placement target is not valid: " .. tostring(reason), "warn")
                 return
             end
             context = {anchor = anchor, plan = rotated, target = target,
@@ -697,6 +724,7 @@ return function(editor)
         if not anchor or not rotated then
             editor.set_editor_message("selected", "Placement stopped because its plan is incomplete. Aim again, then press F7.")
             shroudforge.log.warn("World Editor: placement plan is incomplete")
+            editor.finish_process("error", "The placement plan is incomplete.", "warn")
             return
         end
         local turns = editor.rotation_turns()
@@ -706,21 +734,25 @@ return function(editor)
            context.plan.hasVoxels ~= editor.clipboard.hasVoxels then
             editor.set_editor_message("selected", "Placement settings changed while preparing. Aim again and press F7.")
             shroudforge.log.warn("World Editor: placement settings changed while the prop query was pending. Prepare the preview again.")
+            editor.finish_process("error", "Placement settings changed during preparation.", "warn")
             return
         end
+        preparation.context = context
         if not editor.clipboard.hasVoxels and #rotated.props == 0 and editor.setting("targetPropMode") ~= "replace" then
             editor.set_editor_message("selected", "This blueprint has no props to place. Enable target prop replacement or choose another blueprint.")
             shroudforge.log.warn("World Editor: empty props-only blueprint has nothing to paste unless target props are set to replace")
+            editor.finish_process("error", "The blueprint has no props to place.", "warn")
             return
         end
-        if editor.process_progress.state ~= "running" or editor.process_progress.operation ~= "Place blueprint" then
-            editor.begin_process("Place blueprint", "Checking target and saving undo data", 5,
-                string.format("Preparing %s with %d props.", editor.active_blueprint_name or "the active blueprint", #rotated.props))
-        end
+        editor.process_step("Checking target and saving undo data", 0, 5,
+            string.format("Preparing %s with %d props.", editor.active_blueprint_name or "the active blueprint", #rotated.props))
         local recipes = (#rotated.props > 0 or editor.setting("targetPropMode") == "replace") and editor.resolve_placeable_items() or {}
-        if #rotated.props > 0 and (not editor.feature("runtime.world.entity.spawn") or
-           not editor.feature("runtime.world.entity.set_scale")) then
-            editor.finish_process("error", "Required native prop placement features are unavailable.", "warn")
+        local scale_required = false
+        for _, prop in ipairs(rotated.props or {}) do
+            if not editor.prop_scale_is_unit({prop.sx, prop.sy, prop.sz}) then scale_required = true end
+        end
+        if #rotated.props > 0 and (not require_placement_feature("runtime.world.entity.spawn") or
+           (scale_required and not require_placement_feature("runtime.world.entity.set_scale"))) then
             return
         end
         for _, prop in ipairs(rotated.props or {}) do
@@ -744,6 +776,12 @@ return function(editor)
             local read_reason
             previous_cells, read_reason = runtime.world.voxel.read(target.x, target.y, target.z, target.sx, target.sy, target.sz)
             if not previous_cells then
+                if editor.query_is_pending(read_reason) then
+                    editor.defer_world_action("runtime.world.voxel.read", retry, retry_elapsed, true)
+                    editor.process_step("Waiting for target terrain", 0, 5,
+                        "Waiting for the target terrain snapshot before making any world change.", "debug")
+                    return
+                end
                 editor.set_editor_message("selected", "Placement stopped because the target terrain could not be backed up. Aim at another target and retry.")
                 shroudforge.log.warn("World Editor could not snapshot the target before paste: " .. tostring(read_reason))
                 editor.finish_process("error", "Could not save the target terrain for undo: " .. tostring(read_reason), "warn")
@@ -766,16 +804,14 @@ return function(editor)
             editor.clipboard.hasVoxels and "Saved the target terrain snapshot for a safe undo." or "Prepared prop state for undo.")
         local removed_props = {}
         if editor.setting("targetPropMode") == "replace" then
-            if not editor.feature("runtime.world.entity.destroy") or not editor.feature("runtime.world.entity.spawn") or
-               not editor.feature("runtime.world.entity.set_scale") then
-                editor.finish_process("error", "Required native prop replacement features are unavailable.", "warn")
+            if not require_placement_feature("runtime.world.entity.destroy") or not require_placement_feature("runtime.world.entity.spawn") then
                 return
             end
             if not captured_props then
                 local query_region = {queryBounds = context.bounds, anchor = anchor}
                 editor.process_step("Checking target props", 2, 5, "Scanning props that will be replaced.")
                 editor.request_prop_capture(query_region, function(props)
-                    editor.paste_voxels(false, nil, props, context)
+                    editor.paste_voxels(false, nil, props, context, retry_elapsed, preparation)
                 end)
                 return
             end
@@ -822,8 +858,12 @@ return function(editor)
                 }
             end
         end
+        for _, prop in ipairs(removed_props) do
+            if not editor.prop_scale_is_unit(prop.scale) and
+               not require_placement_feature("runtime.world.entity.set_scale") then return end
+        end
         local session = runtime.world.session_id and runtime.world.session_id() or 0
-        if session == 0 then
+        if session == 0 or session ~= preparation.session then
             editor.set_editor_message("recovery", "World session is unavailable. No placement was sent.")
             editor.finish_process("error", "The active world session is unavailable. No placement was sent.", "warn")
             return
@@ -907,7 +947,10 @@ return function(editor)
                     recipe.id, prop.templateUuidHighHex or recipe.uuidHigh, prop.templateUuidLowHex or recipe.uuidLow)}
             spawned[#spawned + 1] = tracked
             editor.undo_state.entities, editor.undo_state.entity_index = spawned, #spawned
-            local scaled, scale_reason = runtime.world.entity.set_scale(entity_handle, scale)
+            local scaled, scale_reason = true, nil
+            if not editor.prop_scale_is_unit(scale) then
+                scaled, scale_reason = runtime.world.entity.set_scale(entity_handle, scale)
+            end
             if not scaled then
                 local current = editor.read_prop(entity_handle, editor.undo_state.session)
                 if current then tracked.expected_transform = current end
@@ -917,7 +960,7 @@ return function(editor)
                 return
             end
             local created = editor.read_prop(entity_handle, editor.undo_state.session)
-            if not created or created.itemId ~= recipe.id then
+            if not created or created.itemId ~= recipe.id or not editor.prop_scale_matches(created, scale) then
                 tracked.expected_transform = created or tracked.expected_transform
                 local detail = "spawn returned an entity handle that did not resolve to the requested live prop"
                 runtime.report_effect("write-failed", detail)
@@ -1191,9 +1234,30 @@ return function(editor)
         return ids
     end
 
-    function editor.on_p2p_result(operation, ok, transaction, reason, peer, request_id, uncertain)
+    function editor.on_p2p_result(operation, ok, transaction, reason, peer, request_id, uncertain, content)
         editor.remote_request_pending = false
-        if operation == "abandon" then
+        if operation == "capture" then
+            local request = editor.remote_active_request
+            editor.remote_active_request = nil
+            editor.remote_stalled = false
+            if not request or request.operation ~= "capture" or request.request_id ~= request_id or
+               request.session ~= editor.current_session() then
+                ok, reason = false, "world-session-changed-during-capture"
+            end
+            if ok then
+                editor.process_step("Validating server blueprint", 3, 5,
+                    "Received the complete server capture. Checking its format and placement recipes.")
+                local parsed, loaded = pcall(editor.load_blueprint_content, "server-capture", content)
+                if parsed and loaded then
+                    editor.save_capture()
+                    return
+                end
+                reason = parsed and "server-blueprint-validation-failed" or tostring(loaded)
+            end
+            editor.cancel_pending_queries("Server capture was not saved: " .. tostring(reason), "ready")
+            editor.finish_process("error", "Server capture was not saved: " .. tostring(reason), "warn")
+            shroudforge.log.warn("World Editor P2P capture failed: " .. tostring(reason))
+        elseif operation == "abandon" then
             if ok then
                 editor.remote_undo = nil
                 editor.remote_recovery_required, editor.remote_release_pending = false, false
@@ -1271,6 +1335,13 @@ return function(editor)
 
     function editor.on_p2p_progress(operation, state, completed, total, phase, message, peer)
         if state ~= "running" then return end
+        if operation == "capture" then
+            editor.remote_stalled = false
+            editor.process_update("running", "Capture and save blueprint", phase, completed, total,
+                "Server " .. tostring(peer or "") .. ": " .. tostring(message), "info")
+            editor.set_editor_message("capturing", "The dedicated server is capturing the selection: " .. tostring(message))
+            return
+        end
         if editor.remote_stalled then
             editor.remote_stalled = false
             editor.set_editor_message("placing", operation == "undo" and
@@ -1288,6 +1359,10 @@ return function(editor)
     end
 
     function editor.on_p2p_stalled(operation, peer)
+        if operation == "capture" then
+            editor.set_editor_message("capturing", "Waiting for the server capture. F6 cancels this read-only request.")
+            return
+        end
         local label = operation == "undo" and "undo" or "placement"
         editor.remote_stalled = true
         editor.set_editor_message("recovery", "The server has not reported progress for 10 seconds while " .. label .. " the blueprint. The result may be unknown. Press F6 to abandon the operation and request release; F7 stays paused until the server confirms.")
@@ -1295,14 +1370,111 @@ return function(editor)
         shroudforge.log.warn("World Editor P2P " .. label .. " made no progress for 10 seconds with server " .. tostring(peer) .. "; F6 offers abandon and release")
     end
 
+    function editor.capture_remote()
+        if not editor.p2p_bridge or editor.remote_request_pending or editor.p2p_bridge.pending() then
+            editor.set_editor_message(nil, "Wait for the active server request before starting another capture.")
+            return
+        end
+        local peer = editor.configured_server_steam_id()
+        if not peer then
+            editor.set_editor_message("ready", "The dedicated server has not been discovered. Wait for its Steam P2P connection, then retry F8.")
+            return
+        end
+        local session = editor.current_session()
+        if session == 0 then return end
+        editor.editor_stage = "capturing"
+        editor.begin_process("Capture and save blueprint", "Requesting server capture", 5,
+            "Sending the marked selection to the dedicated server for native terrain and prop capture.")
+        editor.save_step(0, "Capturing blueprint on server")
+        if not editor.export_ready_for_capture(true) then
+            editor.cancel_pending_queries("Server capture stopped because local blueprint export is unavailable.", "ready")
+            return
+        end
+        local a, b = editor.selection_a, editor.selection_b
+        local ok, request = editor.p2p_bridge.start_capture(peer, {
+            a={a.x,a.y,a.z}, b={b.x,b.y,b.z}, axis=editor.setting("rotationAxis")})
+        if not ok then
+            editor.cancel_pending_queries("Server capture could not be requested: " .. tostring(request), "ready")
+            return
+        end
+        editor.remote_request_pending = true
+        editor.remote_active_request = {peer=peer,request_id=request,operation="capture",session=session}
+        editor.set_editor_message("capturing", "The server is reading the selection. The complete blueprint will be saved locally.")
+        shroudforge.log.info("World Editor queued P2P capture request " .. request .. " to server " .. peer)
+    end
+
+    function editor.server_begin_remote_capture(peer, request_id, metadata, done, progress)
+        if not editor.editor_is_server then done(nil, "server-runtime-not-active"); return end
+        if editor.server_remote_capture or editor.server_remote_paste or editor.server_remote_undo or
+           editor.pending_world_action or editor.pending_prop_capture then
+            done(nil, "server-world-editor-is-busy")
+            return
+        end
+        local a, b = metadata.a, metadata.b
+        local before = {clipboard=editor.clipboard,name=editor.active_blueprint_name,
+            selection_a=editor.selection_a,selection_b=editor.selection_b,preview=editor.placement_preview,
+            override=editor.remote_setting_override}
+        editor.server_remote_capture = {peer=peer,request_id=request_id,done=done,progress=progress,
+            session=editor.current_session(),elapsed=0,before=before,started=false}
+        editor.clipboard, editor.active_blueprint_name, editor.placement_preview = nil, nil, nil
+        editor.selection_a, editor.selection_b = {x=a[1],y=a[2],z=a[3]}, {x=b[1],y=b[2],z=b[3]}
+        editor.remote_setting_override = {rotationAxis=metadata.axis}
+        editor.remote_progress_callback = progress
+        editor.begin_process("Capture blueprint data", "Reading terrain", 2,
+            "Reading the authorized client's selection. No world changes are requested.")
+        shroudforge.log.info("World Editor received P2P capture request " .. request_id .. " from " .. peer)
+    end
+
+    function editor.finish_server_remote_capture(job, content, reason)
+        if editor.server_remote_capture ~= job then return end
+        editor.server_remote_capture, editor.remote_progress_callback = nil, nil
+        editor.clipboard, editor.active_blueprint_name = job.before.clipboard, job.before.name
+        editor.placement_preview = job.before.preview
+        editor.remote_setting_override = job.before.override
+        if job.session == editor.current_session() then
+            editor.selection_a, editor.selection_b = job.before.selection_a, job.before.selection_b
+        else
+            editor.selection_a, editor.selection_b, editor.placement_preview = nil, nil, nil
+        end
+        shroudforge.log.info("World Editor P2P capture " .. job.request_id .. ": " ..
+            (content and ("returning " .. #content .. " bytes") or tostring(reason)))
+        job.done(content, reason)
+    end
+
+    function editor.update_server_remote_capture(delta_seconds)
+        local job = editor.server_remote_capture
+        if not job then return end
+        job.elapsed = job.elapsed + math.max(0, tonumber(delta_seconds) or 0)
+        local session = editor.current_session()
+        if (job.session ~= 0 and session ~= job.session) or job.elapsed >= 45 then
+            local reason = session ~= job.session and "server-world-session-changed-during-capture" or "server-capture-timeout"
+            editor.cancel_pending_queries(reason, "ready")
+            editor.finish_server_remote_capture(job, nil, reason)
+            return
+        end
+        if not job.started then
+            if session == 0 then return end
+            job.session, job.started = session, true
+            editor.copy_voxels(false)
+        end
+        if editor.pending_world_action or editor.pending_prop_capture then return end
+        local content, reason
+        if editor.process_progress.state == "complete" and editor.clipboard then
+            content, reason = editor.encode_blueprint(editor.clipboard)
+        else
+            reason = editor.editor_hint or "server-native-capture-was-not-confirmed"
+        end
+        editor.finish_server_remote_capture(job, content, reason)
+    end
+
     function editor.server_begin_remote_paste(peer, request_id, content, metadata, done, progress)
         if not editor.editor_is_server then done(false, nil, "server-runtime-not-active"); return end
-        if editor.server_remote_transaction and editor.server_remote_transaction.peer == peer and
-           not editor.server_remote_paste and not editor.server_remote_undo then
+        local retained = editor.server_remote_transactions[peer]
+        if retained and retained.undo.recovery_required then
             -- The client may have timed out or lost the original paste reply after
             -- the server created its undo journal. Return the existing token with
             -- the refusal so the client can recover it and retry F4.
-            done(false, editor.server_remote_transaction.transaction,
+            done(false, retained.transaction,
                 "server-has-an-unresolved-world-editor-transaction, press F4 to resume its undo")
             return
         end
@@ -1310,6 +1482,9 @@ return function(editor)
             done(false, nil, "server-has-an-unresolved-world-editor-transaction")
             return
         end
+        local retained_count = 0
+        for _ in pairs(editor.server_remote_transactions) do retained_count=retained_count+1 end
+        if not retained and retained_count >= 32 then done(false,nil,"server-undo-journal-limit-reached");return end
         editor.remote_progress_callback = progress
         editor.begin_process("Place blueprint from client", "Validating blueprint", 5,
             "Received the complete blueprint from the authorized client.")
@@ -1324,22 +1499,13 @@ return function(editor)
         end
         local configured_rotation = math.floor(tonumber(shroudforge.settings.get("rotationQuarterTurns")) or 0) % 4
         editor.active_rotation_turns, editor.observed_rotation_setting = metadata.turns, configured_rotation
-        local plan = editor.rotated_blueprint(editor.clipboard, metadata.turns)
         local anchor = metadata.anchor
-        local target, target_reason = editor.voxel_target_region(plan, anchor)
-        if editor.clipboard.hasVoxels and not target then
-            done(false, nil, "server-rejected-target-grid-alignment: " .. tostring(target_reason))
-            editor.finish_process("error", "The server rejected the target: " .. tostring(target_reason), "warn")
-            editor.remote_progress_callback = nil
-            return
-        end
-        local axis = editor.clipboard.region.rotationAxis or editor.setting("rotationAxis")
-        if axis ~= "x" and axis ~= "y" and axis ~= "z" then axis = "y" end
-        local context = {anchor = anchor, plan = plan, target = target,
-            bounds = editor.plan_world_bounds(plan, anchor), turns = metadata.turns, axis = axis, blueprint = editor.clipboard}
+        -- The transport validated this exact world-space anchor. Grid metadata,
+        -- alignment, rotation and bounds belong to the canonical placement,
+        -- where a busy original Scene is retried before any mutation.
         editor.remote_setting_override = {pasteVoxelMode = metadata.voxelMode, targetPropMode = metadata.targetPropMode}
         editor.server_remote_paste = {peer = peer, request_id = request_id, metadata = metadata, progress = progress,
-            done = done, context = context, elapsed = 0, started = false,
+            done = done, cursor = {x=anchor[1], y=anchor[2], z=anchor[3]}, elapsed = 0, started = false,
             session = editor.current_session(), initial_undo = editor.undo_state}
         shroudforge.log.debug(string.format("World Editor P2P received validated V7 blueprint %s from Steam peer %s (%d bytes, server applies it natively)",
             blueprint_name, peer, #content))
@@ -1347,12 +1513,13 @@ return function(editor)
     end
 
     function editor.server_begin_remote_undo(peer, request_id, transaction, done, progress)
-        local journal = editor.server_remote_transaction
+        local journal = editor.server_remote_transactions[peer]
         if not journal or journal.peer ~= peer or journal.transaction ~= transaction then
             done(false, "server-undo-token-is-stale-or-belongs-to-another-peer")
             return
         end
         if editor.server_remote_undo then done(false, "server-undo-is-already-running"); return end
+        editor.server_remote_transaction, editor.undo_state = journal, journal.undo
         editor.remote_progress_callback = progress
         editor.begin_process("Undo placement from client", "Checking undo journal", 4,
             "Received the client's request to restore its previous world state.")
@@ -1362,15 +1529,11 @@ return function(editor)
 
     function editor.server_begin_remote_abandon(peer, abandon_id, transaction, target_request_id, done)
         if not editor.editor_is_server then done(false, "server-runtime-not-active"); return end
-        local journal = editor.server_remote_transaction
+        local journal = editor.server_remote_transactions[peer]
         if not journal then
             -- A repeated abandon may arrive after the server already released the
             -- transaction but its first acknowledgement was lost.
             done(true, "server-operation-already-released")
-            return
-        end
-        if journal.peer ~= peer then
-            done(false, "no-matching-server-operation-to-abandon")
             return
         end
         local matches_transaction = transaction and journal.transaction == transaction
@@ -1384,6 +1547,7 @@ return function(editor)
         editor.pending_cursor_action, editor.pending_prop_capture, editor.pending_world_action = nil, nil, nil
         editor.server_remote_paste, editor.server_remote_undo = nil, nil
         editor.server_remote_transaction, editor.undo_state = nil, nil
+        editor.server_remote_transactions[peer] = nil
         editor.remote_setting_override, editor.remote_progress_callback = nil, nil
         editor.placement_preview = nil
         editor.editor_stage = "need_a"
@@ -1449,6 +1613,7 @@ return function(editor)
             on_paste = editor.server_begin_remote_paste,
             on_undo = editor.server_begin_remote_undo,
             on_abandon = editor.server_begin_remote_abandon,
+            on_capture = editor.server_begin_remote_capture,
         })
     end
 
@@ -1525,38 +1690,32 @@ return function(editor)
             return
         end
         if not job.started then
-            local required = {}
-            if editor.clipboard and editor.clipboard.hasVoxels then required[#required + 1] = "runtime.world.voxel.write" end
-            if editor.clipboard and #editor.clipboard.props > 0 then
-                required[#required + 1] = "runtime.world.entity.spawn"
-                required[#required + 1] = "runtime.world.entity.set_scale"
-            end
-            if editor.setting("targetPropMode") == "replace" then
-                required[#required + 1] = "runtime.world.entity.query_props_in_bounds"
-                required[#required + 1] = "runtime.world.entity.destroy"
-            end
-            local ready = session ~= 0
-            for _, operation in ipairs(required) do if not runtime.has(operation) then ready = false end end
-            if not ready then
-                editor.process_step("Waiting for server world APIs", 0, 0,
-                    "Waiting for the server's native world APIs to become ready.", "debug")
+            if session == 0 then
+                editor.process_step("Waiting for server world session", 0, 0,
+                    "Waiting for the server's native world session to become available.", "debug")
                 if job.elapsed >= 45 then editor.finish_server_remote_paste(job, false, nil, "server-world-runtime-did-not-become-ready"); return end
                 return
             end
+            -- The canonical placement owns feature requirements and bounded
+            -- readiness continuations. Repeating them here would require all
+            -- independent Scene samples to succeed together and would demand
+            -- a scale writer even for props spawned at their original size.
             job.session = session
             job.started = true
             editor.remote_progress_callback = job.progress
             editor.process_step("Preparing server placement", 1, 5,
                 "The server world is ready. Preparing the target and undo data.")
             local before = editor.undo_state
-            editor.paste_voxels(false, nil, nil, job.context)
+            editor.paste_voxels(true, job.cursor)
             job.initial_undo = before
         end
         if editor.undo_state and editor.undo_state ~= job.initial_undo then
             local transaction = "tx_" .. tostring(job.request_id):gsub("[^%w_-]", "")
-            editor.server_remote_transaction = {peer = job.peer, transaction = transaction,
-                request_id = job.request_id, session = job.session}
-            if editor.undo_state.recovery_required then
+            editor.server_remote_transactions[job.peer] = {peer = job.peer, transaction = transaction,
+                request_id = job.request_id, session = job.session, undo = editor.undo_state}
+            local recovery_required = editor.undo_state.recovery_required
+            editor.undo_state = nil
+            if recovery_required then
                 editor.finish_server_remote_paste(job, false, transaction, "placement-partially-applied. Press F4 for server recovery")
             else
                 editor.finish_server_remote_paste(job, true, transaction, "placement-confirmed")

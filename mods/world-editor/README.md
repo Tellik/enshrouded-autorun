@@ -5,25 +5,19 @@ settings, SFBP V7 files, editor actions, library, rotation, paste/undo journal,
 and Steam P2P protocol. The Lua code uses the public `runtime.world` and asset
 APIs. It contains no game-code patches, fixed game RVAs, or function-hash lookups.
 
-**Enshrouded 1.0 migration is in progress.** The experimental voxel and entity
-backends that used fixed function addresses and per-build profile additions were
-removed. World Editor's session-bound voxel reader now resolves the live
-`ecs::VoxelGrid` and `VoxelWorld` registrations by type name and calls their
-original registered read interface. It stages the full result and publishes it
-only after the world session is checked again. The Lua read path no longer falls
-back to the profile-based voxel function. Native fixtures cover success, pending,
-bad session, and read-only cases. The updated runtime and mod are installed in
-the test game, but the F8 canary has not yet been repeated. Existing scene-owner
-resolution remains profile-backed. Voxel writing, prop creation/removal, and a
-complete 1.0 paste/undo cycle still need native APIs. Collision, replication,
-and save persistence remain unverified.
-See the [dated 1.0 investigation](../../docs/evidence/runtime/2026-10-19-world-editor-1.0.de.md)
-for the exact executable identity, reader contract, rejected experiment and
-remaining contracts.
+**Enshrouded 1.0 capture, placement and undo have been verified live.** The
+session-bound voxel reader resolves `ecs::VoxelGrid` and `VoxelWorld` by type
+name. Native writers and prop operations resolve the admitted original call
+paths from registered names and retain the original ownership and Scene gates.
+Local and dedicated-server tests include terrain, original-size props, rotation
+and verified undo. Online F8 captured 648 cells and two props, saved the V7 file
+on the client, and the same blueprint was placed and undone on the server.
+Existing Scene-owner resolution remains profile-backed. Save/reload persistence,
+arbitrary prop scaling and a second connected game client are separate checks.
+See the [dated live evidence](../../docs/evidence/runtime/2026-10-21-world-editor-native-operations.de.md).
 
 The following describes the preserved editor workflow and required runtime
-contract. Statements about native writes describe the checks the mod requests,
-not a new live verification of the Enshrouded 1.0 backend. See the current
+contract. See the current
 [runtime guide](../../docs/runtime/native-runtime-and-game-profiles.en.md) and
 [multiplayer guide](../../docs/modding/multiplayer-and-target-processes.de.md).
 
@@ -52,22 +46,39 @@ read from `logs/enshrouded_server.log`. The World Editor uses this shared
 service and keeps only its blueprint transfer, validation, authorization, and
 undo protocol.
 The P2P transfer limit is 32 MiB per
-blueprint. local blueprint files keep their existing 256 MiB limit. Capturing
-and saving remain on the client. F7 sends the same V7 blueprint body to the
-server. F4 sends the server-issued undo token back, so process-local entity
-handles never cross the network. Switching between local and server worlds
-changes the route automatically. The dedicated server keeps one in-memory undo
-journal. restarting it discards that journal. If the client loses a paste
-reply while the server retains an unresolved journal, a later paste refusal
-returns that peer's existing undo token so F4 can resume recovery. A stale
-client undo token cannot permanently block F7: the client may submit the next
-paste, and the server accepts it only after its own prior undo journal is
-complete. If an undo is still active, the server keeps rejecting edits until
-it reports completion.
+blueprint. Local blueprint files keep their existing 256 MiB limit. Online F8
+sends the two marked world positions to the server. The server uses the same
+native capture action and returns the complete V7 file in ordered chunks. The
+client checks the sender, request ID, byte count and checksum, validates the
+blueprint and saves it under the next available local `capture-N` name. Partial
+or stale responses never become files. F6 cancels an online capture without
+abandoning a placement journal. F7 sends V7 content to the server and F4 sends
+the server-issued undo token, so process-local handles never cross the network.
+
+The server serializes complete F8, F7 and F4 requests in a FIFO queue. Requests
+are identified by authenticated peer plus request ID. Concurrent uploads have
+separate buffers. Up to 32 requests can wait, with one waiting request per peer,
+32 MiB of queued blueprint content and a separate 32 MiB upload budget. Queued
+requests expire after 45 accumulated callback seconds and recheck authorization
+and world session before dispatch. Queue progress is reported every two such
+seconds. Repeated active requests do not dispatch again, and the last 128
+terminal receipts are retained. Abandon requests release their own transaction
+after active work completes and can cancel their own queued request.
+
+Each client retains its own latest in-memory undo journal, with at most 32
+clients retaining journals in one world session. A confirmed placement allows
+another F7, including the same active blueprint. F4 then restores only that
+client's latest placement, as on the local editor path. A partial placement
+still blocks that client's next F7 until recovery or explicit abandonment.
+Another client's journal is never overwritten, undone or released. The actual
+undo checks still refuse to overwrite terrain or props changed since placement.
+Restarting the server discards its journals. A lost paste reply can be recovered
+through the same request receipt or the retained recovery token.
 
 The P2P transport retains SFBP validation, authorization, and duplicate-request
-guards from the reference implementation. **Live dedicated-server replication
-and save persistence still require an in-game canary test.** A confirmed native readback
+guards from the reference implementation. **Simultaneous clients are covered by
+automated protocol and journal tests. A second live game client and save/reload
+persistence remain unverified.** A confirmed native readback
 means the server runtime observed its world write. another client seeing the
 change and the world retaining it after rejoin are separate checks. See the
 [dated multiplayer investigation](../../docs/evidence/runtime/2026-10-09-world-editor-multiplayer.de.md)
@@ -75,13 +86,13 @@ for historical evidence only, not current 1.0 support.
 
 This independent Lua mod implements its editor, blueprint format, selection, rotation, preview plan, paste, and undo behavior itself. It uses ShroudForge's public Lua APIs only for game/runtime access: `runtime.world.cursor.get`, native prop recipe registration and bounds queries, voxel operations, entity operations, asset reads, settings, logging, and export storage. Native engine access stays behind those APIs. the mod has no private loader hook or built-in editor implementation.
 
-While the game window is focused, the World Editor polls **F3–F8**: F3 rotates the active blueprint by 90° around its stored up axis, F4 undo, F5 mark selection corner A/B, F6 resets editor state and offers server release during a stalled or incomplete remote operation, F7 pastes at the live cursor, and F8 captures, saves, and selects a blueprint. After a server operation stops reporting progress for 10 seconds, its progress state turns red and the editor message explains that F6 can abandon it. The client remains locked from F7 until the server confirms release. **F1 remains available to Enshrouded.** The dashed **New blueprint** tile stays at the far left. Starting a new capture with F5 automatically makes that tile active and disarms the prior blueprint. after F8, the new saved blueprint becomes active. Selecting any saved blueprint makes it ready for F7 immediately. F6 is not required to switch blueprints. The active card has a persistent gold border and an **ACTIVE** badge, while a card being loaded has a separate blue **LOADING** state. The library opens as a single row. the chevron expands it downward, showing up to six rows before vertical scrolling reveals additional rows. Selecting an item collapses the grid. The most recently selected or created blueprint appears first after the permanent New blueprint tile. Double-click or use the card’s **Edit** button to manage it. The manager can browse a screenshot folder, select a screenshot, and apply it as the blueprint cover. The screenshot folder is remembered. common Enshrouded screenshot folders are detected on first use. The **Settings** button opens the Modloader UI at the World Editor module settings. **F2 opens or hides the single World Editor window**. the red **×** button also hides it. **F9 remains the Modloader UI shortcut. F10 remains the Debug Console shortcut.** The same editor actions are available as buttons in the mod settings.
+While the game window is focused, the World Editor polls **F3–F8**: F3 rotates the active blueprint by 90° around its stored up axis, F4 undo, F5 mark selection corner A/B, F6 resets editor state and offers server release during a stalled or incomplete remote operation, F7 pastes at the live cursor, and F8 captures, saves, and selects a blueprint. After a server placement or undo stops reporting progress for 10 seconds, its progress state turns red and the editor message explains that F6 can abandon it. The client remains locked from F7 until the server confirms release. **F1 remains available to Enshrouded.** The dashed **New blueprint** tile stays at the far left. Starting a new capture with F5 automatically makes that tile active and disarms the prior blueprint. after F8, the new saved blueprint becomes active. Selecting any saved blueprint makes it ready for F7 immediately. F6 is not required to switch blueprints. The active card has a persistent gold border and an **ACTIVE** badge, while a card being loaded has a separate blue **LOADING** state. The library opens as a single row. the chevron expands it downward, showing up to six rows before vertical scrolling reveals additional rows. Selecting an item collapses the grid. The most recently selected or created blueprint appears first after the permanent New blueprint tile. Double-click or use the card’s **Edit** button to manage it. The manager can browse a screenshot folder, select a screenshot, and apply it as the blueprint cover. The screenshot folder is remembered. common Enshrouded screenshot folders are detected on first use. The **Settings** button opens the Modloader UI at the World Editor module settings. **F2 opens or hides the single World Editor window**. the red **×** button also hides it. **F9 remains the Modloader UI shortcut. F10 remains the Debug Console shortcut.** The same editor actions are available as buttons in the mod settings.
 
 When the game starts, ShroudForge launches one World Editor window host using the same Tao/Wry window approach as the Modloader UI and Debug Console. The fixed-size window is centered lower in the game HUD. Its instruction line is at the top and the blueprint cards are arranged underneath. F2 only shows or hides this whole window. other function keys perform their editor actions without changing window visibility. A single click loads/selects a blueprint and a double-click opens the blueprint manager. The manager discovers common Enshrouded screenshot folders, lets the user browse another folder, previews supported images, and copies the chosen image into the blueprint library as `.png` plus a thumbnail. It never modifies the original screenshot. New or copied `.sfbp` files placed in `exports/world-editor/blueprints` are discovered automatically. To start a capture, select the building hammer, choose a single voxel, aim at the first corner and press F5. aim at the opposite corner and press F5 again, then press F8. The mod does not attempt to inspect or select the hammer or voxel mode automatically.
 
 The persistent `.sfbp` format writes and accepts `SHROUDFORGE_WORLD_BLUEPRINT_V7`, with either a voxel channel plus props or props alone. Each voxel cell stores its value and ShroudEdit-compatible coverage (`Unknown`, `Empty`, or `Occupied`). Captures classify successfully read non-zero cells as occupied and zero cells as empty, preserving the reference format's coverage convention. On paste, unknown cells preserve the target, empty cells clear it in replace mode, and additive mode skips empty cells. The file also stores the local selection extent and voxel-channel offset from the selection anchor, along with item IDs, native entity-template UUIDs, prop transforms, and the blueprint up axis. On paste, the cursor world position is the anchor, as in ShroudEdit. Voxel pastes are refused when the resulting channel origin is not aligned to the active grid. Props-only blueprints carry no voxel channel. Spawn requests the captured native template UUID and ItemInfo tracking recipe through the public runtime API and requires verified native support for the active build. A confirmed spawn must return the actual opaque live entity handle. Transform lookup, target replacement, and undo use that handle through native APIs. Blueprints store no build-specific runtime entity address.
 
-The Lua voxel contract limits each read or write to 65,536 cells and requests the `voxel` channel's grid origin and cell size from the runtime. The current session-bound reader resolves the named grid services and calls the original registered interface roles for origin, readiness, and cell reads. It uses the original 0.5 m grid, validates every tile task for the requested region, and stages the complete result before returning it to Lua. Fixture tests cover complete reads, pending reads, and session changes. The in-game F8 canary remains open. Voxel writing, collision, and save persistence require separate implementation or verification. Prop capture registers `ItemInfo` placement AABBs through the Lua API, then the dedicated native world query scans the live entity snapshot and applies rotated, scaled recipe bounds before returning matching prop handles and transforms. Transform lookup and scale updates use the current shared ECS implementation. Scale updates compare the expected `CurrentTransform` snapshot and change only its scale fields through the canonical guarded ECS writer, including its ownership checks, scene gates, tracking restrictions, verification, and rollback. The mod uses the world API and does not provide a second component writer.
+The Lua voxel contract limits each read or write to 65,536 cells and requests the `voxel` channel's grid origin and cell size from the runtime. The session-bound reader resolves named services and uses the original registered read interface. It uses the original 0.5 m grid, validates tile tasks and publishes only a complete result. Fixture tests cover complete reads, pending reads and session changes. F8 and terrain writes have also been verified live on local and dedicated-server worlds. Prop capture registers `ItemInfo` placement AABBs through the Lua API, then the native query applies rotated, scaled recipe bounds before returning matching handles and transforms. Original-size props keep the original spawn scale without requiring another transform write. Other scales still require an admitted guarded scale writer. The mod does not provide a second component writer.
 
 A failed transform read alone never confirms removal. Only `nil, "entity-absent"` from the session-bound original membership check means that the issued handle's identity is absent. Undo and replacement retain their journals when a snapshot is unreadable, a session changes, or a write outcome is uncertain. The original prop is recorded before a removal attempt, so an unavailable readback cannot lose its recovery entry or justify spawning a duplicate.
 
