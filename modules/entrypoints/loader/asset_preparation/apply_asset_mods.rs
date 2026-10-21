@@ -47,12 +47,30 @@ pub(super) fn run_inner(
     let apply_result = (|| -> Result<Vec<serde_json::Value>, LoaderError> {
         shroudforge_game_assets::transaction::recover(game_directory, file_name)
             .map_err(|error| LoaderError::Pregame(error.to_string()))?;
-        if backup.is_file() && !shroudforge_api::restore(game_utf8, file_name) {
+        let resources = game_directory.join(format!("{file_name}.kfc_resources"));
+        if shroudforge_api::working_baseline_is_incompatible(game_utf8, file_name) {
+            crate::recycle_incompatible_game_asset_backups(game_directory, file_name)
+                .map_err(LoaderError::Pregame)?;
+            shroudforge_api::create_working_kfc_backup(game_utf8, file_name).map_err(|()| {
+                LoaderError::Pregame(format!(
+                    "could not create a new {file_name}.kfc working baseline"
+                ))
+            })?;
+            let resources_utf8 = resources.to_str().ok_or_else(|| {
+                LoaderError::Environment("companion resource file path is not valid UTF-8".into())
+            })?;
+            if !shroudforge_api::backup_companion_file(resources_utf8) {
+                return Err(LoaderError::Pregame(format!(
+                    "could not create a new {file_name}.kfc_resources working baseline"
+                )));
+            }
+            tracing::warn!(target: "shroudforge::startup", target = file_name,
+                "Incompatible working asset backups were moved to the recycle bin and recaptured from the current game files");
+        } else if backup.is_file() && !shroudforge_api::restore(game_utf8, file_name) {
             return Err(LoaderError::Pregame(format!(
                 "failed to restore the clean {file_name}.kfc baseline"
             )));
         }
-        let resources = game_directory.join(format!("{file_name}.kfc_resources"));
         let resources = resources.to_str().ok_or_else(|| {
             LoaderError::Environment("companion resource file path is not valid UTF-8".into())
         })?;

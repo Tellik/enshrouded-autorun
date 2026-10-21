@@ -136,7 +136,9 @@ pub struct RunArgs {
 
 pub use lua::definitions::export_lua_definitions::export_lua_definitions;
 pub use runtime::IngameRuntime;
-pub use startup::manage_asset_baseline::{backup_companion_file, restore};
+pub use startup::manage_asset_baseline::{
+    backup_companion_file, create_working_kfc_backup, restore, working_baseline_is_incompatible,
+};
 pub use startup::run_startup_mods::{run, run_with_local_schema};
 
 #[cfg(test)]

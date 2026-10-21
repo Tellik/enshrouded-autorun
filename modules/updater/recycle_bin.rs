@@ -183,6 +183,65 @@ pub(crate) fn preserve_directory(
     preserve_directory_with_restore(root, source, id, reason, None, None, None)
 }
 
+pub(crate) fn recycle_game_asset_backups(root: &Path, target: &str) -> Result<String, String> {
+    let _operation_lock = acquire_operation_lock(root)?;
+    ensure_queue_idle(
+        root,
+        "game asset backups cannot be recycled while an update is running",
+    )?;
+    let stem = match target {
+        "enshrouded" | "client" => "enshrouded",
+        "enshrouded_server" | "server" => "enshrouded_server",
+        _ => return Err("unknown game target for asset backup recycling".into()),
+    };
+    let id = format!("game-assets-{stem}-{}", unique_stamp());
+    let stage = std::env::temp_dir().join(format!("shroudforge-{id}"));
+    fs::create_dir(&stage).map_err(|error| error.to_string())?;
+    let names = [
+        format!("{stem}.kfc.bak"),
+        format!("{stem}.kfc_resources.bak"),
+    ];
+    let result = (|| {
+        let mut found = Vec::new();
+        for name in &names {
+            let source = root.join(name);
+            let metadata = match fs::symlink_metadata(&source) {
+                Ok(metadata) => metadata,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.to_string()),
+            };
+            if is_reparse_point(&metadata) || !metadata.is_file() {
+                return Err(format!(
+                    "working asset backup is not a regular file: {name}"
+                ));
+            }
+            copy_verified_file_with_progress_and_cancel(
+                &source,
+                &stage.join(name),
+                name,
+                None,
+                |_, _| Ok(()),
+            )?;
+            found.push(source);
+        }
+        if found.is_empty() {
+            return Err("there are no working asset backups to move to the recycle bin".into());
+        }
+        preserve_directory(root, &stage, &id, "Incompatible game asset working backups")?;
+        for source in found {
+            fs::remove_file(&source).map_err(|error| {
+                format!(
+                    "asset backups were saved in the recycle bin but could not remove {}: {error}",
+                    source.display()
+                )
+            })?;
+        }
+        Ok(id.clone())
+    })();
+    let _ = fs::remove_dir_all(&stage);
+    result
+}
+
 pub(crate) fn preserve_mod_directory(
     root: &Path,
     source: &Path,

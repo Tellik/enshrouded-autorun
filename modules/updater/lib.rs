@@ -141,7 +141,10 @@ pub fn run_request(
         .unwrap_or_default();
     if !matches!(
         command,
-        "queue-latest-installation" | "queue-uninstall" | "start-update-queue"
+        "queue-latest-installation"
+            | "queue-uninstall"
+            | "start-update-queue"
+            | "recycle-game-asset-backups"
     ) && let Err(error) = updates_module_status(root)
     {
         let disabled = error == UPDATE_MODULE_DISABLED_MESSAGE;
@@ -377,6 +380,11 @@ pub fn run_request(
             {
                 Err("gamefile capture is available on Windows only".into())
             }
+        }
+        "recycle-game-asset-backups" => {
+            let target = request_string(request, "target")?;
+            recycle_bin::recycle_game_asset_backups(root, target)
+                .map(|entry| serde_json::json!({"entry":entry}))
         }
         "recycle-bin-list" => (|| {
             let entries = recycle_bin::list_entries(root)?;

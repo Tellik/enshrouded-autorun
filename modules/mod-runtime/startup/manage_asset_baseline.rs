@@ -176,6 +176,23 @@ pub fn validate_backup(kfc_path: &Path, kfc_path_bak: &Path) -> bool {
     file.game_version() == file_bak.game_version() && same_kfc_format(kfc_path, kfc_path_bak)
 }
 
+pub fn is_valid_kfc_file(path: &Path) -> bool {
+    KFCFile::from_path(path, true).is_ok()
+}
+
+pub fn working_baseline_is_incompatible(game_dir: impl AsRef<Path>, file_name: &str) -> bool {
+    let kfc = game_dir.as_ref().join(format!("{file_name}.kfc"));
+    let backup = game_dir.as_ref().join(format!("{file_name}.kfc.bak"));
+    backup.is_file() && is_valid_kfc_file(&kfc) && !validate_backup(&kfc, &backup)
+}
+
+pub fn create_working_kfc_backup(
+    game_dir: impl AsRef<Path>,
+    file_name: &str,
+) -> Result<PathBuf, ()> {
+    create_backup(game_dir.as_ref().join(format!("{file_name}.kfc")))
+}
+
 /// ShroudForge compares the on-disk markers here instead of depending on
 /// `KFCFile::format()`, which is not part of upstream `main`'s API. This only
 /// changes backup validation. KFC parsing and EML startup remain unchanged.

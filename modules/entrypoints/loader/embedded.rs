@@ -87,6 +87,62 @@ pub fn run_post_install_migrations(_: &Path) -> Result<(), String> {
     Ok(())
 }
 
+pub(crate) fn recycle_incompatible_game_asset_backups(
+    root: &Path,
+    target: &str,
+) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::{io::Write, os::windows::process::CommandExt, process::Stdio};
+
+        let request = serde_json::json!({
+            "command": "recycle-game-asset-backups",
+            "target": target,
+        });
+        let executable = shroudforge_loader_config::paths::updater_executable(root);
+        if !executable.is_file() {
+            return Err(
+                "ShroudForge Updater is unavailable, so the old asset backups were kept".into(),
+            );
+        }
+        let mut child = std::process::Command::new(executable)
+            .args(["--request", "--root"])
+            .arg(root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .creation_flags(0x08000000)
+            .spawn()
+            .map_err(|error| format!("could not start ShroudForge Updater: {error}"))?;
+        child
+            .stdin
+            .take()
+            .ok_or("ShroudForge Updater request stdin is unavailable")?
+            .write_all(&serde_json::to_vec(&request).map_err(|error| error.to_string())?)
+            .map_err(|error| format!("could not send recycle-bin request: {error}"))?;
+        let output = child
+            .wait_with_output()
+            .map_err(|error| format!("could not read recycle-bin result: {error}"))?;
+        let response: serde_json::Value =
+            serde_json::from_slice(&output.stdout).map_err(|error| {
+                format!("ShroudForge Updater returned an invalid response: {error}")
+            })?;
+        if output.status.success() && response["ok"] == true {
+            Ok(())
+        } else {
+            Err(response["error"]
+                .as_str()
+                .unwrap_or("could not move the incompatible asset backups to the recycle bin")
+                .to_owned())
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (root, target);
+        Err("moving incompatible game asset backups to the recycle bin is available on Windows only".into())
+    }
+}
+
 pub struct ModLoader {
     api: Option<ShroudForgeApi>,
     runtime: Option<IngameRuntime>,
