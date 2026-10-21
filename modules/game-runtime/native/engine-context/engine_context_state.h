@@ -15,6 +15,11 @@
 // Private implementation contract. State is defined once, in the owning unit.
 
 namespace EngineContextImplementation {
+struct RegisteredScene {
+    std::uintptr_t scene{}, thread{}, handle{};
+    bool operator==(const RegisteredScene&) const = default;
+};
+
 struct WriteLayout {
     bool enabled{};
     std::uintptr_t registry_lock{}, registry_entries{}, registry_count{}, callback{};
@@ -41,6 +46,7 @@ struct ResourceWriteLayout {
 };
 
 struct Layout {
+    bool dedicated_server{};
     std::size_t image_size{};
     std::uintptr_t root_rva{}, root_vtable{}, client_vtable{}, controller_vtable{};
     std::size_t client_offset{}, controller_offset{}, controller_back_pointer{}, main_owner_offset{};
@@ -95,6 +101,11 @@ bool tracking_call(std::uintptr_t function, const std::array<std::uint8_t, 33>& 
                    std::uintptr_t manager, std::uintptr_t context, std::uintptr_t entity, std::uint16_t index);
 
 bool vtable(std::uintptr_t object, std::uintptr_t rva, std::uintptr_t image, std::size_t size);
+
+// Caller owns the original thread-registry Shared gate. This borrows the one
+// matching live Scene without allocation, a host mutex, or a Scene lock.
+bool resolve_registered_scene(const Layout& layout, std::uintptr_t image,
+    RegisteredScene& output, const char** reason = nullptr);
 
 bool resolve(const Layout& layout, EngineContext::Owners& output, std::string* reason, std::uintptr_t known_image = 0);
 

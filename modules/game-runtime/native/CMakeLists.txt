@@ -101,6 +101,7 @@ add_library(kfc-runtime SHARED
     ecs/registry/sample_component_layouts.cpp
     ecs/describe_ecs_runtime.cpp
     engine-context/resolve_engine_owners.cpp
+    engine-context/resolve_registered_scene.cpp
     engine-context/configure_engine_layout.cpp
     engine-context/lock_scene_access.cpp
     engine-context/hold_resource_lifetime.cpp
@@ -169,7 +170,7 @@ endif()
 
 # Development tools never run from the game or from the modloader.
 add_executable(kfc-runtime-test-resource EXCLUDE_FROM_ALL
-    ../tests/loaded_resource_access_test.cpp engine-context/resolve_engine_owners.cpp
+    ../tests/loaded_resource_access_test.cpp engine-context/resolve_engine_owners.cpp engine-context/resolve_registered_scene.cpp
     engine-context/configure_engine_layout.cpp engine-context/hold_resource_lifetime.cpp engine-context/lock_scene_access.cpp)
 target_include_directories(kfc-runtime-test-resource PRIVATE
     "${generated_dir}" "${CMAKE_CURRENT_SOURCE_DIR}"

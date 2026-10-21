@@ -14,6 +14,11 @@ enum class EcsRole { ClientReplica, LocalAuthority };
 const char* RoleName(EcsRole role);
 struct Owners {
     std::uintptr_t image{}, root{}, client{}, controller{}, main_owner{};
+    // Dedicated servers own the ready world through their registered Scene,
+    // without the client's image-global application singleton.
+    bool dedicated_server{};
+    std::uintptr_t world_context{};
+    std::array<std::uint64_t, 2> world_uuid{};
     bool operator==(const Owners&) const = default;
 };
 struct EcsLayout {

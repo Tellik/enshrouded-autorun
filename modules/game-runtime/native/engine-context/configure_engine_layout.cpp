@@ -14,6 +14,7 @@ bool Configure(const nlohmann::json& profile, std::string& error) {
         const auto& owners = profile.at("ownerLayout");
         Layout layout;
         layout.image_size = image_size;
+        layout.dedicated_server = image_target == "enshrouded_server.exe";
         auto offset = [](const nlohmann::json& object, const char* key, std::size_t maximum = 0x4000000) {
             const auto value = object.at(key).get<std::size_t>();
             if (value > maximum) throw std::runtime_error(std::string("engine owner offset out of range: ") + key);
@@ -196,6 +197,9 @@ bool Configure(const nlohmann::json& profile, std::string& error) {
             std::copy(name.begin(), name.end(), r.name.begin());
             r.name_size = name.size();
         }
+        if (layout.dedicated_server && (!layout.ecs || !layout.authority ||
+            !profile.contains("ecsWriteLayout") || layout.root_rva || layout.root_vtable || layout.client_offset))
+            throw std::runtime_error("dedicated server requires a validated registered Scene owner layout");
         auto services = profile.value("serviceLayout", nlohmann::json{});
         if (!services.is_null() &&
             (!layout.write.enabled || !profile.at("provenance").value("servicePlainDataValidated", false)))

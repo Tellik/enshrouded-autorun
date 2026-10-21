@@ -163,52 +163,18 @@ bool EcsWriteGuard::TryAcquire(const EcsView& expected, const char** reason) {
     // until Release. Only TrackChange may enter its validated native recorder.
     // The image-global guard prevents unregister and
     // Scene free before the borrowed Scene lock is touched.
-    std::uint16_t count{};
-    if (!field(image, w.registry_count, count) || count > w.capacity)
-        return fail("ecs-thread-registry-count-invalid");
-    std::uintptr_t selected_thread{}, selected_scene{}, selected_handle{};
-    unsigned matches{};
-    for (std::size_t index = 0; index < count; ++index) {
-        const auto row = image + w.registry_entries + index * w.stride;
-        std::uintptr_t name{}, handle{};
-        std::uint64_t length{};
-        if (!field(row, w.row_length, length) || !field(row, w.row_name, name) || !field(row, w.row_handle, handle))
-            return fail("ecs-thread-registry-row-unreadable");
-        if (length != w.name_size) continue;
-        std::array<char, 64> text{};
-        if (!read_span(name, text.data(), length)) return fail("ecs-thread-name-unreadable");
-        if (std::memcmp(text.data(), w.name.data(), length)) continue;
-        if (++matches > 1) return fail("ecs-server-thread-is-ambiguous");
-        if (!handle || name < w.inline_name || name - w.inline_name < w.scene_thread)
-            return fail("ecs-server-thread-range-invalid");
-        selected_thread = name - w.inline_name;
-        selected_scene = selected_thread - w.scene_thread;
-        selected_handle = handle;
-    }
-    if (!matches) return fail("ecs-server-thread-unregistered");
-    const auto valid_thread = [&]() {
-        std::uintptr_t name{}, handle{}, callback{}, context{}, wanted_context{};
-        std::uint64_t length{}, capacity{};
-        std::uint32_t stop{};
-        std::uint8_t state{};
-        return field(selected_thread, w.name_pointer, name) && name == selected_thread + w.inline_name &&
-            field(selected_thread, w.name_length, length) && length == w.name_size &&
-            field(selected_thread, w.name_capacity, capacity) && capacity == w.name_capacity_value &&
-            field(selected_thread, w.thread_handle, handle) && handle == selected_handle &&
-            field(selected_thread, w.thread_callback, callback) && callback == image + w.callback &&
-            add(selected_scene, w.scene_context, wanted_context) &&
-            field(selected_thread, w.thread_context, context) && context == wanted_context &&
-            field(selected_thread, w.thread_stop, stop) && stop == 0 &&
-            field(selected_scene, w.scene_state, state) && state == w.running_state;
-    };
-    if (!valid_thread()) return fail("ecs-server-thread-owner-invalid-or-stopping");
-    if (!add(selected_scene, w.scene_lock, address) || !try_exclusive(address))
+    RegisteredScene selected;
+    const char* registration_reason{};
+    if (!resolve_registered_scene(layout, image, selected, &registration_reason))
+        return fail(registration_reason);
+    if (!add(selected.scene, w.scene_lock, address) || !try_exclusive(address))
         return fail("ecs-scene-frame-busy");
     scene_lock_ = address;
     EcsView current;
+    RegisteredScene registered_again;
     std::uint8_t mode{};
-    if (!valid_thread() || !resolve_ecs(layout, current, nullptr, image) ||
-        current.scene_owner != selected_scene || current != expected ||
+    if (!resolve_registered_scene(layout, image, registered_again) || registered_again != selected ||
+        !resolve_ecs(layout, current, nullptr, image) || current.scene_owner != selected.scene || current != expected ||
         !field(current.execution_owner, w.execution_mode, mode) || mode != w.authority_mode)
         return fail("ecs-write-owner-changed-or-not-authoritative");
     maximum_bytes_ = w.maximum_bytes;
@@ -220,8 +186,8 @@ bool EcsWriteGuard::TryAcquire(const EcsView& expected, const char** reason) {
     tracking_manager_offset_ = w.tracking_manager;
     tracking_registry_a_ = w.tracking_registry_a;
     tracking_registry_b_ = w.tracking_registry_b;
-    prepared->thread = selected_thread;
-    prepared->handle = selected_handle;
+    prepared->thread = selected.thread;
+    prepared->handle = selected.handle;
     state_ = std::move(prepared);
     if (reason) *reason = nullptr;
     return true;

@@ -48,6 +48,7 @@ struct ItemMapLayout {
 
 struct Layout {
     std::string profile_id;
+    bool dedicated_server{};
     std::size_t main_active_context_offset{}, context_item_registry_offset{};
     std::size_t item_registry_service_offset{}, item_registry_handle_offset{};
     std::size_t item_registry_resource_pointer_offset{};

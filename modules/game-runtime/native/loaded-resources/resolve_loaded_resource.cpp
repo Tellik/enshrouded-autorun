@@ -86,6 +86,7 @@ bool resolve_view(const Layout& layout, View& view, std::string* reason,
     EngineContext::Owners owners;
     if (guarded_owners) owners = *guarded_owners;
     else if (!EngineContext::ResolveOwners(owners, reason)) return false;
+    if (owners.dedicated_server != layout.dedicated_server) return fail("resource-owner-target-mismatch");
     const auto image = owners.image;
     view = {};
     view.image = image;
@@ -96,7 +97,8 @@ bool resolve_view(const Layout& layout, View& view, std::string* reason,
     // MainOwner and the context are allocator-backed data objects, not proven
     // polymorphic classes. Their first word is not a vtable contract.
     std::uintptr_t active_context_address{};
-    if (!add(view.main_owner, layout.main_active_context_offset, active_context_address) ||
+    const auto resource_owner = layout.dedicated_server ? owners.world_context : view.main_owner;
+    if (!add(resource_owner, layout.main_active_context_offset, active_context_address) ||
         !read_value(active_context_address, view.context))
         return fail("active-context-unavailable");
     std::uintptr_t registry_address{};

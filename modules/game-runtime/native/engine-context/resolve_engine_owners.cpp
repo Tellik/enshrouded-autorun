@@ -30,10 +30,77 @@ bool vtable(std::uintptr_t object, std::uintptr_t rva, std::uintptr_t image, std
     return rva < size && read(object, actual) && actual == image + rva;
 }
 
+// Read the canonical ready-entry list for both hosted client worlds and the
+// dedicated server. No host locks or allocations are allowed in this helper.
+static bool select_scene_context(const Layout& layout, EngineContext::EcsView& view, const char** reason){
+    const auto fail = [&](const char* message) { if (reason) *reason = message; return false; };
+    std::uint64_t count{}, capacity{};
+    if (!field(view.scene_owner, layout.scene_entries_offset, view.scene_entries) ||
+        !field(view.scene_owner, layout.scene_count_offset, count) || count > layout.maximum_scenes ||
+        !field(view.scene_owner, layout.scene_capacity_offset, capacity) || capacity < count || capacity > layout.maximum_scenes)
+        return fail("ecs-active-scene-list-unavailable");
+    if (count && (!view.scene_entries || view.scene_entries > UINTPTR_MAX - count * layout.entry_stride))
+        return fail("ecs-active-scene-list-range-invalid");
+    std::size_t ready{};
+    for (std::size_t index = 0; index < count; ++index) {
+        const auto entry = view.scene_entries + index * layout.entry_stride;
+        std::uint8_t state{};
+        if (!field(entry, layout.entry_state_offset, state)) return fail("ecs-scene-state-unreadable");
+        if (state != layout.entry_ready_state) continue;
+        if (++ready > 1) return fail("ecs-local-authority-is-ambiguous");
+        view.scene_entry = entry;
+        if (!field(entry, layout.entry_context_offset, view.scene_context) || !view.scene_context ||
+            !field(entry, layout.entry_uuid_offset, view.scene_uuid) || !(view.scene_uuid[0] || view.scene_uuid[1]))
+            return fail("ecs-ready-scene-context-invalid");
+    }
+    if ((count || layout.dedicated_server) && !ready) return fail("ecs-active-scene-is-transitioning");
+    if (ready) {
+        std::uint8_t state{};
+        std::uintptr_t context{};
+        std::array<std::uint64_t, 2> uuid{};
+        if (!field(view.scene_entry, layout.entry_state_offset, state) || state != layout.entry_ready_state ||
+            !field(view.scene_entry, layout.entry_context_offset, context) || context != view.scene_context ||
+            !field(view.scene_entry, layout.entry_uuid_offset, uuid) || uuid != view.scene_uuid)
+            return fail("ecs-ready-scene-context-changed");
+        view.role = EngineContext::EcsRole::LocalAuthority;
+    }
+    std::uintptr_t entries_again{};
+    std::uint64_t count_again{}, capacity_again{};
+    if (!field(view.scene_owner, layout.scene_entries_offset, entries_again) || entries_again != view.scene_entries ||
+        !field(view.scene_owner, layout.scene_count_offset, count_again) || count_again != count ||
+        !field(view.scene_owner, layout.scene_capacity_offset, capacity_again) || capacity_again != capacity)
+        return fail("ecs-active-scene-list-changed");
+    return true;
+}
+
 bool resolve(const Layout& layout, EngineContext::Owners& output, std::string* reason, std::uintptr_t known_image){
     const auto fail = [&](const char* message) { if (reason) *reason = message; return false; };
     EngineContext::Owners view;
     view.image = known_image ? known_image : reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
+    if (layout.dedicated_server) {
+        std::uintptr_t registry_lock{};
+        if (!view.image || !add(view.image, layout.write.registry_lock, registry_lock) || !try_shared(registry_lock))
+            return fail("ecs-thread-registry-busy");
+        RegisteredScene scene;
+        const char* failure{};
+        EngineContext::EcsView world;
+        bool valid = resolve_registered_scene(layout, view.image, scene, &failure);
+        if (valid) {
+            world.scene_owner = scene.scene;
+            valid = select_scene_context(layout, world, &failure);
+        }
+        // Registry ownership protects the Scene allocation during traversal.
+        // Publish diagnostics only after releasing the original engine lock.
+        release_shared(registry_lock);
+        if (!valid) return fail(failure ? failure : "ecs-server-world-unavailable");
+        view.dedicated_server = true;
+        view.main_owner = scene.scene;
+        view.world_context = world.scene_context;
+        view.world_uuid = world.scene_uuid;
+        output = view;
+        if (reason) reason->clear();
+        return true;
+    }
     if (!view.image || !add(view.image, layout.root_rva, view.root) ||
         !vtable(view.root, layout.root_vtable, view.image, layout.image_size)) return fail("root-vtable-mismatch");
     std::uintptr_t field{}, back{};
@@ -54,41 +121,18 @@ bool select_execution_owner(const Layout& layout, EngineContext::EcsView& view, 
     const auto fail = [&](const char* message) { if (reason) *reason = message; return false; };
     if (!resolve(layout, view.owners, reason, image)) return false;
     auto context = view.owners.main_owner;
-    std::uintptr_t field{};
+    std::uintptr_t address{};
     if (layout.authority) {
-        std::uint64_t count{}, capacity{};
-        if (!add(view.owners.client, layout.client_scene_offset, field) || !read(field, view.scene_owner) || !view.scene_owner ||
-            !add(view.scene_owner, layout.scene_entries_offset, field) || !read(field, view.scene_entries) ||
-            !add(view.scene_owner, layout.scene_count_offset, field) || !read(field, count) || count > layout.maximum_scenes ||
-            !add(view.scene_owner, layout.scene_capacity_offset, field) || !read(field, capacity) || capacity < count || capacity > layout.maximum_scenes)
+        if (layout.dedicated_server) view.scene_owner = view.owners.main_owner;
+        else if (!field(view.owners.client, layout.client_scene_offset, view.scene_owner) || !view.scene_owner)
             return fail("ecs-active-scene-list-unavailable");
-        if (count && (!view.scene_entries || view.scene_entries > UINTPTR_MAX - count * layout.entry_stride))
-            return fail("ecs-active-scene-list-range-invalid");
-        std::size_t ready{};
-        for (std::size_t index = 0; index < count; ++index) {
-            const auto entry = view.scene_entries + index * layout.entry_stride;
-            std::uint8_t state{};
-            if (!add(entry, layout.entry_state_offset, field) || !read(field, state)) return fail("ecs-scene-state-unreadable");
-            if (state != layout.entry_ready_state) continue;
-            if (++ready > 1) return fail("ecs-local-authority-is-ambiguous");
-            view.scene_entry = entry;
-            if (!add(entry, layout.entry_context_offset, field) || !read(field, view.scene_context) || !view.scene_context ||
-                !add(entry, layout.entry_uuid_offset, field) || !read(field, view.scene_uuid) || !(view.scene_uuid[0] || view.scene_uuid[1]))
-                return fail("ecs-ready-scene-context-invalid");
-        }
-        if (count && !ready) return fail("ecs-active-scene-is-transitioning");
-        if (ready) {
-            view.role = EngineContext::EcsRole::LocalAuthority;
-            context = view.scene_context;
-        }
-        std::uintptr_t entries_again{};
-        std::uint64_t count_again{}, capacity_again{};
-        if (!add(view.scene_owner, layout.scene_entries_offset, field) || !read(field, entries_again) || entries_again != view.scene_entries ||
-            !add(view.scene_owner, layout.scene_count_offset, field) || !read(field, count_again) || count_again != count ||
-            !add(view.scene_owner, layout.scene_capacity_offset, field) || !read(field, capacity_again) || capacity_again != capacity)
-            return fail("ecs-active-scene-list-changed");
+        const char* failure{};
+        if (!select_scene_context(layout, view, &failure)) return fail(failure);
+        if (layout.dedicated_server && (view.scene_context != view.owners.world_context || view.scene_uuid != view.owners.world_uuid))
+            return fail("ecs-server-world-owner-changed");
+        if (view.role == EngineContext::EcsRole::LocalAuthority) context = view.scene_context;
     }
-    if (!add(context, layout.execution_owner_offset, field) || !read(field, view.execution_owner) || !view.execution_owner)
+    if (!add(context, layout.execution_owner_offset, address) || !read(address, view.execution_owner) || !view.execution_owner)
         return fail("ecs-execution-owner-unavailable");
     return true;
 }
@@ -162,6 +206,10 @@ bool ResolveEcs(EcsView& output, std::string* reason) {
 bool ResolveClientEcs(EcsView& output, std::string* reason) {
     Layout layout;
     { std::scoped_lock lock(context_mutex); if (!configured || !active_layout.ecs) { if (reason) *reason = "ecs-read-owner-profile-unavailable"; return false; } layout = active_layout; }
+    if (layout.dedicated_server) {
+        if (reason) *reason = "dedicated-server-has-no-local-client-input";
+        return false;
+    }
     layout.authority = false;
     return resolve_ecs(layout, output, reason);
 }

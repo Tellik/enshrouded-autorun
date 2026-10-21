@@ -11,6 +11,7 @@ Layout parse_layout(const json& candidate){
     const auto& value = candidate.at("resourceLayout");
     Layout result{};
     result.profile_id = candidate.at("id").get<std::string>();
+    result.dedicated_server = candidate.at("target") == "enshrouded_server.exe";
     result.main_active_context_offset = json_size(value, "mainActiveContextOffset", 0x1000000);
     result.context_item_registry_offset = json_size(value, "contextItemRegistryOffset", 0x1000000);
     result.item_registry_service_offset = json_size(value, "itemRegistryServiceOffset", 0x1000000);
