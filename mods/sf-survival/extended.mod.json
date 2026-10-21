@@ -16,42 +16,42 @@
   ],
   "settings": {
     "noFallDamage": {
-      "value": false,
+      "value": true,
       "label": "No Fall Damage",
       "description": "Disables fall damage through the original fall configuration. Players using the same player template share this effect."
     },
     "fastHealthRegen": {
-      "value": false,
+      "value": true,
       "label": "Fast Health Regen",
       "description": "Increases the existing health recharge value in the original attribute by up to 100 times. This setting has no effect without natural regeneration."
     },
     "fastManaRegen": {
-      "value": false,
+      "value": true,
       "label": "Fast Mana Regen",
       "description": "Increases the existing mana recharge value in the original attribute by up to 100 times. This setting has no effect without natural regeneration."
     },
     "infiniteStamina": {
-      "value": false,
+      "value": true,
       "label": "Infinite Stamina",
       "description": "Keeps stamina at its current maximum through the original attribute lower bound. Changes to the maximum are applied automatically."
     },
     "infiniteUnderwaterBreath": {
-      "value": false,
+      "value": true,
       "label": "Infinite Underwater Breath",
       "description": "Keeps the underwater breath reserve at its current maximum through the original attribute lower bound."
     },
     "infiniteWeaponDurability": {
-      "value": false,
+      "value": true,
       "label": "Infinite Weapon Durability",
       "description": "Disables durability loss for the entire hosted world, including items equipped by other players. Restores the previous world setting when disabled."
     },
     "infiniteFrostTimer": {
-      "value": false,
+      "value": true,
       "label": "Infinite Frost Timer",
       "description": "Keeps body warmth at its current maximum through the original attribute lower bound."
     },
     "infiniteMana": {
-      "value": false,
+      "value": true,
       "label": "Infinite Mana",
       "description": "Keeps mana at its current maximum through the original attribute lower bound. Changes to the maximum are applied automatically."
     }

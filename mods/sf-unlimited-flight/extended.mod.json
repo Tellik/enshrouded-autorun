@@ -16,7 +16,7 @@
   ],
   "settings": {
     "unlimitedFlying": {
-      "value": false,
+      "value": true,
       "label": "Unlimited Flying",
       "description": "Allows upward glider tilt without glider stamina drain. Requires pitch-speed controls and one player in the authoritative world. The sampled upward control must be verified in the live game.",
       "control": "checkbox"
