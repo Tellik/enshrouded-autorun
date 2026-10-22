@@ -26,7 +26,7 @@ New to mods? Start with the illustrated guide. It explains everything in simple 
 
 The guide includes separate instructions for your PC and game server, pictures of the Modloader, a first-mod lesson, and an interactive preview for mod settings.
 
-# 🚀 ShroudForge v1.7.3 – Full Enshrouded 1.0 Support!
+# 🚀 ShroudForge v1.7.4 – Full Enshrouded 1.0 Support!
 
 **ShroudForge has officially completed its migration to Enshrouded 1.0!** 🎉
 
@@ -45,15 +45,15 @@ This major release introduces **native mod support for both singleplayer and mul
 
 ## 📋 Additional Changes (Click to Reveal)
 
-||🔹 Improved multiplayer blueprint capture and placement via Steam P2P.
-🔹 Added client-specific operation queues and independent undo handling.
-🔹 Improved World Editor placement and undo for terrain, voxels, and props.
-🔹 Expanded Lua, Python, Rust, and runtime diagnostics.
-🔹 Reduced unnecessary background checks and repeated log messages.
-🔹 Added French and Spanish translations.
-🔹 Improved UI scaling, settings, notifications, and window management.
-🔹 Expanded modding documentation and security reporting.
-🔹 Improved loader stability and error recovery.||
+- 🔹 Improved multiplayer blueprint capture and placement via Steam P2P.
+- 🔹 Added client-specific operation queues and independent undo handling.
+- 🔹 Improved World Editor placement and undo for terrain, voxels, and props.
+- 🔹 Expanded Lua, Python, Rust, and runtime diagnostics.
+- 🔹 Reduced unnecessary background checks and repeated log messages.
+- 🔹 Added French and Spanish translations.
+- 🔹 Improved UI scaling, settings, notifications, and window management.
+- 🔹 Expanded modding documentation and security reporting.
+- 🔹 Improved loader stability and error recovery.
 
 <p align="center">
   <a href="https://github.com/bonsaibauer/shroudforge/releases/latest"><img src="assets\shroudforge-banner-4-release-1.0.svg" width="100%" alt="ShroudForge 10 Support"></a>
