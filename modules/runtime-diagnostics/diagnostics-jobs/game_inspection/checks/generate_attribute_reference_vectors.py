@@ -30,6 +30,17 @@ BUILDS = {
     '4d6d43ea4a91e71c82d60b045dde932179c99e32e40657efe374688b2933589a':
         {'interpreters': {'sint32': 0x21c510, 'uint32': 0x24d6d0, 'float32': 0x2316c0},
          'resultValueOffset': 8},
+    # Exact client build 26082781. The three unwind-bounded roots and the +8
+    # scalar result were rederived from this executable before vector generation.
+    'd64966e23b1a458ee6f147bcbceac0b577fa7e39a212f371287d8cc119817882':
+        {'interpreters': {'sint32': 0x21c9a0, 'uint32': 0x24db80, 'float32': 0x231b70},
+         'resultValueOffset': 8},
+    # Exact server build 26083076. Interpreter roots were located in the exact
+    # executable by unwind-bounded disassembly and matched to the current client
+    # interpreter structure before differential vector generation.
+    'd7baa768eb00aa895d9f5a1cd8747ccf66858c7b542f50983092b2e3261588ee':
+        {'interpreters': {'sint32': 0x3a550, 'uint32': 0x61230, 'float32': 0x4f240},
+         'resultValueOffset': 8},
 }
 SCALARS = {2556031774: 'sint32', 848563180: 'uint32', 3902764048: 'float32'}
 INTEGER_EDGES = (0, 1, 2, 3, 0x7f, 0xffff, 0x10000, 0xffffff, 0x1000000,

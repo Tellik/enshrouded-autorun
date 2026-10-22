@@ -213,6 +213,7 @@
     "ecsChangeTrackingValidated": true,
     "ecsWriteGateEvidence": "docs/evidence/runtime/2026-10-21-world-editor-native-operations.de.md",
     "ecsChangeTrackingEvidence": "docs/evidence/runtime/2026-10-21-world-editor-native-operations.de.md",
+    "attributeCalculationEvidence": "docs/evidence/runtime/2026-10-23-attribute-interpreter-26082781.de.md",
     "resourceAtomicScalarWriteValidated": true,
     "resourceAtomicScalarWriteEvidence": "docs/evidence/runtime/2026-10-21-world-editor-native-operations.de.md",
     "limitations": [
@@ -222,7 +223,7 @@
       "ECS component writes require original authority and Scene gates, exact membership and snapshot checks, and zero A/B tracking bits. Structural validation does not prove gameplay effect.",
       "Registered destroy resolves its callback by the original full name and validates its exact queue effect. Completion requires confirmed entity absence in the same session. No fixed operation dispatch RVA is admitted.",
       "One Lua destroy of the user-designated test chest completed in PID 31676 with confirmed entity absence in the same session 5 and visual user confirmation. Save-reload persistence was not tested. Spawn, exact terrain writing and native Undo remain unavailable.",
-      "Attribute command interpreter semantics have not been revalidated for this build. No attributeCalculationModel is admitted."
+      "Attribute command interpreter semantics were revalidated against fresh KFC4 resources for build 26082781 with 2,112 isolated original-engine vectors. In-game effects remain subject to live verification."
     ]
   },
   "ecsWriteLayout": {
@@ -266,6 +267,7 @@
     "changeTrackerQueueBOffset": 320,
     "maximumTrackingQueueCapacity": 1048576
   },
+  "attributeCalculationModel": "attribute-command-v1",
   "resourceWriteLayout": {
     "id": "resource-atomic-scalar-v1",
     "enabled": true,

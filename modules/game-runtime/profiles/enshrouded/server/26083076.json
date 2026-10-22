@@ -218,7 +218,7 @@
     "ecsWriteGateValidated": true,
     "ecsChangeTrackingValidated": true,
     "ecsWriteGateEvidence": "docs/evidence/runtime/2026-10-21-enshrouded-server-25988414.de.md",
-    "attributeCalculationEvidence": "docs/evidence/runtime/2026-10-21-enshrouded-server-25988414.de.md",
+    "attributeCalculationEvidence": "docs/evidence/runtime/2026-10-23-attribute-interpreter-26083076-server.de.md",
     "ecsChangeTrackingEvidence": "docs/evidence/runtime/2026-10-21-enshrouded-server-25988414.de.md",
     "resourceAtomicScalarWriteValidated": true,
     "resourceAtomicScalarWriteEvidence": "docs/evidence/runtime/2026-10-21-enshrouded-server-25988414.de.md"
