@@ -147,6 +147,8 @@ strings and the former raw `is_key_down` API are not supported.
 
 ## Offline help and UI events
 
+`modules/game-runtime/native/main-menu/` owns the native Enshrouded **Mods** entry. It resolves the menu builder and entry renderer from the loaded executable's string references and decoded call graph, independently of ECS profiles. The native callback and `shroudforge.ui.toggle_modloader()` signal the same per-game-process event consumed by `modules/modloader/ui/host/native_menu_toggle.rs`. That host also publishes the existing `general.showNativeModMenu` setting through the visibility event. Native lifecycle and diagnostics include the menu binding.
+
 `modules/wiki/` owns offline help. Articles live at `articles/<article-id>/<locale>.md`, with a shared `illustration.svg` beside the translations. The first H1 supplies the title and the first paragraph supplies the banner summary. `ui/read-wiki-articles.ts` discovers articles and illustrations automatically during the frontend build and selects the available translation. The Wiki page and contextual help use the same reader and article content, without a second route list. Published website articles remain under `docs/pages/`.
 
 `modules/logging/ui/log-ui-event.ts` sends bounded Wiki and Compatibility UI events through the existing host command transport. `modules/modloader/ui/host/record_ui_log.rs` validates the source, level and text and writes each event through `write_activity_at_level`, retaining the configured log filter. Explicit warning and error notifications use the existing command-result toast path. UI events do not repeat native DLL execution results.
