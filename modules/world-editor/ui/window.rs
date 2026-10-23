@@ -174,6 +174,7 @@ pub(crate) fn run_module() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         Command::Hide => {
                             window_visible = false;
+                            window.set_always_on_top(false);
                             window.set_visible(false);
                             native_visible = false;
                             let _ = shroudforge_loader_config::config::request_window_visibility(
@@ -281,6 +282,7 @@ pub(crate) fn run_module() -> Result<(), Box<dyn std::error::Error>> {
                             module_enabled = next_enabled;
                             if !module_enabled {
                                 window_visible = false;
+                                window.set_always_on_top(false);
                                 window.set_visible(false);
                                 native_visible = false;
                                 let _ = shroudforge_loader_config::config::request_window_visibility(
@@ -306,8 +308,9 @@ pub(crate) fn run_module() -> Result<(), Box<dyn std::error::Error>> {
                 let foreground = unsafe { GetForegroundWindow() };
                 let mut foreground_pid = 0;
                 if !foreground.is_null() { unsafe { GetWindowThreadProcessId(foreground, &mut foreground_pid) }; }
-                let is_game = arguments.desktop || foreground_pid == arguments.game_pid;
-                let is_overlay = foreground_pid == unsafe { GetCurrentProcessId() };
+                let is_game = !arguments.desktop && foreground_pid == arguments.game_pid;
+                let is_overlay = !arguments.desktop
+                    && foreground_pid == unsafe { GetCurrentProcessId() };
                 let toggle = toggle_key.as_ref().is_some_and(shroudforge_hotkeys::is_hotkey_down);
                 let toggle_pressed = toggle && !toggle_down;
                 if module_enabled && (is_game || is_overlay) && !shroudforge_hotkeys::is_capture_active() {
@@ -344,6 +347,7 @@ pub(crate) fn run_module() -> Result<(), Box<dyn std::error::Error>> {
                     if native_visible {
                         window.set_minimized(false);
                     }
+                    window.set_always_on_top(native_visible);
                     window.set_visible(native_visible);
                     log_world_editor(
                         &arguments.root,
@@ -404,6 +408,7 @@ pub(crate) fn run_module() -> Result<(), Box<dyn std::error::Error>> {
             }
             Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
                 window_visible = false;
+                window.set_always_on_top(false);
                 window.set_visible(false);
                 native_visible = false;
                 let _ = shroudforge_loader_config::config::request_window_visibility(

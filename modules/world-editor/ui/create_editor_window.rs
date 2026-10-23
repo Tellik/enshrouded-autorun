@@ -16,7 +16,7 @@ pub(crate) fn create_editor_window(
         .with_taskbar_icon(Some(icon))
         .with_title("ShroudForge | World Editor")
         .with_decorations(false)
-        .with_always_on_top(true)
+        .with_always_on_top(false)
         .with_resizable(true)
         .with_background_color((7, 16, 19, 255))
         .with_visible(false)

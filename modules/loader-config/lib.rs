@@ -7,6 +7,7 @@ mod initialize_loader_settings;
 mod lock_installation;
 #[path = "resolve_installation_paths.rs"]
 pub mod paths;
+mod publish_modloader_client_pid;
 mod publish_window_visibility;
 mod read_document;
 mod read_loader_settings;
@@ -41,6 +42,7 @@ pub mod config {
     pub use crate::claim_control_actions::*;
     pub use crate::initialize_loader_settings::*;
     pub use crate::lock_installation::*;
+    pub use crate::publish_modloader_client_pid::*;
     pub use crate::publish_window_visibility::*;
     pub use crate::read_document::*;
     pub use crate::read_loader_settings::*;

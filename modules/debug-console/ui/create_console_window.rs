@@ -18,7 +18,7 @@ pub(crate) fn create_console_window(
         .with_taskbar_icon(Some(icon))
         .with_title("ShroudForge | Debug Console")
         .with_decorations(false)
-        .with_always_on_top(true)
+        .with_always_on_top(false)
         .with_resizable(true)
         .with_visible(arguments.desktop)
         .with_inner_size(LogicalSize::new(DEFAULT_WIDTH, DEFAULT_HEIGHT))

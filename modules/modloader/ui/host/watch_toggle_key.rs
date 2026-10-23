@@ -31,10 +31,10 @@ pub(crate) fn watch_toggle_key(
             }
             if down && !was_down && !shroudforge_hotkeys::is_capture_active() {
                 let foreground = foreground_process();
-                let focused = desktop
-                    || foreground == game_pid
-                    || foreground == unsafe { GetCurrentProcessId() }
-                    || foreground_is_shroudforge_window();
+                let focused = !desktop
+                    && (foreground == game_pid
+                        || foreground == unsafe { GetCurrentProcessId() }
+                        || foreground_is_shroudforge_window());
                 if focused && hotkey_proxy.send_event(UiEvent::Toggle).is_err() {
                     break;
                 }

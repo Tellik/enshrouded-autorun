@@ -14,6 +14,7 @@ use super::open_requested_link::open_requested_link;
 use super::parse_ui_command::Command;
 use super::parse_ui_command::UiCommand;
 use super::parse_ui_command::parse_ui_command;
+use super::handoff_to_client::handoff_to_client;
 use super::read_host_arguments::Arguments;
 use super::read_host_arguments::arguments;
 use super::read_installed_mods::read_mods;
@@ -110,6 +111,28 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
     if let Err(error) = shroudforge_logging::initialize(&arguments.root, false) {
         eprintln!("Could not initialize UI logging: {error}");
     }
+    if arguments.desktop {
+        match handoff_to_client(&arguments.root) {
+            Ok(Some(_)) => {
+                let _ = shroudforge_logging::append(
+                    &arguments.root,
+                    'I',
+                    "ui",
+                    "Desktop Modloader handed over to the running game client UI.",
+                );
+                return Ok(());
+            }
+            Ok(None) => {}
+            Err(error) => {
+                let _ = shroudforge_logging::append(
+                    &arguments.root,
+                    'W',
+                    "ui",
+                    &format!("Could not hand over to the running game client UI: {error}"),
+                );
+            }
+        }
+    }
     if !arguments.desktop
         && read_central_config(&arguments.root)["modules"]["modloaderUi"]["enabled"] == false
     {
@@ -167,7 +190,7 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
         .with_taskbar_icon(Some(icon))
         .with_title(title)
         .with_decorations(false)
-        .with_always_on_top(true)
+        .with_always_on_top(false)
         .with_resizable(true)
         .with_visible(arguments.desktop)
         .with_inner_size(LogicalSize::new(inner_width, inner_height))
@@ -286,6 +309,7 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
         .build(&window)?;
 
     let mut shown = arguments.desktop;
+    let mut window_topmost = false;
     let mut previous_configuration_errors = std::collections::HashSet::<String>::new();
     let mut previous_player_name_detection = None;
     let mut previous_configuration_checks =
@@ -301,6 +325,19 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
         "modloaderUi",
         shown,
     );
+    if !arguments.desktop {
+        if let Err(error) = shroudforge_loader_config::config::publish_modloader_client_pid(
+            &arguments.root,
+            unsafe { GetCurrentProcessId() },
+        ) {
+            let _ = shroudforge_logging::append(
+                &arguments.root,
+                'W',
+                "ui",
+                &format!("Could not publish the game client UI process: {error}"),
+            );
+        }
+    }
     if read_central_config(&arguments.root)["modules"]["debugConsole"]["enabled"] == false {
         let _ = shroudforge_loader_config::config::publish_window_visibility(
             &arguments.root,
@@ -311,6 +348,7 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
     let mut next_refresh = Instant::now();
     let mut next_announcement_retry = Instant::now() + Duration::from_secs(30);
     let mut next_visibility_poll = Instant::now();
+    let mut next_client_handoff_poll = Instant::now();
     let mut next_window_state_refresh = Instant::now();
     let mut next_control_poll = Instant::now();
     let mut active_provider = provider;
@@ -366,6 +404,37 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                     }
                     *control_flow = ControlFlow::Exit;
                     return;
+                }
+                if arguments.desktop && Instant::now() >= next_client_handoff_poll {
+                    let mut retry_after = Duration::from_millis(250);
+                    match handoff_to_client(&arguments.root) {
+                        Ok(Some(_)) => {
+                            let _ = shroudforge_logging::append(
+                                &arguments.root,
+                                'I',
+                                "ui",
+                                "Desktop Modloader handed over to the running game client UI.",
+                            );
+                            let _ = shroudforge_loader_config::config::publish_window_visibility(
+                                &arguments.root,
+                                "modloaderUi",
+                                false,
+                            );
+                            *control_flow = ControlFlow::Exit;
+                            return;
+                        }
+                        Ok(None) => {}
+                        Err(error) => {
+                            let _ = shroudforge_logging::append(
+                                &arguments.root,
+                                'W',
+                                "ui",
+                                &format!("Could not hand over to the running game client UI: {error}"),
+                            );
+                            retry_after = Duration::from_secs(5);
+                        }
+                    }
+                    next_client_handoff_poll = Instant::now() + retry_after;
                 }
                 if Instant::now() >= next_control_poll {
                     let current_settings_revision = live_settings_revision(&arguments.root);
@@ -924,9 +993,15 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                     next_window_state_refresh = Instant::now() + Duration::from_millis(250);
                 }
                 let foreground = foreground_process();
-                let game_focused = arguments.desktop || foreground == arguments.game_pid;
-                let ui_focused = foreground == unsafe { GetCurrentProcessId() }
-                    || foreground_is_shroudforge_window();
+                let game_focused = !arguments.desktop && foreground == arguments.game_pid;
+                let own_window_focused = foreground == unsafe { GetCurrentProcessId() };
+                let ui_focused = own_window_focused || foreground_is_shroudforge_window();
+                let next_topmost =
+                    !arguments.desktop && shown && (game_focused || own_window_focused);
+                if next_topmost != window_topmost {
+                    window.set_always_on_top(next_topmost);
+                    window_topmost = next_topmost;
+                }
                 if !arguments.desktop && shown && !game_focused && !ui_focused {
                     window.set_visible(false);
                 } else if shown && (game_focused || ui_focused) && !window.is_visible() {
@@ -1133,6 +1208,13 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
             }
             Event::LoopDestroyed => {
                 cancel_keybind_capture(&capture_owner, None);
+                if !arguments.desktop {
+                    let pid = unsafe { GetCurrentProcessId() };
+                    let _ = shroudforge_loader_config::config::clear_modloader_client_pid(
+                        &arguments.root,
+                        pid,
+                    );
+                }
                 if current_window_geometry(&window)
                     .is_some_and(|geometry| geometry != effective_window_geometry)
                 {

@@ -82,6 +82,7 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
         .with_ipc_handler(handler)
         .build(&window)?;
     let mut shown = arguments.desktop;
+    let mut window_topmost = false;
     let initial_window_state = shroudforge_loader_config::config::window_state(&arguments.root);
     let mut visibility_request_id = initial_window_state["debugConsole"]["requestId"]
         .as_u64()
@@ -301,8 +302,15 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
                     next_visibility_poll = Instant::now() + Duration::from_millis(100);
                 }
                 let foreground = foreground_process();
-                let game_focused = arguments.desktop || foreground == arguments.game_pid;
+                let game_focused = !arguments.desktop && foreground == arguments.game_pid;
                 let console_focused = foreground == unsafe { GetCurrentProcessId() };
+                let next_topmost = !arguments.desktop
+                    && shown
+                    && (game_focused || console_focused);
+                if next_topmost != window_topmost {
+                    window.set_always_on_top(next_topmost);
+                    window_topmost = next_topmost;
+                }
                 let down = shroudforge_hotkeys::parse_hotkey(&config.toggle_key)
                     .ok().flatten()
                     .is_some_and(|binding| shroudforge_hotkeys::is_hotkey_down(&binding));
@@ -310,7 +318,11 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
                     key_down = down;
                     previous_toggle_key = config.toggle_key.clone();
                 }
-                if user_enabled && (game_focused || console_focused) && down && !key_down
+                if !arguments.desktop
+                    && user_enabled
+                    && (game_focused || console_focused)
+                    && down
+                    && !key_down
                     && !shroudforge_hotkeys::is_capture_active() {
                     shown = !shown;
                     if !shown {
