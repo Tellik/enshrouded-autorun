@@ -30,7 +30,7 @@ for (const [locale, messages] of Object.entries(catalogs)) {
   for (const key of metadataKeys) {
     if (!messages[key]?.trim()) failures.push(`${locale}: missing Crowdin locale metadata: ${key}`)
   }
-  if (!/^[a-z]{2}$/i.test(messages['locale.flag'] ?? '')) failures.push(`${locale}: locale.flag must be a two-letter SVG country code`)
+  if (!/^(?:[a-z]{2}|bavaria)$/i.test(messages['locale.flag'] ?? '')) failures.push(`${locale}: locale.flag must be a two-letter country code or a supported custom flag`)
 }
 
 if (failures.length) {
