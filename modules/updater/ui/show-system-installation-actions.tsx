@@ -8,6 +8,8 @@ import type {
   UpdaterCommand,
 } from './update-types'
 
+type UninstallDataAction = 'keep' | 'reset' | 'purge'
+
 export function SystemInstallationActions({
   selectedRoot,
   rootSelected,
@@ -33,17 +35,17 @@ export function SystemInstallationActions({
     backupManagement?.originals?.status === 'ready',
   )
   const [removeMods, setRemoveMods] = useState(false)
-  const [resetUserSettings, setResetUserSettings] = useState(false)
-  const [purgeData, setPurgeData] = useState(false)
+  const [dataAction, setDataAction] = useState<UninstallDataAction>('keep')
   const originalStatus = backupManagement?.originals?.status || 'missing'
   const restoreAvailable = originalStatus === 'ready'
+  const resetUserSettings = dataAction === 'reset'
+  const purgeData = dataAction === 'purge'
 
   useEffect(() => {
     setOptionsOpen(false)
     setRestoreGamefiles(backupManagement?.originals?.status === 'ready')
     setRemoveMods(false)
-    setResetUserSettings(false)
-    setPurgeData(false)
+    setDataAction('keep')
   }, [backupManagement?.originals?.status, installationDetected, selectedRoot])
 
   const activeItem = (state: string) =>
@@ -62,6 +64,8 @@ export function SystemInstallationActions({
       activeItem(item.state),
   )
   const busy = queue.run?.state === 'running'
+  const actionsDisabled = !updaterAvailable || busy
+  const restoreDisabled = !restoreAvailable || actionsDisabled
   const statusKey =
     originalStatus === 'ready'
       ? 'ready'
@@ -83,15 +87,26 @@ export function SystemInstallationActions({
           ? 'updater.uninstall.confirmPurgeWithoutRestoreMods'
           : 'updater.uninstall.confirmPurgeWithoutRestore'
         : 'updater.uninstall.confirmWithoutRestore'
-    if (
-      window.confirm(
-        t(confirmationKey as TranslationKey),
-      )
-    ) {
+    const confirmation = [
+      t(confirmationKey as TranslationKey),
+      ...(!purgeData && removeMods
+        ? [t('updater.uninstall.removeMods')]
+        : []),
+      ...(!purgeData
+        ? [
+            t(
+              dataAction === 'keep'
+                ? 'updater.uninstall.keepData'
+                : 'updater.uninstall.resetUserSettings',
+            ),
+          ]
+        : []),
+    ].join('\n\n')
+    if (window.confirm(confirmation)) {
       onCommand('queue-uninstall', {
         restoreGamefiles,
         removeMods,
-        resetUserSettings: resetUserSettings && !purgeData,
+        resetUserSettings,
         purgeData,
       })
       setOptionsOpen(false)
@@ -132,57 +147,88 @@ export function SystemInstallationActions({
         <Card title={t('updater.uninstall.optionsTitle')}>
           <div className="settings-module-list">
             <section className="settings-module">
-              <label className="updater-uninstall-option">
+              <h3>{t('updater.uninstall.groupGame')}</h3>
+              <label
+                className={`updater-uninstall-option${restoreDisabled ? ' is-disabled' : ''}`}
+              >
                 <input
                   type="checkbox"
                   checked={restoreGamefiles}
-                  disabled={!restoreAvailable || !updaterAvailable || busy}
+                  disabled={restoreDisabled}
                   onChange={(event) =>
                     setRestoreGamefiles(event.target.checked)
                   }
                 />
                 <span>{t('updater.uninstall.restoreGamefiles')}</span>
               </label>
-              <p className="hint">
+              <p className="hint settings-module-description">
                 {t(
                   `settings.backups.status.${statusKey}` as TranslationKey,
                 )}
               </p>
+            </section>
+
+            <section className="settings-module">
+              <h3>{t('updater.uninstall.groupMods')}</h3>
               <label className="updater-uninstall-option">
                 <input
                   type="checkbox"
                   checked={removeMods}
-                  disabled={!updaterAvailable || busy}
+                  disabled={actionsDisabled}
                   onChange={(event) => setRemoveMods(event.target.checked)}
                 />
                 <span>{t('updater.uninstall.removeMods')}</span>
               </label>
-              <label className="updater-uninstall-option">
-                <input
-                  type="checkbox"
-                  checked={resetUserSettings}
-                  disabled={!updaterAvailable || busy || purgeData}
-                  onChange={(event) =>
-                    setResetUserSettings(event.target.checked)
-                  }
-                />
-                <span>{t('updater.uninstall.resetUserSettings')}</span>
-              </label>
-              <label className="updater-uninstall-option">
-                <input
-                  type="checkbox"
-                  checked={purgeData}
-                  disabled={!updaterAvailable || busy}
-                  onChange={(event) => {
-                    setPurgeData(event.target.checked)
-                    if (event.target.checked) setResetUserSettings(false)
-                  }}
-                />
-                <span>{t('updater.uninstall.purgeData')}</span>
-              </label>
-              <p className="hint">{t('updater.uninstall.safety')}</p>
+              <p className="hint settings-module-description">
+                {t('updater.uninstall.removeModsHint')}
+              </p>
+            </section>
+
+            <section className="settings-module">
+              <fieldset
+                className="updater-uninstall-data-options"
+                disabled={actionsDisabled}
+              >
+                <legend>{t('updater.uninstall.groupData')}</legend>
+                <p className="hint settings-module-description">
+                  {t('updater.uninstall.dataChoiceHint')}
+                </p>
+                <div className="updater-uninstall-data-choices">
+                  <label className="updater-uninstall-option">
+                    <input
+                      type="radio"
+                      name="shroudforge-uninstall-data-action"
+                      value="keep"
+                      checked={dataAction === 'keep'}
+                      onChange={() => setDataAction('keep')}
+                    />
+                    <span>{t('updater.uninstall.keepData')}</span>
+                  </label>
+                  <label className="updater-uninstall-option">
+                    <input
+                      type="radio"
+                      name="shroudforge-uninstall-data-action"
+                      value="reset"
+                      checked={dataAction === 'reset'}
+                      onChange={() => setDataAction('reset')}
+                    />
+                    <span>{t('updater.uninstall.resetUserSettings')}</span>
+                  </label>
+                  <label className="updater-uninstall-option">
+                    <input
+                      type="radio"
+                      name="shroudforge-uninstall-data-action"
+                      value="purge"
+                      checked={dataAction === 'purge'}
+                      onChange={() => setDataAction('purge')}
+                    />
+                    <span>{t('updater.uninstall.purgeData')}</span>
+                  </label>
+                </div>
+              </fieldset>
             </section>
           </div>
+          <p className="hint">{t('updater.uninstall.safety')}</p>
           <div className="inline-actions">
             <button
               className="button danger"
