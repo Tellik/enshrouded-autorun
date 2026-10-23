@@ -50,7 +50,7 @@ export function SettingsPage({
     postRequest('save-language', { locale: next })
   }
   const changeGeneral = (
-    key: 'compactMode' | 'reducedMotion',
+    key: 'compactMode' | 'reducedMotion' | 'showNativeModMenu',
     value: boolean,
   ) => {
     setSettings({ ...settings, [key]: value })
@@ -252,6 +252,11 @@ export function SettingsPage({
               label={t('settings.motion')}
               checked={settings.reducedMotion}
               onChange={(value) => changeGeneral('reducedMotion', value)}
+            />
+            <Toggle
+              label={t('settings.nativeMenu')}
+              checked={settings.showNativeModMenu}
+              onChange={(value) => changeGeneral('showNativeModMenu', value)}
             />
           </Card>
           <Card title={t('settings.runtimeProfile.title')}>

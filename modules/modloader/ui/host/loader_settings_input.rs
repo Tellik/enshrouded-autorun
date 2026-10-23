@@ -10,6 +10,8 @@ pub(crate) struct UiSettings {
     pub(crate) compact_mode: bool,
     #[serde(default)]
     pub(crate) reduced_motion: bool,
+    #[serde(default)]
+    pub(crate) show_native_mod_menu: bool,
     #[serde(default = "default_username_mode")]
     pub(crate) username_mode: String,
     #[serde(default = "default_message_name_fallback")]

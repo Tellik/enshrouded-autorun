@@ -13,6 +13,7 @@ export type Settings = {
   modulePreferences?: ModulePreferences
   compactMode: boolean
   reducedMotion: boolean
+  showNativeModMenu: boolean
   zoomPercent: number
   usernameMode: 'auto' | 'manual'
   detectedUsername?: string | null

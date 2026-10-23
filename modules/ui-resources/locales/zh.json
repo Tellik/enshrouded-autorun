@@ -676,6 +676,7 @@
   "settings.modules.ui": "管理",
   "settings.modules.updater": "需要时启动",
   "settings.motion": "减少运动",
+  "settings.nativeMenu": "在游戏菜单中显示 Mods",
   "settings.presentation": "演示",
   "settings.zoom.hint": "页面操作旁边的加号和减号按钮会更改每个页面上的此级别。",
   "settings.zoom.reset": "重置为100%",

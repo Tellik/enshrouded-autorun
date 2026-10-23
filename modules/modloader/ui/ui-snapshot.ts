@@ -162,6 +162,7 @@ export const empty: Snapshot = {
   settings: {
     compactMode: false,
     reducedMotion: false,
+    showNativeModMenu: false,
     zoomPercent: 100,
     usernameMode: 'auto',
     detectedUsername: null,

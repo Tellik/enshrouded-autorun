@@ -139,6 +139,10 @@ pub(crate) fn save_settings(root: &Path, settings: &UiSettings) -> Result<(), St
         general.insert("compactMode".into(), settings.compact_mode.into());
         general.insert("reducedMotion".into(), settings.reduced_motion.into());
         general.insert(
+            "showNativeModMenu".into(),
+            settings.show_native_mod_menu.into(),
+        );
+        general.insert(
             "usernameMode".into(),
             if settings.username_mode == "manual" {
                 "manual"

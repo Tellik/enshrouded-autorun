@@ -676,6 +676,7 @@
   "settings.modules.ui": "Administración",
   "settings.modules.updater": "Se inicia cuando hace falta",
   "settings.motion": "Reducir movimiento",
+  "settings.nativeMenu": "Mostrar Mods en el menú del juego",
   "settings.presentation": "Presentación",
   "settings.zoom.hint": "Los botones más y menos junto a las acciones de página cambian este nivel en todas las páginas.",
   "settings.zoom.reset": "Restablecer al 100 %",

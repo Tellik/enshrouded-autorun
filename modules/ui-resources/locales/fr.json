@@ -617,6 +617,7 @@
   "settings.modules.worldEditor.description": "Gérez les fenêtres et raccourcis. Les préférences sont enregistrées immédiatement.",
   "settings.modules.worldEditor.title": "Éditeur de monde",
   "settings.motion": "Réduire les animations",
+  "settings.nativeMenu": "Afficher Mods dans le menu du jeu",
   "settings.paths.browse": "Parcourir",
   "settings.paths.cache": "Cache",
   "settings.paths.custom": "Dossier personnalisé",

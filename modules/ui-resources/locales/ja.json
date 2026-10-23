@@ -676,6 +676,7 @@
   "settings.modules.ui": "管理",
   "settings.modules.updater": "必要に応じて開始",
   "settings.motion": "動きを減らす",
+  "settings.nativeMenu": "ゲームメニューに Mods を表示",
   "settings.presentation": "プレゼンテーション",
   "settings.zoom.hint": "ページアクションの横にあるプラスボタンとマイナスボタンは、すべてのページでこのレベルを変更します.",
   "settings.zoom.reset": "100%へのリセット",

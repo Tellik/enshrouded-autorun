@@ -676,6 +676,7 @@
   "settings.modules.ui": "Beheer",
   "settings.modules.updater": "Start wanneer nodig",
   "settings.motion": "Beweging verminderen",
+  "settings.nativeMenu": "Mods in het gamemenu tonen",
   "settings.presentation": "Presentatie",
   "settings.zoom.hint": "De plus- en minknoppen naast pagina-acties wijzigen dit niveau op elke pagina.",
   "settings.zoom.reset": "Reset naar 100%",

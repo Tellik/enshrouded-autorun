@@ -676,6 +676,7 @@
   "settings.modules.ui": "Management",
   "settings.modules.updater": "Starts when needed",
   "settings.motion": "Reduce motion",
+  "settings.nativeMenu": "Show Mods in the game menu",
   "settings.presentation": "Presentation",
   "settings.zoom.hint": "The plus and minus buttons beside page actions change this level on every page.",
   "settings.zoom.reset": "Reset to 100%",

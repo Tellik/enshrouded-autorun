@@ -15,11 +15,15 @@ pub(crate) fn save_setting(
             key,
             "compactMode"
                 | "reducedMotion"
+                | "showNativeModMenu"
                 | "zoomPercent"
                 | "usernameMode"
                 | "messageNameFallback"
         ) {
             return Err("unsupported general setting".into());
+        }
+        if key == "showNativeModMenu" && !setting.is_boolean() {
+            return Err("native mod menu setting must be boolean".into());
         }
         let setting = if key == "messageNameFallback" {
             normalize_message_name(setting.as_str().ok_or("message name must be text")?)?.into()

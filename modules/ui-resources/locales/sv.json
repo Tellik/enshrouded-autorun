@@ -676,6 +676,7 @@
   "settings.modules.ui": "Ledning",
   "settings.modules.updater": "Börjar när det behövs",
   "settings.motion": "Minska rörelsen",
+  "settings.nativeMenu": "Visa Mods i spelets meny",
   "settings.presentation": "Presentation",
   "settings.zoom.hint": "Plus- och minusknapparna bredvid sidans åtgärder ändrar denna nivå på varje sida.",
   "settings.zoom.reset": "Återställ till 100%",

@@ -122,6 +122,10 @@ pub(crate) fn read_ui_snapshot(
                 .pointer("/general/reducedMotion")
                 .and_then(|value| value.as_bool())
                 .unwrap_or(false),
+            show_native_mod_menu: central
+                .pointer("/general/showNativeModMenu")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false),
             zoom_percent: central
                 .pointer("/general/zoomPercent")
                 .and_then(|value| value.as_u64())

@@ -1043,6 +1043,9 @@
         "reducedMotion": {
           "type": "boolean"
         },
+        "showNativeModMenu": {
+          "type": "boolean"
+        },
         "zoomPercent": {
           "type": "integer",
           "minimum": 70,

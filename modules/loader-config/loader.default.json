@@ -2,6 +2,7 @@
   "schemaVersion": 1,
   "general": {
     "locale": "de",
+    "showNativeModMenu": false,
     "zoomPercent": 100,
     "usernameMode": "auto",
     "messageNameFallback": "Flameborn"

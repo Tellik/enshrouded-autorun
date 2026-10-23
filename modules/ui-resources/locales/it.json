@@ -676,6 +676,7 @@
   "settings.modules.ui": "Gestione",
   "settings.modules.updater": "Si avvia quando necessario",
   "settings.motion": "Riduci il movimento",
+  "settings.nativeMenu": "Mostra Mods nel menu di gioco",
   "settings.presentation": "Presentazione",
   "settings.zoom.hint": "I pulsanti più e meno accanto alle azioni della pagina modificano questo livello su ogni pagina.",
   "settings.zoom.reset": "Ripristina al 100%",
