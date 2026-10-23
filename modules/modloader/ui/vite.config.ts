@@ -81,6 +81,8 @@ export default defineConfig(({ mode }) => {
       alias: {
         react: resolve(process.cwd(), 'node_modules/react'),
         'react-dom': resolve(process.cwd(), 'node_modules/react-dom'),
+        'react-markdown': resolve(process.cwd(), 'node_modules/react-markdown'),
+        'remark-gfm': resolve(process.cwd(), 'node_modules/remark-gfm'),
         '@generated-flags': fileURLToPath(
           new URL(
             '../../../build/ui/modloader-inputs/generated-flags.ts',

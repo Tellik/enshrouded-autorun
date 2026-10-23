@@ -14,6 +14,7 @@ import { useUiUpdates } from './receive-ui-updates'
 import { TopBar } from './show-top-bar'
 import { Page } from './show-page'
 import { UiErrorBoundary } from './show-ui-error'
+import { compatibilityNavigationStatus } from './show-compatibility'
 import { PageZoomProvider } from '../../ui-resources/show-page-header'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
@@ -120,6 +121,7 @@ export function App() {
               <Nav
                 icon="compatibility"
                 label={t('nav.compatibility')}
+                status={compatibilityNavigationStatus(data)}
                 active={!activeMod && page === 'compatibility'}
                 onClick={() => navigate('compatibility')}
               />
@@ -128,6 +130,12 @@ export function App() {
                 label={t('nav.settings')}
                 active={!activeMod && page === 'settings'}
                 onClick={() => navigate('settings')}
+              />
+              <Nav
+                icon="wiki"
+                label={t('nav.wiki')}
+                active={!activeMod && page === 'wiki'}
+                onClick={() => navigate('wiki')}
               />
             </NavGroup>
             <NavGroup title={t('nav.modsManagement')}>

@@ -1,4 +1,5 @@
 use super::loader_settings_input::UiSettings;
+use super::record_ui_log::UiLogEvent;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize)]
@@ -47,6 +48,8 @@ pub(crate) struct UiCommand {
     pub(crate) title: Option<String>,
     #[serde(default)]
     pub(crate) message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) event: Option<UiLogEvent>,
     #[serde(default)]
     pub(crate) scope: Option<String>,
     #[serde(default)]
@@ -90,6 +93,7 @@ pub(crate) enum Command {
     Diagnostics(String, Option<String>, String),
     UiReady,
     UiError(String),
+    UiLog(UiLogEvent),
 }
 
 pub(crate) fn parse_ui_command(value: UiCommand, desktop: bool, server: bool) -> Option<Command> {
@@ -187,6 +191,7 @@ pub(crate) fn parse_ui_command(value: UiCommand, desktop: bool, server: bool) ->
             value.request_id.unwrap_or_default(),
         ),
         "ui-ready" => Command::UiReady,
+        "ui-log" => Command::UiLog(value.event?),
         "ui-error" => Command::UiError(
             value
                 .message

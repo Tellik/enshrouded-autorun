@@ -1,3 +1,5 @@
+import type React from 'react'
+
 export function Segmented({
   value,
   onChange,
@@ -5,7 +7,7 @@ export function Segmented({
 }: {
   value: string
   onChange(v: string): void
-  items: string[][]
+  items: Array<[string, React.ReactNode]>
 }) {
   return (
     <div className="segments">

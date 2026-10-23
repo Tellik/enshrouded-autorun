@@ -18,7 +18,13 @@ pub(crate) fn dispatch_control_actions(
                 if arguments.server
                     && (matches!(
                         action.command.as_str(),
-                        "drag" | "browse-path" | "open-path" | "open-url" | "ui-ready" | "ui-error"
+                        "drag"
+                            | "browse-path"
+                            | "open-path"
+                            | "open-url"
+                            | "ui-ready"
+                            | "ui-error"
+                            | "ui-log"
                     ) || (action.command == "set-window-visibility"
                         && action.visible == Some(true)))
                 {

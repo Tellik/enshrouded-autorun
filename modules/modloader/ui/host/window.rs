@@ -787,6 +787,9 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                             None,
                             "debug",
                         ),
+                        Command::UiLog(event) => {
+                            super::record_ui_log::record_ui_log(&arguments.root, &webview, event)
+                        }
                         Command::UiError(message) => write_activity(
                             &arguments.root,
                             "modloader-ui",

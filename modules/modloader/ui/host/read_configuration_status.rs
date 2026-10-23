@@ -10,13 +10,12 @@ pub fn configuration(root: &Path, server: bool, api: &str) -> Value {
         shroudforge_runtime_diagnostics::documents::MOD_STATUS,
     )
     .ok();
-    let world_editor_module_enabled = shroudforge_loader_config::config::read_loader(root)
-        .ok()
-        .and_then(|config| {
-            config
-                .pointer("/modules/worldEditor/enabled")
-                .and_then(Value::as_bool)
-        });
+    let loader_config = shroudforge_loader_config::config::read_loader(root).ok();
+    let world_editor_module_enabled = loader_config.as_ref().and_then(|config| {
+        config
+            .pointer("/modules/worldEditor/enabled")
+            .and_then(Value::as_bool)
+    });
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -93,6 +92,10 @@ pub fn configuration(root: &Path, server: bool, api: &str) -> Value {
         for entry in entries.flatten() {
             let path = entry.path();
             if !path.is_dir() && path.extension().is_none_or(|extension| extension != "zip") {
+                continue;
+            }
+            // Native-only directories are inventoried by the DLL Manager.
+            if path.is_dir() && !path.join("mod.json").is_file() {
                 continue;
             }
             if let Err(error) = shroudforge_package::config::read_manifest_path(root, &path) {
@@ -313,6 +316,127 @@ pub fn configuration(root: &Path, server: bool, api: &str) -> Value {
             }
         }
         Err(error) => errors.push(error.into()),
+    }
+    // The UI reports the same resolved plan that the runtime executes.
+    let dll_plan = shroudforge_package::dll_manager::resolve_load_plan(root, server);
+    let dll_plan_changed = runtime_fresh
+        && runtime.as_ref().is_some_and(|runtime| {
+            runtime["dllPlan"] != shroudforge_package::dll_manager::load_plan_identity(&dll_plan)
+        });
+    let dll_enabled = loader_config
+        .as_ref()
+        .and_then(|config| config.pointer("/modules/dllManager/enabled"))
+        .and_then(Value::as_bool)
+        != Some(false);
+    let planned_dlls: std::collections::HashSet<_> = dll_plan
+        .entries
+        .iter()
+        .map(|entry| entry.status_id.clone())
+        .collect();
+    let planned_paths: std::collections::HashSet<_> = dll_plan
+        .entries
+        .iter()
+        .map(|entry| entry.path.to_string_lossy().to_ascii_lowercase())
+        .collect();
+    for entry in dll_plan.entries {
+        let effect = runtime
+            .as_ref()
+            .filter(|_| runtime_fresh)
+            .and_then(|value| value["effects"].get(&entry.status_id));
+        let state = match effect.and_then(|value| value["state"].as_str()) {
+            Some("loaded") if !dll_enabled => {
+                json!({"state":"restart-required","detail":"DLL Manager is off. This DLL remains loaded until the game restarts."})
+            }
+            Some("loaded") if dll_plan_changed => {
+                json!({"state":"restart-required","detail":"The DLL selection, initialization mode or load order changed. Restart the game to apply it."})
+            }
+            Some("loaded") => json!({"state":"dll-loaded","detail":effect.unwrap()["detail"]}),
+            Some("loading") => json!({"state":"waiting","detail":effect.unwrap()["detail"]}),
+            Some("error") => json!({"state":"failed","detail":effect.unwrap()["detail"]}),
+            _ if !dll_enabled => {
+                json!({"state":"disabled","detail":"DLL Manager is off. This DLL will not load at the next game start."})
+            }
+            _ if runtime_fresh => {
+                json!({"state":"restart-required","detail":"Restart the game to apply this DLL selection."})
+            }
+            _ => {
+                json!({"state":"unconfirmed","detail":"Scheduled for the next game start. No current load report is available."})
+            }
+        };
+        mod_states.insert(entry.status_id, state);
+    }
+    if let Some(effects) = runtime
+        .as_ref()
+        .filter(|_| runtime_fresh)
+        .and_then(|value| value["effects"].as_object())
+    {
+        for (id, effect) in effects {
+            if id.starts_with("dll:")
+                && !planned_dlls.contains(id)
+                && matches!(
+                    effect["state"].as_str(),
+                    Some("loaded" | "loading" | "error")
+                )
+            {
+                let mut parts = id.splitn(3, ':');
+                let _ = parts.next();
+                let directory = parts.next().unwrap_or_default();
+                let relative = parts.next().unwrap_or_default();
+                let selected_by_plan = shroudforge_loader_config::paths::mods_dir(root)
+                    .join(directory)
+                    .join(relative)
+                    .canonicalize()
+                    .is_ok_and(|path| {
+                        planned_paths.contains(&path.to_string_lossy().to_ascii_lowercase())
+                    });
+                let lua_active = effect["nativeSource"] == "Lua register_dll"
+                    && dll_enabled
+                    && !shroudforge_package::dll_manager::is_excluded_dll_name(root, relative)
+                    && id.split(':').nth(1).is_some_and(|directory| {
+                        let enabled = shroudforge_package::dll_manager::read_selections(root)
+                            .into_iter()
+                            .find(|selection| {
+                                selection.package_directory.eq_ignore_ascii_case(directory)
+                            })
+                            .is_none_or(|selection| {
+                                selection.enabled
+                                    && selection.approved
+                                    && selection.target.applies_to(server)
+                            });
+                        enabled
+                            && shroudforge_package::read_manifest_path(
+                                root,
+                                &shroudforge_loader_config::paths::mods_dir(root).join(directory),
+                            )
+                            .is_ok_and(|manifest| {
+                                manifest.enabled && manifest.target.supports_process(server)
+                            })
+                    });
+                let state = if effect["state"] == "error" {
+                    json!({"state":"failed","detail":effect["detail"]})
+                } else if (lua_active || selected_by_plan) && !dll_plan_changed {
+                    json!({"state":if effect["state"] == "loaded" {"dll-loaded"} else {"waiting"},"detail":effect["detail"]})
+                } else {
+                    json!({"state":"restart-required","detail":"This DLL is no longer selected. It remains loaded until the game restarts."})
+                };
+                mod_states.insert(id.clone(), state);
+            }
+        }
+    }
+    for issue in dll_plan.issues {
+        mod_states.insert(
+            issue.status_id,
+            json!({"state":"failed","detail":issue.detail}),
+        );
+    }
+    for entry in shroudforge_package::dll_manager::chain_load_entries(root) {
+        mod_states.entry(entry.status_id).or_insert_with(|| {
+            json!({
+                "state":"disabled", "detail":if dll_enabled {
+                    "This chain entry is inactive for the current mod activation or process target."
+                } else { "DLL Manager is disabled." }
+            })
+        });
     }
     let executable = root.join(if server {
         "enshrouded_server.exe"

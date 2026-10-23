@@ -1,7 +1,7 @@
 import { useI18n } from '../../ui-resources/i18n'
 import type { UpdaterCommand } from './update-types'
 import { Icon } from '../../ui-resources/show-icon'
-import { FeatureBanner } from './show-feature-banner'
+import { FeatureBanner } from '../../ui-resources/show-feature-banner'
 
 const EXPECTED_UPDATER_PATH = 'shroudforge/shroudforge-updater.exe'
 const LATEST_RELEASE_URL =

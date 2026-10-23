@@ -131,6 +131,12 @@ export const iconPaths: Record<string, React.ReactNode> = {
       <path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5" />
     </>
   ),
+  wiki: (
+    <>
+      <path d="M12 5v16M3 4h5a4 4 0 0 1 4 2 4 4 0 0 1 4-2h5v15h-5a4 4 0 0 0-4 2 4 4 0 0 0-4-2H3V4Z" />
+      <path d="M6 8h3M6 12h3m6-4h3m-3 4h3" />
+    </>
+  ),
   discover: (
     <>
       <circle cx="11" cy="11" r="7" />

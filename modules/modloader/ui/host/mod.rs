@@ -35,6 +35,7 @@ mod read_storage_paths;
 mod read_ui_configuration;
 mod read_ui_snapshot;
 mod read_window_focus;
+mod record_ui_log;
 mod refresh_activity_log;
 mod refresh_installed_mod;
 mod reload_loader_settings;

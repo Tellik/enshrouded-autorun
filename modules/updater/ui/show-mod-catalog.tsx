@@ -7,7 +7,7 @@ import { Icon } from '../../ui-resources/show-icon'
 import { PageHeader } from '../../ui-resources/show-page-header'
 import shroudEditHammer from '../../../assets/shroudedit-hammer.png'
 import { UpdaterAvailability } from './show-updater-availability'
-import { FeatureBanner } from './show-feature-banner'
+import { FeatureBanner } from '../../ui-resources/show-feature-banner'
 
 const SHOW_SHROUDEDIT_COMING_SOON = true
 const SHROUDEDIT_SUPPORT_EMAIL = 'support@shroudedit.com'

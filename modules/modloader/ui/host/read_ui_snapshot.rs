@@ -75,6 +75,8 @@ pub(crate) fn read_ui_snapshot(
         .collect();
     let snapshot = Snapshot {
         diagnostics: shroudforge_runtime_diagnostics::status(&arguments.root),
+        dll_candidates: shroudforge_package::dll_manager::discover_dll_candidates(&arguments.root),
+        dll_chain_entries: shroudforge_package::dll_manager::chain_load_entries(&arguments.root),
         windows: shroudforge_loader_config::config::window_state(&arguments.root),
         configuration: super::read_configuration_status::configuration(
             &arguments.root,

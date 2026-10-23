@@ -13,6 +13,7 @@ import { ActivityPage } from '../../logging/ui/show-activity'
 import { Compatibility } from './show-compatibility'
 import { RecycleBin } from '../../updater/ui/show-recycle-bin'
 import type { UpdaterCommand } from '../../updater/ui/update-types'
+import { WikiPage } from '../../wiki/ui/show-wiki'
 
 export function Page({
   id,
@@ -108,6 +109,7 @@ export function Page({
         }
       />
     )
+  if (id === 'wiki') return <WikiPage />
   return (
     <SettingsPage data={data} settings={settings} setSettings={setSettings} />
   )
