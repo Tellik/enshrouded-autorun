@@ -70,7 +70,9 @@ fn apply_manifest_profile(
         merge_profile_object(mod_json, &overlay);
     }
     if let Some(overlay) = profile.extended_mod_json {
-        let extended = extended_mod_json.get_or_insert_with(|| serde_json::json!({}));
+        let extended = extended_mod_json.get_or_insert_with(|| {
+            serde_json::json!({"schemaVersion": 1, "enabled": false})
+        });
         merge_profile_object(extended, &overlay);
     }
     fs.apply_profile_files(&profile.package_files);

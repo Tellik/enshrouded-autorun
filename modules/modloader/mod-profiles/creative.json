@@ -7,6 +7,7 @@
   "target": "both",
   "extendedModJson": {
     "schemaVersion": 1,
+    "enabled": true,
     "targets": ["client", "server"],
     "launcher": "EML"
   },
