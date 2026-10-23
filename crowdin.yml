@@ -4,11 +4,12 @@ base_path: .
 preserve_hierarchy: true
 
 files:
-  - source: /modules/ui-resources/locales/en.json
+  - source: /modules/ui-resources/locales/en-GB.json
     translation: /modules/ui-resources/locales/%two_letters_code%.json
     languages_mapping:
       two_letters_code:
         de-AT: de-AT
         de-CH: de-CH
         de-BAY: de-BAY
+        en-US: en-US
     update_option: update_as_unapproved

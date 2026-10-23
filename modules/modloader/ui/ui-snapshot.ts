@@ -141,7 +141,7 @@ export const empty: Snapshot = {
   activity: [],
   notices: [],
   readNoticeIds: [],
-  locale: 'de',
+  locale: 'en-GB',
   release: {
     currentVersion: '1.0.0',
     updaterAvailable: false,

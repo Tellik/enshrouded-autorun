@@ -163,7 +163,7 @@ pub(crate) fn read_ui_snapshot(
         locale: load_user_config(&arguments.root)
             .locale
             .filter(|locale| is_valid_locale(locale))
-            .unwrap_or_else(|| "de".into()),
+            .unwrap_or_else(|| "en-GB".into()),
     };
     (snapshot, resolved_username)
 }

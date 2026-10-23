@@ -9,14 +9,14 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url))
 const repositoryRoot = resolve(scriptDirectory, '../..')
 const localeDirectory = resolve(repositoryRoot, 'modules/ui-resources/locales')
 const outputPath = resolve(repositoryRoot, 'build/ui/modloader-inputs/crowdin-progress.json')
-const sourceLocale = 'en'
+const sourceLocale = 'en-GB'
 const localeFiles = (await readdir(localeDirectory))
   .filter((file) => extname(file).toLowerCase() === '.json')
   .map((file) => basename(file, extname(file)))
   .sort((left, right) => left.localeCompare(right))
 
 if (!localeFiles.includes(sourceLocale)) {
-  throw new Error('Missing source locale: modules/ui-resources/locales/en.json')
+  throw new Error('Missing source locale: modules/ui-resources/locales/en-GB.json')
 }
 
 const targetLocales = localeFiles.filter((locale) => locale !== sourceLocale)

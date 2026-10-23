@@ -12,13 +12,15 @@ Die Angaben stammen aus den Crowdin-Bildschirmtexten und Screenshots, die im Ges
 | GitHub-Repository | `bonsaibauer/shroudforge` |
 | Projektart | File-based Project |
 | Integrationsmodus | Source and translation files |
-| Ausgangssprache | Englisch |
-| Zielsprachen | Deutsch, Französisch und Spanisch |
-| Übersetzungsdatei | `modules/ui-resources/locales/en.json` |
+| Ausgangssprache | Englisch (UK) |
+| Zielsprachen | Laut geteiltem Dashboard-Stand: Deutsch, Französisch und Spanisch |
+| Übersetzungsdatei | `modules/ui-resources/locales/en-GB.json` |
 | Zieldateimuster | `modules/ui-resources/locales/%two_letters_code%.json` |
 | Crowdin-Konfiguration | `crowdin.yml` im Repository-Hauptordner und in jedem zu übersetzenden Branch |
 
 Der geteilte Dashboard-Stand zeigte für die Sprachen noch `0 words`. Der Advisor erkannte zugleich eine Datei. Deshalb zuerst prüfen, ob die Integration den richtigen GitHub-Branch und dessen `crowdin.yml` synchronisiert hat. Erst danach lassen sich die Advisor-Zähler als vollständig interpretieren.
+
+Das Repository bildet Englisch (US) in `crowdin.yml` auf `en-US.json` ab. Der geteilte Dashboard-Stand bestätigt nicht, ob Englisch (US) als Crowdin-Zielsprache aktiviert ist.
 
 ## Öffentliche Crowdin-Seite für Mitwirkende
 
@@ -35,8 +37,14 @@ base_path: .
 preserve_hierarchy: true
 
 files:
-  - source: /modules/ui-resources/locales/en.json
+  - source: /modules/ui-resources/locales/en-GB.json
     translation: /modules/ui-resources/locales/%two_letters_code%.json
+    languages_mapping:
+      two_letters_code:
+        de-AT: de-AT
+        de-CH: de-CH
+        de-BAY: de-BAY
+        en-US: en-US
     update_option: update_as_unapproved
 ```
 
@@ -73,7 +81,7 @@ Das Feld **General settings → Description** ist laut Advisor leer. Diesen engl
 
 ## Dateikontext für die Locale-Datei
 
-Der Advisor meldet fehlenden Dateikontext für eine Datei. In **Sources → Files** die Beschreibung für `modules/ui-resources/locales/en.json` ergänzen. Dieser englische Text kann direkt eingefügt werden:
+Der Advisor meldet fehlenden Dateikontext für eine Datei. In **Sources → Files** die Beschreibung für `modules/ui-resources/locales/en-GB.json` ergänzen. Dieser englische Text kann direkt eingefügt werden:
 
 > This file contains user-facing text for the ShroudForge application, including navigation, buttons, settings, mod management, compatibility information, update messages, in-app news, and modding guidance. Translate each string according to its UI context and keep labels concise. Preserve product and mod names, filenames, code, placeholders such as `{count}`, `{version}`, and `{username}`, and other technical identifiers.
 
@@ -178,7 +186,7 @@ Die Zahlen unten sind der beim Teilen angezeigte Dashboard-Stand. Crowdin-Berech
 
 **Was die Meldung bedeutet:** Crowdin hat für die Quelldatei noch keine Datei-Metadaten im Feld **Context**. Das ist keine fehlende Übersetzung und auch kein Fehler im JSON.
 
-**So behebst du es:** In Crowdin **Sources → Files** öffnen, `modules/ui-resources/locales/en.json` auswählen und die Dateieinstellungen beziehungsweise **File Settings → Context** öffnen. Den Text aus „Dateikontext für die Locale-Datei“ einfügen und speichern. Danach kontrollieren, ob der Advisor die Datei als beschrieben zählt. Crowdin verwendet diesen Kontext als Orientierung für alle Strings dieser Datei.
+**So behebst du es:** In Crowdin **Sources → Files** öffnen, `modules/ui-resources/locales/en-GB.json` auswählen und die Dateieinstellungen beziehungsweise **File Settings → Context** öffnen. Den Text aus „Dateikontext für die Locale-Datei“ einfügen und speichern. Danach kontrollieren, ob der Advisor die Datei als beschrieben zählt. Crowdin verwendet diesen Kontext als Orientierung für alle Strings dieser Datei.
 
 ### 2. Missing character limits
 
@@ -188,7 +196,7 @@ Die Zahlen unten sind der beim Teilen angezeigte Dashboard-Stand. Crowdin-Berech
 
 **Welche Strings ein Limit bekommen sollten:** Nur Texte, für die das Layout tatsächlich einen festen Platz vorgibt, zum Beispiel bestimmte Buttons, schmale Labels oder feste Überschriften. News, Beschreibungen und andere frei umbrechende Texte brauchen normalerweise kein künstliches Limit. Erst die zugehörige Ansicht und das verfügbare Layout prüfen, dann einen Wert festlegen. Die 569 Einträge nicht pauschal mit derselben Zahl versehen. AI- oder Bulk-Vorschläge allenfalls als Kandidaten prüfen.
 
-**Praktische Priorität:** Erst Dateikontext speichern. Danach bei den Zeichenlimits mit sichtbaren, platzkritischen Bedienelementen anfangen. Das Ziel ist, echte Überläufe in Deutsch, Französisch und Spanisch zu verhindern, nicht bloß den Advisor-Zähler zu erhöhen.
+**Praktische Priorität:** Erst Dateikontext speichern. Danach bei den Zeichenlimits mit sichtbaren, platzkritischen Bedienelementen anfangen. Das Ziel ist, echte Überläufe in Deutsch, Englisch (US), Französisch und Spanisch zu verhindern, nicht bloß den Advisor-Zähler zu erhöhen.
 
 ### 3. Low screenshot coverage
 
@@ -200,7 +208,7 @@ Die Zahlen unten sind der beim Teilen angezeigte Dashboard-Stand. Crowdin-Berech
 
 **Angezeigter Befund:** Keine Stilrichtlinie mit dem Projekt verbunden.
 
-**Maßnahme:** Die Stilrichtlinie aus dem gleichnamigen Abschnitt in Crowdin **Style Guides** anlegen und dem ShroudForge-Projekt sowie Deutsch, Französisch und Spanisch zuweisen. Die Anredeformen `du`, `vous` und `tú` sind dabei ausdrücklich festgelegt.
+**Maßnahme:** Die Stilrichtlinie aus dem gleichnamigen Abschnitt in Crowdin **Style Guides** anlegen und dem ShroudForge-Projekt sowie Deutsch, Englisch (US), Französisch und Spanisch zuweisen. Die Anredeformen `du`, `you` und `tú` sind dabei ausdrücklich festgelegt.
 
 ### 5. Insufficient terminology
 
@@ -242,9 +250,9 @@ Die Meldung **Missing project description** ist ein zusätzlicher allgemeiner Ad
 
 ## Crowdin-Stand pro Build in der News-Karte
 
-Die Grafik aus Crowdin **Badges & Status Images** ist ein allgemeines Balkendiagramm. ShroudForge zeigt den Sprachfortschritt stattdessen mit eigenen horizontalen Balken für die vorhandenen Zielsprachen an. Englisch ist die Quellsprache und wird nicht als Zielsprache dargestellt. Der Stand wird einmal beim Erstellen eines Builds aus dessen Crowdin-Versionsbranch abgefragt und in die UI eingebettet. Installierte Builds fragen Crowdin nicht im Hintergrund ab und aktualisieren den Stand nicht nachträglich.
+Die Grafik aus Crowdin **Badges & Status Images** ist ein allgemeines Balkendiagramm. ShroudForge zeigt den Sprachfortschritt stattdessen mit eigenen horizontalen Balken für die vorhandenen Zielsprachen an. Englisch (UK) ist die Quellsprache und wird nicht als Zielsprache dargestellt. Die Repository-Konfiguration behandelt Englisch (US) als Zielvariante. Der Stand wird einmal beim Erstellen eines Builds aus dessen Crowdin-Versionsbranch abgefragt und in die UI eingebettet. Installierte Builds fragen Crowdin nicht im Hintergrund ab und aktualisieren den Stand nicht nachträglich.
 
-Crowdin verlangt für den branchbezogenen Fortschritts-Endpunkt einen API-Token. Der Token bleibt in GitHub Actions oder in der lokalen Build-Umgebung und wird nicht in den ShroudForge-Client eingebaut. **dev/build/capture_crowdin_progress.mjs** liest die Zielsprachen dynamisch aus den JSON-Dateien unter **modules/ui-resources/locales/**, ruft den Crowdin-Branch aus **VERSION** ab und schreibt den Snapshot nach **build/ui/modloader-inputs/crowdin-progress.json**. Dabei werden nur Sprachen angezeigt, für die die UI bereits eine Locale-Datei besitzt. Namen und Flaggen kommen direkt aus der vorhandenen UI-Locale-Liste. Die Crowdin-Dateimaske **%two_letters_code%.json** ordnet die Crowdin-Sprachkennungen den Locale-Dateien zu. Für österreichisches und Schweizer Deutsch sowie Bairisch legt **crowdin.yml** die Zuordnung **de-AT → de-AT.json**, **de-CH → de-CH.json** und **de-BAY → de-BAY.json** fest. Die Custom-Sprache im Crowdin-Projekt muss dafür ebenfalls unter **de-BAY** geführt werden. Die App-Locale für Münchner Bairisch heißt **de-BAY** und wird in der Sprachauswahl als **DE-BAY** angezeigt. Der Fortschrittssnapshot ordnet **de-BAY** der App-Locale **de-BAY** zu. **de-AT** enthält Wienerisch, **de-CH** Zürcher Schweizerdeutsch und **de-BAY** Münchner Bairisch. Die UI-Buildskripte **npm run build** und **npm run dev** erfassen den Fortschritt vor dem Start automatisch. Ohne Token erzeugen sie für jede vorhandene Zielsprache einen Eintrag ohne Fortschrittswerte. Der Snapshot wird in das fertige UI und damit in den Build eingebettet. Im installierten Modloader gibt es keine Crowdin-Abfrage.
+Crowdin verlangt für den branchbezogenen Fortschritts-Endpunkt einen API-Token. Der Token bleibt in GitHub Actions oder in der lokalen Build-Umgebung und wird nicht in den ShroudForge-Client eingebaut. **dev/build/capture_crowdin_progress.mjs** liest die Zielsprachen dynamisch aus den JSON-Dateien unter **modules/ui-resources/locales/**, ruft den Crowdin-Branch aus **VERSION** ab und schreibt den Snapshot nach **build/ui/modloader-inputs/crowdin-progress.json**. Dabei werden nur Sprachen angezeigt, für die die UI bereits eine Locale-Datei besitzt. Namen und Flaggen kommen direkt aus der vorhandenen UI-Locale-Liste. Die Crowdin-Dateimaske **%two_letters_code%.json** verwendet nur den zweistelligen Sprachcode. Ohne Zuordnung würden `de-AT`, `de-CH` und `de-BAY` alle auf `de.json` und `en-US` auf `en.json` fallen. Die Zuordnung in **crowdin.yml** erhält stattdessen die vollständigen Dateinamen **de-AT.json**, **de-CH.json**, **de-BAY.json** und **en-US.json**. Die Werte entsprechen den Crowdin-Sprachcodes. Alternativ kann **%locale%** den vollständigen Locale-Code ausgeben. Dann müssen jedoch auch die bisherigen kurzen Dateinamen wie `de.json` und `fr.json` auf die von Crowdin gelieferten Locale-Codes umgestellt werden. [Crowdin dokumentiert beide Platzhalter und die Sprachzuordnung](https://support.crowdin.com/developer/configuration-file/). Die Custom-Sprache im Crowdin-Projekt muss für Bairisch ebenfalls unter **de-BAY** geführt werden. Die App-Locale für Münchner Bairisch heißt **de-BAY** und wird in der Sprachauswahl als **DE-BAY** angezeigt. Der Fortschrittssnapshot ordnet **de-BAY** der App-Locale **de-BAY** zu. **de-AT** enthält Wienerisch, **de-CH** Zürcher Schweizerdeutsch und **de-BAY** Münchner Bairisch. Die UI-Buildskripte **npm run build** und **npm run dev** erfassen den Fortschritt vor dem Start automatisch. Ohne Token erzeugen sie für jede vorhandene Zielsprache einen Eintrag ohne Fortschrittswerte. Der Snapshot wird in das fertige UI und damit in den Build eingebettet. Im installierten Modloader gibt es keine Crowdin-Abfrage.
 
 ### Einmalige Einrichtung
 

@@ -16,10 +16,10 @@ The source and **news-schema.json** are in **modules/notifications/**. The schem
 
 Visible text is looked up in the Modloader language files:
 
-- **modules/ui-resources/locales/en.json** is the English source.
+- **modules/ui-resources/locales/en-GB.json** is the English (UK) source.
 - **modules/ui-resources/locales/de.json** contains the German translation.
 
-Add new text to the English file and provide its German translation. **crowdin.yml** uses English as the source language.
+Add new text to the English (UK) file and provide its English (US) and German translations. **crowdin.yml** uses English (UK) as the source language.
 
 ## Saved notices and events
 

@@ -9,8 +9,8 @@ const catalogs = Object.fromEntries(await Promise.all(files.map(async file => [
   basename(file, '.json'),
   JSON.parse(await readFile(resolve(localeDirectory, file), 'utf8')),
 ])))
-const source = catalogs.en
-if (!source) throw new Error('Missing source locale: locales/en.json')
+const source = catalogs['en-GB']
+if (!source) throw new Error('Missing source locale: locales/en-GB.json')
 
 const sourceKeys = Object.keys(source).sort()
 const metadataKeys = ['locale.name', 'locale.flag']

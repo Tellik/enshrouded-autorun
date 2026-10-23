@@ -5,10 +5,10 @@ import React, {
   useMemo,
   useState,
 } from 'react'
-import en from './locales/en.json'
+import enGB from './locales/en-GB.json'
 
 export type Locale = string
-export type TranslationKey = keyof typeof en
+export type TranslationKey = keyof typeof enGB
 export type LocaleOption = {
   locale: Locale
   code: string
@@ -36,10 +36,10 @@ const catalogs = Object.fromEntries(
     })
     .filter((entry): entry is [string, Catalog] => Boolean(entry[0])),
 )
-const defaultLocale = catalogs.de
-  ? 'de'
-  : catalogs.en
-    ? 'en'
+const defaultLocale = catalogs['en-GB']
+  ? 'en-GB'
+  : catalogs.de
+    ? 'de'
     : Object.keys(catalogs)[0]
 const locales = Object.entries(catalogs)
   .map(([locale, catalog]) => ({
@@ -52,7 +52,8 @@ const locales = Object.entries(catalogs)
 const I18nContext = createContext<I18nValue | null>(null)
 
 function resolveLocale(locale: string | null): Locale {
-  return locale && catalogs[locale] ? locale : defaultLocale
+  const requested = locale === 'en' && catalogs['en-US'] ? 'en-US' : locale
+  return requested && catalogs[requested] ? requested : defaultLocale
 }
 
 function storedLocale(): Locale {
@@ -84,7 +85,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
       },
       t(key, parameters = {}) {
         const template =
-          catalogs[locale]?.[key] ?? catalogs.en?.[key] ?? String(key)
+          catalogs[locale]?.[key] ?? catalogs['en-GB']?.[key] ?? String(key)
         return template.replace(/\{([A-Za-z0-9_]+)\}/g, (match, name: string) =>
           String(parameters[name] ?? match),
         )
