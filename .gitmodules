@@ -5,3 +5,6 @@
 [submodule "nlohmann-json"]
 	path = modules/game-runtime/native/json
 	url = https://github.com/nlohmann/json.git
+[submodule "sdl3"]
+	path = modules/hotkeys/SDL
+	url = https://github.com/libsdl-org/SDL.git

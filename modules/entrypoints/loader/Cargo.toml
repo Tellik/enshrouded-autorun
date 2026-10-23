@@ -17,6 +17,7 @@ path = "main.rs"
 [dependencies]
 shroudforge-logging.workspace = true
 shroudforge-loader-config.workspace = true
+shroudforge-hotkeys.workspace = true
 kfc = { path = "../../../kfc-parser/crates/kfc", features = ["resource"] }
 serde.workspace = true
 serde_json.workspace = true

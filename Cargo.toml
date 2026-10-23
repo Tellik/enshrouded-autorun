@@ -21,6 +21,7 @@ members = [
     "modules/notifications",
     "modules/player-name",
     "modules/window-management",
+    "modules/hotkeys",
 ]
 exclude = ["kfc-parser", "kfc-parser/crates/*"]
 
@@ -46,4 +47,5 @@ shroudforge-updater = { path = "modules/updater" }
 shroudforge-release-feed = { path = "modules/updater/release-feed" }
 shroudforge-player-name = { path = "modules/player-name" }
 shroudforge-window-management = { path = "modules/window-management" }
+shroudforge-hotkeys = { path = "modules/hotkeys" }
 winres = "0.1.12"

@@ -2,6 +2,22 @@ use std::{env, ffi::OsString, path::PathBuf};
 
 pub(crate) fn run(args: &[OsString]) -> Option<Result<(), Box<dyn std::error::Error>>> {
     match args.get(1).and_then(|value| value.to_str()) {
+        Some("--keyboard-input") => {
+            let parent = args
+                .windows(2)
+                .find(|pair| pair[0] == "--parent-pid")
+                .and_then(|pair| pair[1].to_str())
+                .and_then(|value| value.parse::<u32>().ok());
+            return Some(
+                parent
+                    .ok_or_else(|| std::io::Error::other("missing --parent-pid"))
+                    .and_then(|parent| {
+                        shroudforge_hotkeys::run_input_process(parent)
+                            .map_err(std::io::Error::other)
+                    })
+                    .map_err(Into::into),
+            );
+        }
         Some("--module-ui") => {
             if let Some(root) = args
                 .windows(2)

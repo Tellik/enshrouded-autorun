@@ -71,6 +71,9 @@ New-Item -ItemType Directory -Force -Path $package | Out-Null
 Copy-Item -LiteralPath (Join-Path $output 'winmm.dll'),(Join-Path $output 'dbghelp.dll'),(Join-Path $output 'dinput8.dll') -Destination $package
 $dataPackage = Join-Path $package 'shroudforge'
 New-Item -ItemType Directory -Force -Path $dataPackage | Out-Null
+$licenses = Join-Path $dataPackage 'licenses'
+New-Item -ItemType Directory -Force -Path $licenses | Out-Null
+Copy-Item -LiteralPath (Join-Path $root 'modules/hotkeys/SDL/LICENSE.txt') -Destination (Join-Path $licenses 'SDL3.txt')
 Copy-Item -LiteralPath (Join-Path $output 'shroudforge-runtime.dll'),(Join-Path $output 'shroudforge.exe'),(Join-Path $output 'kfc-runtime.dll') -Destination $dataPackage
 if (-not $WithoutUpdater) {
     Copy-Item -LiteralPath (Join-Path $output 'shroudforge-updater.exe') -Destination $dataPackage

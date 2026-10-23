@@ -444,6 +444,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmake"
+version = "0.1.58"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0f78a02292a74a88ac736019ab962ece0bc380e3f977bf72e376c5d78ff0678"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "color_quant"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3697,6 +3706,7 @@ dependencies = [
  "sha2",
  "shroudforge-compatibility",
  "shroudforge-game-assets",
+ "shroudforge-hotkeys",
  "shroudforge-loader-config",
  "shroudforge-news",
  "shroudforge-package",
@@ -3734,6 +3744,7 @@ version = "1.0.0"
 dependencies = [
  "serde",
  "serde_json",
+ "shroudforge-hotkeys",
  "shroudforge-loader-config",
  "shroudforge-logging",
  "shroudforge-package",
@@ -3755,6 +3766,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "shroudforge-hotkeys"
+version = "1.0.0"
+dependencies = [
+ "cc",
+ "cmake",
+ "serde",
+ "serde_json",
+ "tracing",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "shroudforge-loader-config"
 version = "1.0.0"
 dependencies = [
@@ -3762,6 +3785,7 @@ dependencies = [
  "jsonschema",
  "serde_json",
  "sha2",
+ "shroudforge-hotkeys",
  "tempfile",
  "windows-sys 0.61.2",
 ]
@@ -3793,6 +3817,7 @@ dependencies = [
  "shroudforge-compatibility",
  "shroudforge-debug-console",
  "shroudforge-game-assets",
+ "shroudforge-hotkeys",
  "shroudforge-loader-config",
  "shroudforge-logging",
  "shroudforge-modloader-ui",
@@ -3815,6 +3840,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "shroudforge-game-assets",
+ "shroudforge-hotkeys",
  "shroudforge-loader-config",
  "shroudforge-logging",
  "shroudforge-news",
@@ -3856,6 +3882,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "shroudforge-game-assets",
+ "shroudforge-hotkeys",
  "shroudforge-loader-config",
  "thiserror 2.0.20",
  "tracing",
@@ -3974,6 +4001,7 @@ dependencies = [
  "resvg",
  "serde",
  "serde_json",
+ "shroudforge-hotkeys",
  "shroudforge-loader-config",
  "shroudforge-logging",
  "shroudforge-package",
