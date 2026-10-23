@@ -193,7 +193,6 @@ export async function mountPage({ root, locale, copy, esc, state, copyText }) {
     else if (["number", "slider"].includes(control)) value = Number(raw || 0);
     else if (control === "multiselect") value = raw ? raw.split(",").map(item => item.trim()).filter(Boolean) : [];
     else if (control === "color") value = raw || "#c9ad6e";
-    else if (control === "keybind") value = raw || "F";
     else if (["select", "radio", "segmented"].includes(control) && Object.keys(options).length) value = Object.keys(options).includes(raw) ? raw : Object.keys(options)[0];
     const setting = { value, label: $("#setting-label").value.trim() || key, control };
     const description = $("#setting-description").value.trim();

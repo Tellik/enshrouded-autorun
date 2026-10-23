@@ -53,8 +53,7 @@ use std::fs;
 use std::process::Child;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::AtomicU32;
-use std::sync::atomic::Ordering;
+use std::sync::RwLock;
 use std::sync::mpsc;
 use std::time::Duration;
 use std::time::Instant;
@@ -74,11 +73,31 @@ use wry::WebContext;
 use wry::WebViewBuilder;
 use wry::WebViewBuilderExtWindows;
 
-pub(crate) const DEFAULT_TOGGLE_KEY: u32 = 120; // F9
-
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) enum UiEvent {
     Toggle,
+    KeybindLabels(Vec<String>),
+    KeybindCaptureFailed(String, String),
+}
+
+struct KeybindCapture {
+    request_id: String,
+    delivered: bool,
+}
+
+fn cancel_keybind_capture(capture: &Mutex<Option<KeybindCapture>>, request_id: Option<&str>) {
+    let Ok(mut owner) = capture.lock() else {
+        return;
+    };
+    let Some(current) = owner.as_ref() else {
+        return;
+    };
+    if request_id.is_some_and(|id| id != current.request_id) {
+        return;
+    }
+    *owner = None;
+    let _ = shroudforge_hotkeys::set_capture_active(false, shroudforge_hotkeys::InputDevice::Keyboard);
+    let _ = shroudforge_hotkeys::take_captured_hotkey();
 }
 
 pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -88,6 +107,9 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std::error::Error>> {
+    if let Err(error) = shroudforge_logging::initialize(&arguments.root, false) {
+        eprintln!("Could not initialize UI logging: {error}");
+    }
     if !arguments.desktop
         && read_central_config(&arguments.root)["modules"]["modloaderUi"]["enabled"] == false
     {
@@ -118,6 +140,12 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
         .map(open_event)
         .unwrap_or(std::ptr::null_mut());
     let event_loop = EventLoopBuilder::<UiEvent>::with_user_event().build();
+    // Tao registers raw devices when creating its loop. This UI uses window
+    // events, so release Tao's device receiver before SDL owns keyboard input.
+    event_loop.set_device_event_filter(tao::event_loop::DeviceEventFilter::Always);
+    if let Err(error) = shroudforge_hotkeys::initialize() {
+        let _ = shroudforge_logging::append(&arguments.root, 'W', "hotkeys", &error);
+    }
     let modloader_height = event_loop
         .primary_monitor()
         .map(|monitor| {
@@ -153,18 +181,67 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
         apply_window_geometry(&window, &saved_position, false, window_defaults);
     let (sender, receiver) = mpsc::channel();
     let hotkey_proxy = event_loop.create_proxy();
-    let hotkey_key = Arc::new(AtomicU32::new(module_config.toggle_key));
+    let hotkey_key = Arc::new(RwLock::new(shroudforge_hotkeys::parse_hotkey(&module_config.toggle_key)?));
     let hotkey_key_watcher = hotkey_key.clone();
     let game_pid = arguments.game_pid;
-    let desktop = arguments.desktop;
-    watch_toggle_key(hotkey_proxy, hotkey_key_watcher, game_pid, desktop);
+    watch_toggle_key(hotkey_proxy, hotkey_key_watcher, game_pid, arguments.desktop);
     let control_sender = sender.clone();
     let (updater_request_sender, updater_request_receiver) =
         mpsc::channel::<UpdaterRequestResult>();
+    let capture_root = arguments.root.clone();
+    let capture_owner = Arc::new(Mutex::new(None::<KeybindCapture>));
+    let ipc_capture_owner = capture_owner.clone();
+    let keybind_proxy = event_loop.create_proxy();
     let handler = move |message: wry::http::Request<String>| {
         let Ok(value) = serde_json::from_str::<UiCommand>(message.body()) else {
             return;
         };
+        if value.command == "keybind-capture" {
+            if !value.enabled.unwrap_or(false) {
+                cancel_keybind_capture(&ipc_capture_owner, value.id.as_deref());
+                return;
+            }
+            let request_id = value.request_id.unwrap_or_default();
+            if request_id.is_empty() {
+                return;
+            }
+            let Ok(mut owner) = ipc_capture_owner.lock() else {
+                return;
+            };
+            let _ = shroudforge_hotkeys::take_captured_hotkey();
+            let device = value.device.unwrap_or(shroudforge_hotkeys::InputDevice::Keyboard);
+            if let Err(error) = shroudforge_hotkeys::set_capture_active(true, device) {
+                *owner = None;
+                let _ = shroudforge_logging::append(&capture_root, 'E', "hotkeys", &error);
+                let _ = keybind_proxy.send_event(UiEvent::KeybindCaptureFailed(request_id, error));
+            } else {
+                let _ = shroudforge_logging::append(
+                    &capture_root, 'D', "hotkeys", &format!("Shortcut capture started: {device:?}"),
+                );
+                *owner = Some(KeybindCapture {
+                    request_id,
+                    delivered: false,
+                });
+            }
+            return;
+        }
+        if value.command == "keybind-labels" {
+            if let Some(values) = value.values.and_then(|values| values.as_array().cloned()) {
+                if values.len() <= 256 {
+                    let bindings = values
+                        .into_iter()
+                        .filter_map(|value| {
+                            value
+                                .as_str()
+                                .filter(|value| !value.is_empty() && value.len() <= 100)
+                                .map(str::to_owned)
+                        })
+                        .collect();
+                    let _ = keybind_proxy.send_event(UiEvent::KeybindLabels(bindings));
+                }
+            }
+            return;
+        }
         let Some(command) = parse_ui_command(value, arguments.desktop, arguments.server) else {
             return;
         };
@@ -240,6 +317,7 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
     let mut desktop_debug_console: Option<Child> = None;
     let mut recovered_control_actions = false;
     let mut loaded_settings_revision = live_settings_revision(&arguments.root);
+    let mut keybind_layout_revision = shroudforge_hotkeys::layout_revision();
     let mut pending_window_geometry_save: Option<Instant> = None;
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(50));
@@ -293,11 +371,14 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                     let current_settings_revision = live_settings_revision(&arguments.root);
                     if current_settings_revision != loaded_settings_revision {
                         if let Ok(updated_module_config) = load_module_config(&arguments.root) {
-                            let toggle_key = updated_module_config.toggle_key;
+                            let toggle_key = shroudforge_hotkeys::parse_hotkey(&updated_module_config.toggle_key)
+                                .ok().flatten();
                             active_provider =
                                 effective_provider(&load_user_config(&arguments.root));
                             module_config = updated_module_config;
-                            hotkey_key.store(toggle_key, Ordering::Relaxed);
+                            if let Ok(mut binding) = hotkey_key.write() {
+                                *binding = toggle_key;
+                            }
                             if read_central_config(&arguments.root)["modules"]["debugConsole"]["enabled"] == false {
                                 let _ = shroudforge_loader_config::config::publish_window_visibility(
                                     &arguments.root,
@@ -588,6 +669,7 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                             next_refresh = Instant::now();
                         }
                         Command::Hide(request_id) => {
+                            cancel_keybind_capture(&capture_owner, None);
                             let result = shroudforge_loader_config::config::publish_window_visibility(
                                 &arguments.root,
                                 "modloaderUi",
@@ -817,6 +899,8 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                         };
                         if shown {
                             window.set_minimized(false);
+                        } else {
+                            cancel_keybind_capture(&capture_owner, None);
                         }
                         window.set_visible(shown);
                         if shown {
@@ -919,8 +1003,74 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                     }
                 }
             }
+            Event::MainEventsCleared => {
+                let current_layout_revision = shroudforge_hotkeys::layout_revision();
+                if current_layout_revision != keybind_layout_revision {
+                    keybind_layout_revision = current_layout_revision;
+                    let _ = webview.evaluate_script(
+                        "window.dispatchEvent(new Event('shroudforge-keybind-labels-changed'));"
+                    );
+                }
+                let captured = capture_owner.lock().ok().and_then(|mut owner| {
+                    let current = owner.as_mut().filter(|current| !current.delivered)?;
+                    let hotkey = shroudforge_hotkeys::take_captured_hotkey()?;
+                    current.delivered = true;
+                    Some(serde_json::json!({
+                        "requestId": current.request_id,
+                        "value": hotkey.normalized(),
+                        "label": hotkey.label(),
+                    }))
+                });
+                if let Some(payload) = captured {
+                    if shroudforge_logging::allows(&arguments.root, 'T') {
+                        let _ = shroudforge_logging::append(
+                            &arguments.root, 'T', "hotkeys", &format!("Shortcut capture completed: {payload}"),
+                        );
+                    }
+                    if let Err(error) = webview.evaluate_script(&format!(
+                        "window.dispatchEvent(new CustomEvent('shroudforge-keybind-captured',{{detail:{payload}}}));"
+                    )) {
+                        cancel_keybind_capture(&capture_owner, None);
+                        let _ = shroudforge_logging::append(
+                            &arguments.root, 'E', "hotkeys", &error.to_string(),
+                        );
+                    }
+                }
+            }
+            Event::UserEvent(UiEvent::KeybindLabels(bindings)) => {
+                let labels: std::collections::BTreeMap<_, _> = bindings
+                    .into_iter()
+                    .filter_map(|value| {
+                        shroudforge_hotkeys::parse_hotkey(&value)
+                            .ok()
+                            .flatten()
+                            .map(|hotkey| (value, hotkey.label()))
+                    })
+                    .collect();
+                let payload = serde_json::json!({ "labels": labels });
+                let _ = webview.evaluate_script(&format!(
+                    "window.dispatchEvent(new CustomEvent('shroudforge-keybind-labels',{{detail:{payload}}}));"
+                ));
+            }
+            Event::UserEvent(UiEvent::KeybindCaptureFailed(request_id, error)) => {
+                let payload = serde_json::json!({ "requestId": request_id, "error": error });
+                let _ = webview.evaluate_script(&format!(
+                    "window.dispatchEvent(new CustomEvent('shroudforge-keybind-captured',{{detail:{payload}}}));"
+                ));
+                report_command_result(
+                    &arguments.root,
+                    &webview,
+                    &request_id,
+                    "Hotkeys",
+                    "Capture hotkey",
+                    Err(error),
+                    "hotkeys.unsupported",
+                    None,
+                    false,
+                );
+            }
             Event::UserEvent(UiEvent::Toggle) => {
-                if !arguments.server
+                if !arguments.server && !shroudforge_hotkeys::is_capture_active()
                     && (arguments.desktop
                         || read_central_config(&arguments.root)["modules"]["modloaderUi"]["enabled"]
                             != false)
@@ -942,6 +1092,10 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                 }
             }
             Event::WindowEvent {
+                event: WindowEvent::Focused(false),
+                ..
+            } => cancel_keybind_capture(&capture_owner, None),
+            Event::WindowEvent {
                 event: WindowEvent::Moved(_),
                 ..
             }
@@ -959,6 +1113,7 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                 event: WindowEvent::CloseRequested,
                 ..
             } => {
+                cancel_keybind_capture(&capture_owner, None);
                 if arguments.desktop {
                     let _ = shroudforge_loader_config::config::publish_window_visibility(
                         &arguments.root,
@@ -977,6 +1132,7 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                 }
             }
             Event::LoopDestroyed => {
+                cancel_keybind_capture(&capture_owner, None);
                 if current_window_geometry(&window)
                     .is_some_and(|geometry| geometry != effective_window_geometry)
                 {

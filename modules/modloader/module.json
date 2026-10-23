@@ -4,6 +4,5 @@
   "version": "1.0.0",
   "entrypoint": "shroudforge.exe",
   "mode": "--module-ui",
-  "toggleKey": 120,
   "refreshMilliseconds": 1000
 }

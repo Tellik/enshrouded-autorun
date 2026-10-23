@@ -25,6 +25,7 @@ pub(crate) fn save_settings(root: &Path, settings: &UiSettings) -> Result<(), St
         "loader": "shroudforge"
     });
     shroudforge_loader_config::config::update_loader(root, |value| {
+        let previous_modules = value["modules"].clone();
         if let Some(preferences) = &settings.module_preferences {
             for (module, keys) in [
                 (
@@ -150,6 +151,24 @@ pub(crate) fn save_settings(root: &Path, settings: &UiSettings) -> Result<(), St
             "messageNameFallback".into(),
             normalize_message_name(&settings.message_name_fallback)?.into(),
         );
+        let hotkeys_changed = value["modules"].as_object().is_some_and(|modules| {
+            modules.iter().any(|(id, module)| {
+                module.get("toggleKey").is_some_and(|binding| {
+                    previous_modules
+                        .get(id)
+                        .and_then(|previous| previous.get("toggleKey"))
+                        != Some(binding)
+                        || (module.get("enabled") == Some(&serde_json::Value::Bool(true))
+                            && previous_modules
+                                .get(id)
+                                .and_then(|previous| previous.get("enabled"))
+                                == Some(&serde_json::Value::Bool(false)))
+                })
+            })
+        });
+        if hotkeys_changed {
+            shroudforge_package::validate_hotkey_configuration(root, value, None)?;
+        }
         Ok(())
     })
 }

@@ -229,7 +229,7 @@
       "defaultSource": "game",
       "levelFilter": "ALL",
       "autoScroll": true,
-      "toggleKey": 121,
+      "toggleKey": "SDL:67",
       "refreshMilliseconds": 500,
       "tailBytes": 1048576,
       "window": {
@@ -238,13 +238,13 @@
     },
     "worldEditor": {
       "enabled": true,
-      "toggleKey": 113,
+      "toggleKey": "SDL:59",
       "refreshMilliseconds": 400
     },
     "modloaderUi": {
       "enabled": true,
       "startPage": "news",
-      "toggleKey": 120,
+      "toggleKey": "SDL:66",
       "refreshMilliseconds": 1000,
       "window": {
         "position": null

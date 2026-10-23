@@ -192,7 +192,18 @@ pub(crate) fn save_setting(
             Ok(())
         });
     }
-    let normalized_dll_setting = match (module, key) {
+    let normalized_setting = match (module, key) {
+        (_, "toggleKey") if setting.is_null() => {
+            let defaults = shroudforge_loader_config::config::read_loader_defaults()?;
+            Some(
+                defaults
+                    .get("modules")
+                    .and_then(|modules| modules.get(module))
+                    .and_then(|module| module.get(key))
+                    .cloned()
+                    .ok_or("module hotkey has no default")?,
+            )
+        }
         ("dllManager", "profiles") => Some(shroudforge_package::dll_manager::validate_profiles(
             root, setting,
         )?),
@@ -234,9 +245,12 @@ pub(crate) fn save_setting(
         } else if module == "updates.recycleBin" {
             config["modules"]["updates"]["recycleBin"][key] = setting.clone();
         } else {
-            config["modules"][module][key] = normalized_dll_setting
+            config["modules"][module][key] = normalized_setting
                 .clone()
                 .unwrap_or_else(|| setting.clone());
+        }
+        if key == "toggleKey" || (key == "enabled" && setting == &serde_json::Value::Bool(true)) {
+            shroudforge_package::validate_hotkey_configuration(root, config, None)?;
         }
         Ok(())
     })

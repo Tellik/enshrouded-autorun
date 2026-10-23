@@ -38,6 +38,9 @@ pub(crate) fn report_command_result(
         .as_ref()
         .err()
         .is_some_and(|message| is_module_unavailable_warning(message));
+    let hotkey_conflict = result.as_ref().err().is_some_and(|message| {
+        message.starts_with("Hotkey ") && message.contains(" conflicts between ")
+    });
     match &result {
         Ok(()) => mark_control_action(root, request_id, "succeeded", success_message),
         Err(error) if unavailable => mark_control_action(root, request_id, "idle", error),
@@ -46,6 +49,7 @@ pub(crate) fn report_command_result(
     let (activity_result, details, outcome) = match &result {
         Ok(()) => ("Succeeded", None, "success"),
         Err(error) if unavailable => ("Unavailable", Some(error.as_str()), "warn"),
+        Err(error) if hotkey_conflict => ("Conflict", Some(error.as_str()), "warn"),
         Err(error) => ("Failed", Some(error.as_str()), "error"),
     };
     let log_level = activity_log_level(action, outcome);

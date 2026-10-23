@@ -6,7 +6,7 @@ use serde::Serialize;
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ModuleConfig {
     #[serde(default = "default_toggle_key")]
-    pub(crate) toggle_key: u32,
+    pub(crate) toggle_key: String,
     #[serde(default = "default_refresh")]
     pub(crate) refresh_milliseconds: u64,
 }

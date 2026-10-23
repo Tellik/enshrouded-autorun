@@ -9,6 +9,7 @@ rust-version.workspace = true
 path = "lib.rs"
 
 [dependencies]
+shroudforge-hotkeys.workspace = true
 shroudforge-loader-config.workspace = true
 shroudforge-game-assets = { path = "../game-files" }
 thiserror = "2.0"

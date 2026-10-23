@@ -192,6 +192,7 @@ export function App() {
           <section className="content">
             {activeMod ? (
               <ModPage
+                key={activeMod.id}
                 mod={activeMod}
                 status={data.configuration?.modStates?.[activeMod.id]}
                 dependencyStates={data.configuration?.modStates || {}}

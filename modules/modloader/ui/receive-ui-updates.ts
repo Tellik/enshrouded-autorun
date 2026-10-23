@@ -103,6 +103,7 @@ export function useUiUpdates({
     window.__shroudforgeCommandResult = (result) => {
       if (!result.success && result.restoreSettings)
         setSettings(dataRef.current.settings)
+      window.dispatchEvent(new CustomEvent<CommandResult>('shroudforge-command-result', { detail: result }))
       notifyCommandResult(result)
     }
     post('refresh')

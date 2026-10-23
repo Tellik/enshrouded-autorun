@@ -2,6 +2,7 @@ import type { SettingDefinition } from './mod-types'
 import type React from 'react'
 
 import { SettingSwitch, SettingsRow } from '../../ui-resources/edit-setting'
+import { KeybindInput } from '../../hotkeys/ui/edit-keybind'
 
 export function ModSetting({
   definition,
@@ -144,17 +145,11 @@ export function ModSetting({
     )
   else if (control === 'keybind')
     input = (
-      <input
-        className="mod-input keybind-input"
-        value={String(value ?? '')}
-        readOnly
+      <KeybindInput
+        value={value}
+        label={definition.label}
         disabled={disabled}
-        aria-label={definition.label}
-        onKeyDown={(event) => {
-          event.preventDefault()
-          onChange(event.key)
-        }}
-        onClick={(event) => event.currentTarget.focus()}
+        onChange={onChange}
       />
     )
   else
@@ -199,4 +194,21 @@ export function optionValue(definition: SettingDefinition, value: string) {
     definition.options?.find((option) => String(option.value) === value)
       ?.value ?? value
   )
+}
+
+export function settingIsEnabled(
+  definition: SettingDefinition,
+  settings: SettingDefinition[],
+  values: Record<string, unknown>,
+  seen = new Set<string>(),
+): boolean {
+  const condition = definition.enabledWhen
+  if (!condition) return true
+  if (seen.has(definition.key)) return false
+  if (values[condition.setting] !== condition.equals) return false
+  const controller = settings.find((setting) => setting.key === condition.setting)
+  if (!controller) return false
+  const nextSeen = new Set(seen)
+  nextSeen.add(definition.key)
+  return settingIsEnabled(controller, settings, values, nextSeen)
 }

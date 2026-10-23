@@ -138,7 +138,7 @@ void start_debug_console(const std::filesystem::path& root) {
     }
     CloseHandle(process.hThread);
     console_process = process.hProcess;
-    log('D', "Debug Console module started. Press F10 to toggle.");
+    log('D', "Debug Console module started. Use its configured shortcut to toggle.");
 }
 
 void stop_debug_console() {
@@ -197,7 +197,7 @@ void start_modloader_ui(const std::filesystem::path& root) {
     }
     CloseHandle(process.hThread);
     modloader_ui_process = process.hProcess;
-    log('D', "Modloader UI module started. Press F9 to toggle.");
+    log('D', "Modloader UI module started. Use its configured shortcut to toggle.");
 }
 
 void stop_modloader_ui() {
@@ -252,7 +252,7 @@ void start_world_editor_ui(const std::filesystem::path& root) {
     }
     CloseHandle(process.hThread);
     world_editor_ui_process = process.hProcess;
-    log('D', "World Editor window host started. F1-F8 open its strip and F2 toggles it.");
+    log('D', "World Editor window host started. Use its configured shortcut to toggle.");
 }
 
 void stop_world_editor_ui() {

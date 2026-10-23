@@ -10,6 +10,24 @@ pub fn save_mod_settings(
     let package = find_mod_package(root, id).ok_or("mod package not found")?;
     let manifest = crate::config::read_manifest_path(root, &package)?;
     crate::config::validate_settings(&manifest.settings, values)?;
+    let mut candidate = manifest.setting_values.clone();
+    for (key, value) in values.as_object().ok_or("settings must be an object")? {
+        candidate[key] = value.clone();
+    }
+    let affects_keybind = manifest.settings.iter().any(|setting| {
+        matches!(setting.control, Some(crate::SettingControl::Keybind))
+            && (candidate.get(&setting.key) != manifest.setting_values.get(&setting.key)
+                || crate::setting_is_enabled(&setting.key, &manifest.settings, &candidate)
+                    != crate::setting_is_enabled(
+                        &setting.key,
+                        &manifest.settings,
+                        &manifest.setting_values,
+                    ))
+    });
+    if affects_keybind {
+        let config = crate::config::read_loader(root)?;
+        crate::validate_hotkey_configuration(root, &config, Some((id, values, None)))?;
+    }
     crate::update_mod_configuration::update_mod_configuration(root, id, revision, |extension| {
         let next = values.as_object().ok_or("settings must be an object")?;
         let settings = extension

@@ -28,6 +28,8 @@ pub(crate) struct UiCommand {
     pub(crate) job_id: Option<String>,
     #[serde(default)]
     pub(crate) enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) device: Option<shroudforge_hotkeys::InputDevice>,
     #[serde(default)]
     pub(crate) ids: Option<Vec<String>>,
     #[serde(default)]

@@ -1,33 +1,35 @@
 use super::read_window_focus::{foreground_is_shroudforge_window, foreground_process};
 use super::window::UiEvent;
 use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicU32, Ordering},
-    },
+    sync::{Arc, RwLock},
     thread,
     time::Duration,
 };
 use tao::event_loop::EventLoopProxy;
-use windows_sys::Win32::{
-    System::Threading::GetCurrentProcessId,
-    UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_F9},
-};
+use windows_sys::Win32::System::Threading::GetCurrentProcessId;
 
 pub(crate) fn watch_toggle_key(
     hotkey_proxy: EventLoopProxy<UiEvent>,
-    hotkey_key_watcher: Arc<AtomicU32>,
+    hotkey_key_watcher: Arc<RwLock<Option<shroudforge_hotkeys::Hotkey>>>,
     game_pid: u32,
     desktop: bool,
 ) {
     thread::spawn(move || {
         let mut was_down = false;
+        let mut previous_binding = None;
         loop {
-            let down = unsafe {
-                GetAsyncKeyState(hotkey_key_watcher.load(Ordering::Relaxed) as i32)
-                    | GetAsyncKeyState(VK_F9 as i32)
-            } < 0;
-            if down && !was_down {
+            let binding = hotkey_key_watcher
+                .read()
+                .ok()
+                .and_then(|binding| binding.clone());
+            let down = binding
+                .as_ref()
+                .is_some_and(shroudforge_hotkeys::is_hotkey_down);
+            if binding != previous_binding {
+                was_down = down;
+                previous_binding = binding;
+            }
+            if down && !was_down && !shroudforge_hotkeys::is_capture_active() {
                 let foreground = foreground_process();
                 let focused = desktop
                     || foreground == game_pid

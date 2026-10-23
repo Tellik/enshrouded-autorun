@@ -18,6 +18,7 @@ import { debugConsoleSettingsFields } from '../../debug-console/ui/settings'
 import { worldEditorSettingsFields } from '../../world-editor/ui/settings'
 import { NetworkSettings } from '../../transport/ui/settings'
 import { UpdatePreferences } from '../../updater/ui/edit-update-preferences'
+import { KeybindInput } from '../../hotkeys/ui/edit-keybind'
 
 function WindowGeometryControls({
   module,
@@ -158,7 +159,6 @@ export function ModulePreferencesEditor({
     maximumDurationSeconds: [1, 3600],
     slowCallbackMilliseconds: [0.1, 60000],
     popupCooldownSeconds: [0, 3600],
-    toggleKey: [1, 255],
     refreshMilliseconds: [100, 10000],
     tailBytes: [1024, 1048576],
   }
@@ -250,7 +250,14 @@ export function ModulePreferencesEditor({
                     key={key}
                     label={t(label)}
                     control={
-                      options ? (
+                      key === 'toggleKey' ? (
+                        <KeybindInput
+                          label={t(label)}
+                          value={prefs[module]?.[key]}
+                          onChange={(value) => change(module, key, value)}
+                          onReset={() => saveModule(module, key, null)}
+                        />
+                      ) : options ? (
                         <select
                           value={prefs[module]?.[key] ?? options[0]}
                           onChange={(e) => change(module, key, e.target.value)}

@@ -28,12 +28,14 @@ use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
 use windows_sys::Win32::System::Threading::GetCurrentProcessId;
 use windows_sys::Win32::System::Threading::GetExitCodeProcess;
 use windows_sys::Win32::System::Threading::WaitForSingleObject;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 use wry::WebContext;
 use wry::WebViewBuilder;
 
 pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
     let arguments = arguments()?;
+    if let Err(error) = shroudforge_logging::initialize(&arguments.root, false) {
+        eprintln!("Could not initialize Debug Console logging: {error}");
+    }
     let mut preferences =
         shroudforge_loader_config::config::read_loader(&arguments.root)?["modules"]["debugConsole"]
             .clone();
@@ -52,6 +54,10 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
         .map(open_event)
         .unwrap_or(std::ptr::null_mut());
     let event_loop = EventLoop::new();
+    event_loop.set_device_event_filter(tao::event_loop::DeviceEventFilter::Always);
+    if let Err(error) = shroudforge_hotkeys::initialize() {
+        let _ = shroudforge_logging::append(&arguments.root, 'W', "hotkeys", &error);
+    }
     let window = create_console_window(&event_loop, &arguments)?;
     let mut effective_window_geometry =
         position_window(&window, &preferences["window"]["position"], true);
@@ -86,6 +92,7 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
         shown,
     );
     let mut key_down = false;
+    let mut previous_toggle_key = config.toggle_key.clone();
     let mut fatal_seen = false;
     let mut failure_review = false;
     let mut game_exited = false;
@@ -296,8 +303,15 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
                 let foreground = foreground_process();
                 let game_focused = arguments.desktop || foreground == arguments.game_pid;
                 let console_focused = foreground == unsafe { GetCurrentProcessId() };
-                let down = unsafe { GetAsyncKeyState(config.toggle_key as i32) } < 0;
-                if user_enabled && (game_focused || console_focused) && down && !key_down {
+                let down = shroudforge_hotkeys::parse_hotkey(&config.toggle_key)
+                    .ok().flatten()
+                    .is_some_and(|binding| shroudforge_hotkeys::is_hotkey_down(&binding));
+                if config.toggle_key != previous_toggle_key {
+                    key_down = down;
+                    previous_toggle_key = config.toggle_key.clone();
+                }
+                if user_enabled && (game_focused || console_focused) && down && !key_down
+                    && !shroudforge_hotkeys::is_capture_active() {
                     shown = !shown;
                     if !shown {
                         auto_open_suppressed_until = suppress_reopen_until(&preferences);

@@ -77,7 +77,22 @@
           "minProperties": 1,
           "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 120 }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["control"], "properties": { "control": { "const": "keybind" } } },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "string",
+                "maxLength": 96,
+                "description": "One shortcut string containing an SDL keyboard chord, a Mouse button chord, or keyboard|mouse alternatives. Each chord supports ordered Ctrl, Alt, Shift and Meta prefixes. Empty disables the shortcut.",
+                "pattern": "^(?:(?:Ctrl\\+)?(?:Alt\\+)?(?:Shift\\+)?(?:Meta\\+)?SDL:[1-9][0-9]{0,2}(?:\\|(?:Ctrl\\+)?(?:Alt\\+)?(?:Shift\\+)?(?:Meta\\+)?Mouse:[1-9][0-9]?)?|(?:Ctrl\\+)?(?:Alt\\+)?(?:Shift\\+)?(?:Meta\\+)?Mouse:[1-9][0-9]?)?$"
+              }
+            }
+          }
+        }
+      ]
     },
     "action": {
       "type": "object",

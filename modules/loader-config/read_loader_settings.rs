@@ -2,11 +2,13 @@ use crate::config::*;
 use serde_json::Value;
 use std::{fs, path::Path};
 
+pub fn read_loader_defaults() -> Result<Value, String> {
+    serde_json::from_str(include_str!("loader.default.json")).map_err(|error| error.to_string())
+}
+
 pub fn read_loader(root: &Path) -> Result<Value, String> {
     let path = document_path(root, crate::documents::LOADER);
-    let defaults: Value = serde_json::from_str(include_str!("loader.default.json"))
-        .map_err(|error| error.to_string())?;
-    let mut result = defaults;
+    let mut result = read_loader_defaults()?;
     let mut loaded = match fs::read(&path) {
         Ok(bytes) => {
             Some(serde_json::from_slice::<Value>(&bytes).map_err(|error| error.to_string())?)

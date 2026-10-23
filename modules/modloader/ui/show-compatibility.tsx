@@ -12,6 +12,7 @@ import { Segmented } from '../../ui-resources/choose-segment'
 import { Card } from '../../ui-resources/show-card'
 import { WikiHelp } from '../../wiki/ui/show-wiki-help'
 import type { ModDependencyInfo, ModInfo } from './mod-types'
+import { Hotkeys, hasHotkeyConflicts } from '../../hotkeys/ui/show-hotkeys'
 import {
   ModuleEnabledRow,
   SettingsRow,
@@ -77,6 +78,7 @@ export function compatibilityNavigationStatus(
   if (configuration.assets) engineStatuses.push(assetCompatibilityStatus(configuration.assets.state))
   return combinedStatus([
     modDetectionStatus(data), dllManagerStatus(data), dependencyStatus(data),
+    hasHotkeyConflicts(data) ? 'warning' : 'ok',
     ...engineStatuses,
   ])
 }
@@ -395,6 +397,13 @@ export function Compatibility({
             />,
           ],
           [
+            'hotkeys',
+            <CompatibilityTabLabel
+              label={t('compatibility.tab.hotkeys')}
+              status={hasHotkeyConflicts(data) ? 'warning' : 'ok'}
+            />,
+          ],
+          [
             'dependencies',
             <CompatibilityTabLabel
               label={t('compatibility.tab.dependencies')}
@@ -466,6 +475,7 @@ export function Compatibility({
         </div>
       )}
       {tab === 'dll-manager' && <DllManagerPanel data={data} />}
+      {tab === 'hotkeys' && <Hotkeys data={data} />}
       {tab === 'dependencies' && (
         <div className="settings-module-list compatibility-sections">
           <WikiHelp articleId="dependencies" />
