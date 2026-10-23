@@ -40,8 +40,11 @@ modules/                       # Product modules and application entrypoints
   commands/                   # Existing command mode
   transport/                  # Steam messages and network health
   ui-resources/               # Shared display elements and translations
+  wiki/                       # Offline help articles, banners and article reader
+    articles/                 # One folder per article with locale Markdown and illustration
+    ui/                       # Article discovery, Wiki page and contextual help
   mod-runtime/                # Mod sessions, startup actions, callbacks and Lua bindings
-    session/                  # Own session state, assets and native mod handles
+    session/                  # Own session state, assets and Lua registrations
     startup/                  # Prepare and commit game-file mod changes
     ingame/                   # Start, update, reload and stop running mods
   game-files/                 # Original game files, restoration and asset transactions
@@ -100,9 +103,11 @@ flowchart TD
     K --> L
 ~~~
 
-The manifest access declarations are **patch**, **export**, **runtime**, and **runtime-register-dll**. A mod lists the access it needs in **mod.json**. ShroudForge's in-game runtime APIs use **runtime**. **runtime-register-dll** schedules an EML mod that registers a package-local native DLL for the runtime. The registration API checks the current phase and package path, but does not check this specific capability.
+The manifest access declarations are **patch**, **export**, **runtime**, and **runtime-register-dll**. A mod lists the access it needs in **mod.json**. ShroudForge's in-game runtime APIs use **runtime**. **runtime-register-dll** schedules an EML mod that registers a package-local native DLL. The registration API retains its existing phase, activation and package checks without adding a new capability check. A `native-plugin.ini` declaration or an approved DLL Manager selection uses the common native load plan without requiring a Lua stub or a Lua registration capability. The DLL Manager switch, per-folder activation, process target and exclusions apply to every ShroudForge load route.
 
 Runtime mods have separate Lua environments. The loader selects a matching profile automatically or uses the player's selected profile. When the detected build differs, it reports a warning and enables operations that resolve against the live executable. When a mod stops, the loader asks it to clean up and releases its runtime handles.
+
+Native DLL handles are process-owned. `modules/modloader/dll_manager.rs` detects installed native components and resolves INI declarations, local selections, compatibility profiles and `dinput8-chain.ini` into one ordered plan. Chain entries must resolve inside a direct installed mod package. `mod_profiles.rs` reads data-only mod adapters independently of installed files. Manifest overlays preserve existing capabilities and add profile capabilities without duplicates. `modules/mod-runtime/native_dlls.rs` owns loading, canonical path deduplication, DirectInput provider registration and status. Ordinary DLLs own their internal startup. The bootstrap prepares this plan before releasing the game entrypoint. DLLs stay loaded until process exit, so changed native selections require a game restart. Reading the inventory never executes DLLs or rewrites mod files.
 
 ## The two mod information files
 
@@ -121,6 +126,12 @@ Lua declarations and mod execution belong to **modules/mod-runtime/lua/**. EML v
 
 The [API reference](https://bonsaibauer.github.io/shroudforge/en/#api) is generated from the current function definitions. EML v1 keeps its established names and behavior. A breaking change to the ShroudForge API requires affected mods to be updated.
 
+## Offline help and UI events
+
+`modules/wiki/` owns offline help. Articles live at `articles/<article-id>/<locale>.md`, with a shared `illustration.svg` beside the translations. The first H1 supplies the title and the first paragraph supplies the banner summary. `ui/read-wiki-articles.ts` discovers articles and illustrations automatically during the frontend build and selects the available translation. The Wiki page and contextual help use the same reader and article content, without a second route list. Published website articles remain under `docs/pages/`.
+
+`modules/logging/ui/log-ui-event.ts` sends bounded Wiki and Compatibility UI events through the existing host command transport. `modules/modloader/ui/host/record_ui_log.rs` validates the source, level and text and writes each event through `write_activity_at_level`, retaining the configured log filter. Explicit warning and error notifications use the existing command-result toast path. UI events do not repeat native DLL execution results.
+
 ## Find a change by its action
 
 A file contains the implementation of the action named by that file. Related helpers stay beside that action. Each module owns its UI. The Modloader window supplies inputs and displays results.
@@ -136,9 +147,14 @@ A file contains the implementation of the action named by that file. Related hel
 | Check the revision, validate, and write changed mod configuration | `modules/modloader/update_mod_configuration.rs` |
 | Check conflicting mods | `modules/modloader/check_mod_conflicts.rs` |
 | Select the mod load order | `modules/modloader/plan_mod_load_order.rs` |
+| Detect native components and resolve the DLL load plan | `modules/modloader/dll_manager.rs` |
+| Read compatibility adapters and match automatic or manual selections | `modules/modloader/mod_profiles.rs`, `modules/modloader/mod-profiles/README.md` |
+| Load native DLLs once per process | `modules/mod-runtime/native_dlls.rs` |
 | Read or save loader settings | `modules/loader-config/read_loader_settings.rs`, `save_loader_settings.rs` |
 | Fit, resize, position, save, and reset native Modloader, Updater, and Debug Console window geometry | `modules/window-management/window_geometry.rs`, `reset_window_geometry.rs` |
 | Write a log entry | `modules/logging/append_log.rs` |
+| Log a Wiki or Compatibility UI event | `modules/logging/ui/log-ui-event.ts`, `modules/modloader/ui/host/record_ui_log.rs` |
+| Discover and display offline help articles and contextual banners | `modules/wiki/ui/read-wiki-articles.ts`, `show-wiki.tsx`, `show-wiki-help.tsx`, `show-wiki-article.tsx` |
 | Mark news as read | `modules/notifications/mark_news_read.rs` |
 | Display a short result message | `modules/notifications/ui/show-toasts.tsx` |
 | Run update requests and versioned maintenance jobs | `modules/updater/lib.rs` (`run_request`), `modules/updater/maintenance_jobs.rs`, and the feature implementations under `modules/updater/` |
@@ -186,6 +202,8 @@ The release ZIP contains these main program files:
 | Installed file | What it is for |
 | --- | --- |
 | **winmm.dll** | Starts the ShroudForge bridge beside Enshrouded. |
+| **dbghelp.dll** | Windows proxy and normal game-imported entry to the ShroudForge bridge. |
+| **dinput8.dll** | Alternative bootstrap and DirectInput chain host for native mods selected by the DLL Manager. |
 | **shroudforge/shroudforge-runtime.dll** | Loader library used by the bridge. |
 | **shroudforge/shroudforge.exe** | Main program: launcher, command-line tools, and linked ShroudForge modules. |
 | **shroudforge/shroudforge-updater.exe** | Owns update checks and actions, queued work, versioned migration jobs, and recycle-bin operations. The Modloader UI sends actions to its request mode. |
@@ -203,6 +221,7 @@ ShroudForge also creates or updates these working files as you use it:
 | **shroudforge/ui/** | Mod downloads, queued actions, and removed-mod storage. |
 | **shroudforge/updates/** | Update downloads, queued work, and backups. |
 | **shroudforge/runtime/** | Runtime status and requests shared with the running game. |
+| **shroudforge/runtime/profiles/mod-profiles/** | Update-managed JSON compatibility adapters for mods. These are separate from game-build profiles. |
 | **shroudforge/runtime/diagnostics/jobs/** | User-defined diagnostic job manifests. This folder follows a custom Runtime storage path when configured. |
 | **shroudforge/cache/** | Saved parser and Lua type information, plus temporary bundled diagnostic sources under **diagnostics/**. |
 | **shroudforge/exports/** | Mod exports and diagnostic result files under **diagnostics/&lt;job-id&gt;/**. |
