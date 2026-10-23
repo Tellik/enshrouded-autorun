@@ -27,6 +27,7 @@ modules/                       # Product modules and application entrypoints
     ui/                       # Its update views
   loader-config/              # Read and save loader settings and state
   window-management/          # Shared native window sizing and geometry persistence
+  hotkeys/                    # SDL scancode bindings, keyboard observation, and shortcut field
   logging/                    # Write logs and display activity
   notifications/              # News, saved events, read state and toasts
   runtime-diagnostics/        # Selectable, time-limited runtime diagnostic jobs
@@ -126,6 +127,24 @@ Lua declarations and mod execution belong to **modules/mod-runtime/lua/**. EML v
 
 The [API reference](https://bonsaibauer.github.io/shroudforge/en/#api) is generated from the current function definitions. EML v1 keeps its established names and behavior. A breaking change to the ShroudForge API requires affected mods to be updated.
 
+Shortcuts use SDL3 scancodes and mouse button numbers in one setting string,
+such as `Ctrl+SDL:29|Mouse:4`. The shortcut editor has separate keyboard and mouse
+columns. Each device has at most one chord, with the keyboard first in storage.
+`modules/hotkeys/` owns parsing, SDL key names, observation and key capture.
+Its official SDL3 source submodule is `modules/hotkeys/SDL`, pinned to
+`release-3.4.18`. Cargo builds SDL statically through `modules/hotkeys/build.rs`
+and compiles `sdl_keyboard.c` against the upstream event types. The existing
+release package includes SDL's license and needs no separate SDL DLL.
+In-game Lua uses a hidden ShroudForge process for SDL keyboard observation and
+receives its states and labels over a pipe. It does not register Raw Input in
+Enshrouded's process. Dedicated servers do not start keyboard observation.
+`control: "keybind"` settings remain in each mod's `extended.mod.json`, while
+native window shortcuts remain in the existing loader configuration. The
+Modloader owns declared-binding discovery and conflict validation. Lua mods
+use `shroudforge.input.is_keybind_down(settingKey)` and
+`shroudforge.input.keybind_label(settingKey)`. Numeric Windows keys, browser-code
+strings and the former raw `is_key_down` API are not supported.
+
 ## Offline help and UI events
 
 `modules/wiki/` owns offline help. Articles live at `articles/<article-id>/<locale>.md`, with a shared `illustration.svg` beside the translations. The first H1 supplies the title and the first paragraph supplies the banner summary. `ui/read-wiki-articles.ts` discovers articles and illustrations automatically during the frontend build and selects the available translation. The Wiki page and contextual help use the same reader and article content, without a second route list. Published website articles remain under `docs/pages/`.
@@ -142,6 +161,8 @@ A file contains the implementation of the action named by that file. Related hel
 | Read the live player name from the Enshrouded login log or character menu memory, and persist successful detections | `modules/player-name/lib.rs`, `modules/player-name/read_game_login_player_name.rs`, `modules/player-name/read_live_character_selection.rs` |
 | Read a mod's information | `modules/modloader/read_mod_manifest.rs` |
 | Save mod settings | `modules/modloader/save_mod_settings.rs` |
+| Parse SDL scancode shortcuts, observe keyboard input, or edit the shared shortcut field | `modules/hotkeys/` |
+| Check declared module and mod shortcut conflicts | `modules/modloader/check_hotkey_conflicts.rs` |
 | Change a mod's enabled state | `modules/modloader/set_mod_enabled.rs` |
 | Create a missing EML compatibility extension | `modules/modloader/ensure_eml_extension.rs` |
 | Check the revision, validate, and write changed mod configuration | `modules/modloader/update_mod_configuration.rs` |
@@ -191,7 +212,7 @@ The Lua World Editor under `mods/world-editor/src/` owns blueprint planning and 
 
 The dedicated-server coordinators in `operations.lua` and `history.lua` pass the authenticated peer's validated anchor and undo transaction into those same placement and restoration actions. They do not duplicate native feature requirements, grid validation or availability sampling. `p2p.lua` owns framing, transfer integrity, authorization callbacks and result delivery. The editor callback interval is 100 ms. Additional client readiness observations run at most once per two accumulated callback seconds and pause during active work.
 
-Online F8 sends the selection through `p2p.lua`, runs the canonical capture on the server and returns V7 content for client validation and `library.lua::save_capture`. Local and remote captures share unique naming and file writes. `p2p.lua` owns the bounded FIFO request queue, separate peer upload buffers and peer/request receipts. `operations.lua` keeps each peer's latest native undo journal and only activates one journal during a serialized operation. `history.lua` restores and releases only the matching peer's journal. A confirmed journal does not block another F7. Partial recovery does. These journals remain session-bound and in memory.
+The online capture action sends the selection through `p2p.lua`, runs the canonical capture on the server and returns V7 content for client validation and `library.lua::save_capture`. Local and remote captures share unique naming and file writes. `p2p.lua` owns the bounded FIFO request queue, separate peer upload buffers and peer/request receipts. `operations.lua` keeps each peer's latest native undo journal and only activates one journal during a serialized operation. `history.lua` restores and releases only the matching peer's journal. A confirmed journal does not block another paste action. Partial recovery does. These journals remain session-bound and in memory.
 
 See [Lua and native runtime](../runtime/native-runtime-and-game-profiles.en.md) for the runtime, interface, and profile workflow.
 
