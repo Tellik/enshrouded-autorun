@@ -383,6 +383,26 @@ bool ReadProcedure(std::uintptr_t entry, Procedure& output) {
     } catch (...) { return false; }
 }
 
+bool ReadContainingProcedure(std::uintptr_t address, Procedure& output) {
+    try {
+        const auto& im = image();
+        if (!im.size || address < im.base || address - im.base >= im.size) return false;
+        const auto offset = static_cast<std::uint32_t>(address - im.base);
+        for (const auto& [entry, ranges] : im.procedures) {
+            if (!std::any_of(ranges.begin(), ranges.end(), [offset](const Range& range) {
+                return range.begin <= offset && offset < range.end;
+            })) continue;
+            Procedure result;
+            if (!ReadProcedure(im.base + entry, result) ||
+                !std::any_of(result.instructions.begin(), result.instructions.end(),
+                    [address](const Instruction& instruction) { return instruction.address == address; })) return false;
+            output = std::move(result);
+            return true;
+        }
+        return false;
+    } catch (...) { return false; }
+}
+
 bool ResolveNamedSystemCode(const char* exact_name, std::uintptr_t& output) {
     if (!exact_name || !*exact_name || std::strlen(exact_name) > 96) return false;
     try {

@@ -1,6 +1,7 @@
 #include "abi/runtime_api.h"
 #include "ecs/entity_session.h"
 #include "loaded-resources/loaded_resource_access.h"
+#include "main-menu/native_main_menu.h"
 #include <algorithm>
 #include <cstring>
 #include <string>
@@ -21,6 +22,7 @@ KFC_RUNTIME_API void __cdecl KfcRuntimeDiagnostics(char* buffer, std::size_t cap
     try {
         auto diagnostics = nlohmann::json::parse(EcsRuntime::Diagnostics());
         diagnostics["resourceService"] = nlohmann::json::parse(ResourceRuntime::Status());
+        diagnostics["nativeMainMenu"] = nlohmann::json::parse(NativeMainMenu::Status());
         const auto text = diagnostics.dump();
         if (text.size() >= capacity) { write_error("report-too-large", text.size() + 1); return; }
         std::memcpy(buffer, text.data(), text.size()); buffer[text.size()] = 0;
@@ -30,7 +32,8 @@ KFC_RUNTIME_API void __cdecl KfcRuntimeDiagnostics(char* buffer, std::size_t cap
 KFC_RUNTIME_API void __cdecl KfcRuntimeStatus(char* buffer, std::size_t capacity) {
     if (!buffer || !capacity) return;
     try {
-        const auto text = EcsRuntime::Status() + " resource_service=" + ResourceRuntime::Status();
+        const auto text = EcsRuntime::Status() + " resource_service=" + ResourceRuntime::Status() +
+            " native_main_menu=" + NativeMainMenu::Status();
         const auto size = (std::min)(text.size(), capacity - 1);
         std::memcpy(buffer, text.data(), size); buffer[size] = 0;
     } catch (...) { buffer[0] = 0; }

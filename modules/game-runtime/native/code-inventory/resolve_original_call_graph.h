@@ -34,6 +34,9 @@ bool EvidenceUnchanged(const CodeEvidence& evidence);
 // Complete chained PE unwind ranges, or a bounded call-free leaf CFG. Never
 // treats E8 bytes inside operands as calls and never scans for byte signatures.
 bool ReadProcedure(std::uintptr_t entry, Procedure& output);
+// Resolves an interior instruction through the canonical chained unwind owner.
+// The address must be an instruction boundary reached by that owner's CFG.
+bool ReadContainingProcedure(std::uintptr_t address, Procedure& output);
 bool ResolveNamedSystemCode(const char* exact_name, std::uintptr_t& output);
 bool FindUniqueReachable(std::uintptr_t root, unsigned maximum_depth,
     const std::function<bool(const Procedure&)>& predicate, std::uintptr_t& output);
