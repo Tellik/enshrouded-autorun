@@ -258,6 +258,9 @@ html,body,#root{width:100%;height:100%;margin:0;overflow:hidden}body{color:var(-
 .mod-setting-control>.keybind-editor{width:100%}
 .keybind-device{display:grid;align-content:start;gap:6px;min-width:0}
 .keybind-device-label{color:var(--sf-muted);font-size:10px}
-.keybind-device .button{min-height:30px;padding:4px 8px;font-size:10px}
+.keybind-device .button{box-sizing:border-box;width:100%;min-height:30px;padding:4px 8px;font-size:10px}
 .keybind-device .keybind-input{width:100%;overflow-wrap:anywhere}
-.keybind-reset{grid-column:1/-1;justify-self:end;min-height:30px;font-size:10px}
+.keybind-reset{box-sizing:border-box;grid-column:1/-1;justify-self:center;width:calc((100% - 12px)/2);min-height:30px;font-size:10px}
+.hotkey-list-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,min(460px,46%));align-items:center}
+.hotkey-list-row>.keybind-editor{grid-column:2;width:100%;max-width:460px;min-width:0;flex:none}
+@media(max-width:760px){.hotkey-list-row{grid-template-columns:minmax(0,1fr)}.hotkey-list-row>.keybind-editor{grid-column:1;width:min(460px,100%)}}

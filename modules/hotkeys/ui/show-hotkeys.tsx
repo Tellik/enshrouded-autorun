@@ -100,7 +100,7 @@ export function Hotkeys({ data }: { data: Snapshot }) {
               key={row.id}
               label={label(row)}
               detail={detail || undefined}
-              rowClass={conflicts.length ? 'warning' : ''}
+              rowClass={`hotkey-list-row${conflicts.length ? ' warning' : ''}`}
               control={<KeybindInput value={row.binding} label={label(row)} onChange={row.save} onReset={row.reset} />}
             />
           })}
