@@ -47,7 +47,26 @@ pub(crate) fn remove_empty_mod_directories(root: &Path, file: &Path) -> Result<(
         if path == mods || !path.starts_with(&mods) {
             break;
         }
-        match fs::remove_dir(path) {
+        let mut permissions = match fs::metadata(path) {
+            Ok(metadata) => metadata.permissions(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            Err(error) => {
+                return Err(format!(
+                    "could not inspect mod directory {}: {error}",
+                    path.display()
+                ));
+            }
+        };
+        if permissions.readonly() {
+            permissions.set_readonly(false);
+            fs::set_permissions(path, permissions).map_err(|error| {
+                format!(
+                    "could not clear the read-only attribute on mod directory {}: {error}",
+                    path.display()
+                )
+            })?;
+        }
+        match retry_file_operation(|| fs::remove_dir(path)) {
             Ok(()) => directory = path.parent(),
             Err(error)
                 if error.kind() == std::io::ErrorKind::DirectoryNotEmpty
@@ -55,7 +74,12 @@ pub(crate) fn remove_empty_mod_directories(root: &Path, file: &Path) -> Result<(
             {
                 break;
             }
-            Err(error) => return Err(error.to_string()),
+            Err(error) => {
+                return Err(format!(
+                    "could not remove empty mod directory {}: {error}",
+                    path.display()
+                ));
+            }
         }
     }
     Ok(())

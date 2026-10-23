@@ -3,7 +3,7 @@ pub(crate) use crate::clear_staged_update::clear_system_update;
 pub(crate) use crate::system_stage::stage_system_update;
 pub(crate) use crate::write_update_status::{write_status, write_status_with_version};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
     process::Command,
@@ -23,6 +23,14 @@ use windows_sys::Win32::{
 pub(crate) fn prepare_release_file_locks(
     root: &Path,
     relative_paths: &[String],
+) -> Result<(), String> {
+    prepare_release_file_locks_with_shutdown(root, relative_paths, false)
+}
+
+fn prepare_release_file_locks_with_shutdown(
+    root: &Path,
+    relative_paths: &[String],
+    terminate_owned_after_timeout: bool,
 ) -> Result<(), String> {
     use windows_sys::Win32::System::RestartManager::{
         RmEndSession, RmRegisterResources, RmStartSession,
@@ -81,12 +89,19 @@ pub(crate) fn prepare_release_file_locks(
         if processes.is_empty() {
             return Ok(());
         }
+        let parents = process_parent_ids()?;
         let mut owned = Vec::new();
         let mut foreign = Vec::new();
         for process in processes {
-            let image = process_image_path(process.Process.dwProcessId)?;
+            let pid = process.Process.dwProcessId;
+            let image = process_image_path(pid)?;
             if is_owned_shroudforge_process(root, &image) {
-                owned.push((process.Process.dwProcessId, image));
+                owned.push((pid, image));
+            } else if let Some((owner_pid, owner_image)) =
+                owned_shroudforge_process_ancestor(root, pid, &parents)
+            {
+                owned.push((pid, image));
+                owned.push((owner_pid, owner_image));
             } else {
                 let name = String::from_utf16_lossy(
                     &process.strAppName[..process
@@ -102,6 +117,8 @@ pub(crate) fn prepare_release_file_locks(
                 ));
             }
         }
+        owned.sort_by_key(|(pid, _)| *pid);
+        owned.dedup_by_key(|(pid, _)| *pid);
         if !foreign.is_empty() {
             return Err(format!(
                 "Update files are in use by another process. Close it and retry: {}",
@@ -138,9 +155,35 @@ pub(crate) fn prepare_release_file_locks(
             std::thread::sleep(std::time::Duration::from_millis(250));
         }
         let mut remaining = Vec::new();
-        for (pid, image) in owned {
-            if process_is_running(pid)? {
-                remaining.push((pid, image));
+        for (pid, image) in &owned {
+            if process_is_running(*pid)? {
+                remaining.push((*pid, image.clone()));
+            }
+        }
+        if terminate_owned_after_timeout && !remaining.is_empty() {
+            let _ = shroudforge_logging::append(
+                root,
+                'W',
+                "updater",
+                &format!(
+                    "Force-closing {} ShroudForge process(es) that still hold data files after the graceful close request",
+                    remaining.len()
+                ),
+            );
+            terminate_owned_processes(&remaining)?;
+            let started = std::time::Instant::now();
+            while started.elapsed() < std::time::Duration::from_secs(5) {
+                let mut still_running = Vec::new();
+                for (pid, image) in &remaining {
+                    if process_is_running(*pid)? {
+                        still_running.push((*pid, image.clone()));
+                    }
+                }
+                remaining = still_running;
+                if remaining.is_empty() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
             }
         }
         if !remaining.is_empty() {
@@ -181,7 +224,7 @@ pub(crate) fn prepare_shroudforge_data_purge_locks(root: &Path) -> Result<(), St
     collect_purge_lock_paths(root, &data, &mut paths)?;
     paths.sort();
     paths.dedup();
-    prepare_release_file_locks(root, &paths)
+    prepare_release_file_locks_with_shutdown(root, &paths, true)
 }
 
 fn collect_purge_lock_paths(
@@ -293,6 +336,168 @@ fn process_image_path(pid: u32) -> Result<PathBuf, String> {
     Ok(PathBuf::from(String::from_utf16_lossy(
         &path[..length as usize],
     )))
+}
+
+fn terminate_owned_processes(processes: &[(u32, PathBuf)]) -> Result<(), String> {
+    use windows_sys::Win32::System::Threading::{
+        PROCESS_SYNCHRONIZE, PROCESS_TERMINATE, TerminateProcess, WaitForSingleObject,
+    };
+
+    for (pid, expected_image) in processes {
+        if *pid == std::process::id() {
+            return Err("refusing to terminate the active ShroudForge data-purge worker".into());
+        }
+        let process = unsafe {
+            OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE | PROCESS_TERMINATE,
+                0,
+                *pid,
+            )
+        };
+        if process.is_null() {
+            let error = unsafe { GetLastError() };
+            if error == ERROR_INVALID_PARAMETER {
+                continue;
+            }
+            return Err(format!(
+                "could not open ShroudForge process {pid} for shutdown (Windows error {error})"
+            ));
+        }
+        match unsafe { WaitForSingleObject(process, 0) } {
+            0 => {
+                unsafe { CloseHandle(process) };
+                continue;
+            }
+            0x0000_0102 => {}
+            _ => {
+                let error = unsafe { GetLastError() };
+                unsafe { CloseHandle(process) };
+                return Err(format!(
+                    "could not check ShroudForge process {pid} before shutdown (Windows error {error})"
+                ));
+            }
+        }
+        let mut image = vec![0u16; 32_768];
+        let mut length = image.len() as u32;
+        let queried =
+            unsafe { QueryFullProcessImageNameW(process, 0, image.as_mut_ptr(), &mut length) } != 0;
+        if !queried {
+            let error = unsafe { GetLastError() };
+            let exited = unsafe { WaitForSingleObject(process, 0) } == 0;
+            unsafe { CloseHandle(process) };
+            if exited {
+                continue;
+            }
+            return Err(format!(
+                "could not verify ShroudForge process {pid} before shutdown (Windows error {error})"
+            ));
+        }
+        let image = PathBuf::from(String::from_utf16_lossy(&image[..length as usize]));
+        if !image
+            .to_string_lossy()
+            .eq_ignore_ascii_case(&expected_image.to_string_lossy())
+        {
+            unsafe { CloseHandle(process) };
+            return Err(format!(
+                "process ID {pid} changed before its ShroudForge data lock could be released"
+            ));
+        }
+        match unsafe { WaitForSingleObject(process, 0) } {
+            0 => {
+                unsafe { CloseHandle(process) };
+                continue;
+            }
+            0x0000_0102 => {}
+            _ => {
+                let error = unsafe { GetLastError() };
+                unsafe { CloseHandle(process) };
+                return Err(format!(
+                    "could not check ShroudForge process {pid} before shutdown (Windows error {error})"
+                ));
+            }
+        }
+        if unsafe { TerminateProcess(process, 1) } == 0 {
+            let error = unsafe { GetLastError() };
+            let exited = unsafe { WaitForSingleObject(process, 0) } == 0;
+            unsafe { CloseHandle(process) };
+            if exited {
+                continue;
+            }
+            return Err(format!(
+                "could not stop ShroudForge process {pid} holding data files (Windows error {error})"
+            ));
+        }
+        let wait = unsafe { WaitForSingleObject(process, 5_000) };
+        unsafe { CloseHandle(process) };
+        if wait != 0 {
+            return Err(format!(
+                "ShroudForge process {pid} did not stop after shutdown was requested"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn process_parent_ids() -> Result<HashMap<u32, u32>, String> {
+    use std::mem::size_of;
+
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if snapshot == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
+        return Err(format!(
+            "could not enumerate processes using ShroudForge data (Windows error {})",
+            unsafe { GetLastError() }
+        ));
+    }
+    let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
+    entry.dwSize = size_of::<PROCESSENTRY32W>() as u32;
+    let mut parents = HashMap::new();
+    let mut has_entry = unsafe { Process32FirstW(snapshot, &mut entry) } != 0;
+    if !has_entry {
+        let error = unsafe { GetLastError() };
+        unsafe { CloseHandle(snapshot) };
+        if error == ERROR_NO_MORE_FILES {
+            return Ok(parents);
+        }
+        return Err(format!(
+            "could not read processes using ShroudForge data (Windows error {error})"
+        ));
+    }
+    while has_entry {
+        parents.insert(entry.th32ProcessID, entry.th32ParentProcessID);
+        has_entry = unsafe { Process32NextW(snapshot, &mut entry) } != 0;
+        if !has_entry {
+            let error = unsafe { GetLastError() };
+            if error != ERROR_NO_MORE_FILES {
+                unsafe { CloseHandle(snapshot) };
+                return Err(format!(
+                    "could not continue reading processes using ShroudForge data (Windows error {error})"
+                ));
+            }
+        }
+    }
+    unsafe { CloseHandle(snapshot) };
+    Ok(parents)
+}
+
+fn owned_shroudforge_process_ancestor(
+    root: &Path,
+    pid: u32,
+    parents: &HashMap<u32, u32>,
+) -> Option<(u32, PathBuf)> {
+    let mut child = pid;
+    let mut visited = HashSet::new();
+    while let Some(parent) = parents.get(&child).copied() {
+        if parent == 0 || !visited.insert(parent) {
+            return None;
+        }
+        if let Ok(image) = process_image_path(parent)
+            && is_owned_shroudforge_process(root, &image)
+        {
+            return Some((parent, image));
+        }
+        child = parent;
+    }
+    None
 }
 
 fn is_owned_shroudforge_process(root: &Path, image: &Path) -> bool {
