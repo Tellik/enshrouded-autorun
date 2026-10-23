@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { TranslationKey, useI18n } from '../../ui-resources/i18n'
 import { EcosystemBadge } from '../../ui-resources/show-ecosystem-badge'
 import type { CommandResult } from './notification-types'
@@ -59,26 +59,53 @@ export function useCommandToasts() {
       result.level === 'error' ? 8000 : 4500,
     )
   }
-  return { message, notifyCommandResult }
+  const dismissCommandToast = () => {
+    if (toastTimer.current !== undefined) {
+      window.clearTimeout(toastTimer.current)
+      toastTimer.current = undefined
+    }
+    setMessage(null)
+  }
+  return { message, notifyCommandResult, dismissCommandToast }
 }
 
 export function Toasts({
   errors,
   message,
+  onDismissMessage,
 }: {
   errors?: string[]
   message: ToastMessage | null
+  onDismissMessage(): void
 }) {
   const { t } = useI18n()
-  return Boolean(errors?.length) || Boolean(message) ? (
+  const errorsKey = JSON.stringify(errors ?? [])
+  const [dismissedErrorsKey, setDismissedErrorsKey] = useState<string | null>(null)
+  useEffect(() => {
+    setDismissedErrorsKey(null)
+  }, [errorsKey])
+  const showErrors = Boolean(errors?.length) && dismissedErrorsKey !== errorsKey
+  return showErrors || Boolean(message) ? (
     <div className="toast-stack" aria-live="polite">
-      {Boolean(errors?.length) && (
+      {showErrors && (
         <div role="alert" className="settings-save-message persistent error">
-          <strong>{t('settings.configuration.title')}</strong>
-          <span className="state-pill neutral">ERROR</span>
-          {errors?.map((error, index) => (
-            <p key={error || index}>{error}</p>
-          ))}
+          <div className="toast-message-content">
+            <div className="toast-message-heading">
+              <strong>{t('settings.configuration.title')}</strong>
+              <span className="state-pill neutral">ERROR</span>
+            </div>
+            {errors?.map((error, index) => (
+              <p key={error || index}>{error}</p>
+            ))}
+          </div>
+          <button
+            className="window-control window-close toast-close"
+            onClick={() => setDismissedErrorsKey(errorsKey)}
+            aria-label={t('common.dismiss')}
+            title={t('common.dismiss')}
+          >
+            ×
+          </button>
         </div>
       )}
       {message && (
@@ -86,9 +113,21 @@ export function Toasts({
           role={message.level === 'error' ? 'alert' : 'status'}
           className={`settings-save-message ${message.level === 'error' ? 'error' : message.level === 'warn' ? 'warning' : 'success'}`}
         >
-          <EcosystemBadge ecosystem={message.ecosystem} />
-          <span className="state-pill neutral">{message.level.toUpperCase()}</span>
-          {message.message}
+          <div className="toast-message-content">
+            <div className="toast-message-heading">
+              <EcosystemBadge ecosystem={message.ecosystem} />
+              <span className="state-pill neutral">{message.level.toUpperCase()}</span>
+            </div>
+            <div className="toast-message-text">{message.message}</div>
+          </div>
+          <button
+            className="window-control window-close toast-close"
+            onClick={onDismissMessage}
+            aria-label={t('common.dismiss')}
+            title={t('common.dismiss')}
+          >
+            ×
+          </button>
         </div>
       )}
     </div>

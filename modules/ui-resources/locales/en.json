@@ -49,6 +49,7 @@
   "common.minimize": "Minimize",
   "common.maximize": "Maximize or restore",
   "common.details": "Details",
+  "common.dismiss": "Dismiss notification",
   "common.install": "Install",
   "common.ready": "Ready",
   "common.refresh": "Refresh",

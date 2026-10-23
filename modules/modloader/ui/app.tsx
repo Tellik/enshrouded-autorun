@@ -27,7 +27,11 @@ export function App() {
   const [chirper, setChirper] = useState(false)
   const [settings, setSettings] = useState<Settings>(empty.settings)
   const [read, setRead] = useState<string[]>([])
-  const { message: saveMessage, notifyCommandResult } = useCommandToasts()
+  const {
+    message: saveMessage,
+    notifyCommandResult,
+    dismissCommandToast,
+  } = useCommandToasts()
   useUiUpdates({
     data,
     setData,
@@ -89,7 +93,11 @@ export function App() {
 
   return (
     <main className="shell">
-      <Toasts errors={data.configuration?.errors} message={saveMessage} />
+      <Toasts
+        errors={data.configuration?.errors}
+        message={saveMessage}
+        onDismissMessage={dismissCommandToast}
+      />
       <TopBar
         data={data}
         unread={unread.length}
