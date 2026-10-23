@@ -140,6 +140,10 @@ pub fn create(lua: &mlua::Lua, r#mod: &Mod) -> mlua::Result<Table> {
             lua.set_named_registry_value(&action_registry_key(&ui_mod_id, &action), callback)
         })?,
     )?;
+    ui.raw_set(
+        "toggle_modloader",
+        lua.create_function(|_, ()| request_modloader_toggle().map_err(mlua::Error::runtime))?,
+    )?;
     table.raw_set("ui", ui)?;
 
     let notifications = lua.create_table()?;
@@ -243,6 +247,42 @@ fn is_game_focused() -> bool {
     {
         false
     }
+}
+
+#[cfg(windows)]
+fn request_modloader_toggle() -> Result<(), String> {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        EVENT_MODIFY_STATE, GetCurrentProcessId, OpenEventW, SetEvent,
+    };
+
+    let name = format!(
+        "Local\\ShroudForge.ModMenu.Open.{}",
+        unsafe { GetCurrentProcessId() }
+    );
+    let name: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+    let event = unsafe { OpenEventW(EVENT_MODIFY_STATE, 0, name.as_ptr()) };
+    if event.is_null() {
+        return Err(format!(
+            "Modloader UI toggle bridge is unavailable: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    let signaled = unsafe { SetEvent(event) } != 0;
+    unsafe { CloseHandle(event) };
+    if signaled {
+        Ok(())
+    } else {
+        Err(format!(
+            "Could not signal Modloader UI toggle: {}",
+            std::io::Error::last_os_error()
+        ))
+    }
+}
+
+#[cfg(not(windows))]
+fn request_modloader_toggle() -> Result<(), String> {
+    Err("Modloader UI toggle is only available on Windows clients".into())
 }
 
 pub(super) fn action_registry_key(mod_id: &str, action: &str) -> String {

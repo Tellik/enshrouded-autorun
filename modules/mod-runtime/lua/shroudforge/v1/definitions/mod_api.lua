@@ -22,6 +22,10 @@ shroudforge_ui = {}
 --- @param callback fun() Function to run after that button is activated.
 function shroudforge_ui.on_action(action, callback) end
 
+--- Requests the same Modloader UI toggle as the configured shortcut.
+--- This signals the client UI process directly and does not synthesize a key press.
+function shroudforge_ui.toggle_modloader() end
+
 --- A message published to this player's local Modloader news feed.
 --- Reusing the same ID from this mod updates the existing notice.
 --- @class ShroudForgeNotification
@@ -64,7 +68,7 @@ function shroudforge_input.keybind_label(setting_key) end
 --- @field mod_id string Stable ID of the currently running mod.
 --- @field mod_kind 'lua' Runtime package kind for the currently running mod.
 --- @field settings ShroudForgeSettings Read the current values from the mod's settings.
---- @field ui ShroudForgeUi Register callbacks for Modloader buttons.
+--- @field ui ShroudForgeUi Register Modloader button callbacks and request the UI toggle.
 --- @field input ShroudForgeInput Read declared keyboard and mouse shortcuts using SDL.
 --- @field notifications ShroudForgeNotifications Publish notices in the local Modloader feed.
 shroudforge = {}

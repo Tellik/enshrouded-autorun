@@ -32,6 +32,7 @@ use super::read_ui_snapshot::read_ui_snapshot;
 use super::read_window_focus::foreground_is_shroudforge_window;
 use super::read_window_focus::foreground_process;
 use super::read_window_focus::open_event;
+use super::native_menu_toggle::NativeMenuToggle;
 use super::refresh_activity_log::refresh_activity_log;
 use super::refresh_installed_mod::refresh_installed_mod;
 use super::reload_loader_settings::reload_loader_settings;
@@ -207,7 +208,27 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
     let hotkey_key = Arc::new(RwLock::new(shroudforge_hotkeys::parse_hotkey(&module_config.toggle_key)?));
     let hotkey_key_watcher = hotkey_key.clone();
     let game_pid = arguments.game_pid;
-    watch_toggle_key(hotkey_proxy, hotkey_key_watcher, game_pid, arguments.desktop);
+    watch_toggle_key(
+        hotkey_proxy.clone(),
+        hotkey_key_watcher,
+        game_pid,
+        arguments.desktop,
+    );
+    let mut native_menu_toggle = if !arguments.desktop && !arguments.server {
+        let enabled = read_central_config(&arguments.root)
+            .pointer("/general/showNativeModMenu")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        match NativeMenuToggle::new(game_pid, enabled, hotkey_proxy.clone()) {
+            Ok(toggle) => toggle,
+            Err(error) => {
+                let _ = shroudforge_logging::append(&arguments.root, 'W', "native-menu", &error);
+                None
+            }
+        }
+    } else {
+        None
+    };
     let control_sender = sender.clone();
     let (updater_request_sender, updater_request_receiver) =
         mpsc::channel::<UpdaterRequestResult>();
@@ -472,6 +493,20 @@ pub(crate) fn run_with_arguments(arguments: Arguments) -> Result<(), Box<dyn std
                         loaded_settings_revision = current_settings_revision;
                     }
                     dispatch_control_actions(&arguments, &control_sender, &mut recovered_control_actions);
+                    if let Some(toggle) = native_menu_toggle.as_mut() {
+                        let enabled = read_central_config(&arguments.root)
+                            .pointer("/general/showNativeModMenu")
+                            .and_then(serde_json::Value::as_bool)
+                            .unwrap_or(false);
+                        if !toggle.set_enabled(enabled) {
+                            let _ = shroudforge_logging::append(
+                                &arguments.root,
+                                'W',
+                                "native-menu",
+                                "Could not update native mod menu visibility",
+                            );
+                        }
+                    }
                     next_control_poll = Instant::now() + Duration::from_millis(250);
                 }
                 while let Ok(result) = updater_request_receiver.try_recv() {
