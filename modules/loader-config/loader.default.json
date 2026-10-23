@@ -213,6 +213,15 @@
     }
   },
   "modules": {
+    "modDetection": {
+      "enabled": true,
+      "tolerateUnknownManifestFields": true
+    },
+    "dllManager": {
+      "enabled": true,
+      "excludedDllNames": [],
+      "profiles": []
+    },
     "debugConsole": {
       "enabled": true,
       "popupMode": "bootstrap",

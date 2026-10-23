@@ -12,12 +12,8 @@ impl AppState {
         if !active {
             self.loaded_resource_indexes.borrow_mut().remove_owner(id);
         }
-        if let Some(state) = native_dll_state {
-            let detail = match state {
-                "loading" => "native DLL is still loading",
-                _ => "native DLL remains loaded for this game session",
-            };
-            self.report_runtime_effect(id, state, detail);
+        if let Some(status) = native_dll_state {
+            self.report_native_dll_effect(&status);
         } else {
             let mut effects = self.runtime_effects.borrow_mut();
             if effects

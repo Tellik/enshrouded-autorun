@@ -109,6 +109,14 @@ impl ModRegistry {
             return Ok(None);
         }
 
+        if !path.join("mod.json").exists() {
+            debug!(
+                path = path.as_str(),
+                "Folder has no Lua manifest, native components are managed by the DLL Manager"
+            );
+            return Ok(None);
+        }
+
         let mut fs = FileSystem::new_disk(&path).map_err(|e| {
             ModErrorReport::new(
                 path.clone(),

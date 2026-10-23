@@ -73,7 +73,9 @@ impl AppState {
         }
 
         #[cfg(windows)]
-        if phase == RuntimePhase::Ingame {
+        if phase == RuntimePhase::Ingame
+            && crate::native_dlls::manager_enabled(game_root).unwrap_or(false)
+        {
             feature_flags |= AppFeatures::RUNTIME_DLL;
         }
 
@@ -168,8 +170,6 @@ impl AppState {
             runtime_ownership: Rc::new(RefCell::new(
                 crate::lua::ingame::overrides::claim_runtime_storage::OwnershipStore::default(),
             )),
-            native_dlls: RefCell::new(Vec::new()),
-            pending_native_dlls: RefCell::new(Vec::new()),
             env,
             api,
             config,

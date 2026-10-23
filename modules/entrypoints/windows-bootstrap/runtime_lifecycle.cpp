@@ -79,9 +79,9 @@ DWORD WINAPI run(void*) {
     startup_stage(root, "runtime-exports-resolved");
     start_modloader_ui(root);
     start_world_editor_ui(root);
-    startup_stage(root, "startup-assets");
+    startup_stage(root, "startup-preparation");
     if (!prepare_startup(root.c_str())) {
-        startup_failed(root, "startup-assets", "Asset preparation and baseline recovery failed. Game startup stopped before loading inconsistent assets");
+        startup_failed(root, "startup-preparation", "Startup preparation failed. See the preceding asset or DLL Manager error. Game startup was stopped before releasing the entrypoint");
         FreeLibrary(runtime);
         return 1;
     }

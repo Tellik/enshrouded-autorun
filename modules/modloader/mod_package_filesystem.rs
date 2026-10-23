@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs::File,
     io::{BufReader, Error, ErrorKind, Read, Result},
 };
@@ -41,11 +41,21 @@ impl FileSystem {
     }
 
     pub fn files(&self) -> Vec<Result<PathBuf>> {
-        let files = match self {
+        let mut files = match self {
             Self::Disk(fs) => fs.files(),
             Self::Zip(fs) => fs.files(),
             Self::Empty => Vec::new(),
         };
+        if let Self::Disk(fs) = self {
+            for path in fs.overrides.keys() {
+                if !files
+                    .iter()
+                    .any(|entry| entry.as_ref().is_ok_and(|item| item == path))
+                {
+                    files.push(Ok(path.clone()));
+                }
+            }
+        }
 
         debug!(
             event = "files",
@@ -57,11 +67,24 @@ impl FileSystem {
     }
 
     pub fn read_directory<P: AsRef<Path>>(&self, path: P) -> Result<Vec<Result<PathBuf>>> {
-        let files = match self {
+        let mut files = match self {
             Self::Disk(fs) => fs.read_directory(path.as_ref()),
             Self::Zip(fs) => fs.read_directory(path.as_ref()),
             Self::Empty => Err(Error::new(ErrorKind::NotFound, "No file system available")),
         };
+        if let (Self::Disk(fs), Ok(entries)) = (self, &mut files) {
+            let mut names: HashSet<_> = entries
+                .iter()
+                .filter_map(|entry| entry.as_ref().ok().cloned())
+                .collect();
+            for override_path in fs.overrides.keys() {
+                if override_path.parent() == Some(path.as_ref())
+                    && names.insert(override_path.clone())
+                {
+                    entries.push(Ok(override_path.clone()));
+                }
+            }
+        }
 
         debug!(
             event = "read_directory",
@@ -100,7 +123,12 @@ impl FileSystem {
         path: P,
     ) -> Result<Box<dyn FileRead + '_>> {
         match self {
-            Self::Disk(fs) => fs.read_file(path.as_ref()),
+            Self::Disk(fs) => {
+                if let Some(bytes) = fs.overrides.get(path.as_ref()) {
+                    return Ok(Box::new(std::io::Cursor::new(bytes.clone())));
+                }
+                fs.read_file(path.as_ref())
+            }
             Self::Zip(fs) => fs.read_file(path.as_ref()),
             Self::Empty => Err(Error::new(ErrorKind::NotFound, "No file system available")),
         }
@@ -108,7 +136,14 @@ impl FileSystem {
 
     pub fn exists<P: AsRef<Path>>(&self, path: P) -> bool {
         let result = match self {
-            Self::Disk(fs) => fs.exists(path.as_ref()),
+            Self::Disk(fs) => {
+                fs.exists(path.as_ref())
+                    || fs.overrides.contains_key(path.as_ref())
+                    || fs
+                        .overrides
+                        .keys()
+                        .any(|item| item.starts_with(path.as_ref()))
+            }
             Self::Zip(fs) => fs.exists(path.as_ref()),
             Self::Empty => false,
         };
@@ -125,7 +160,7 @@ impl FileSystem {
 
     pub fn is_file<P: AsRef<Path>>(&mut self, path: P) -> bool {
         let result = match self {
-            Self::Disk(fs) => fs.is_file(path.as_ref()),
+            Self::Disk(fs) => fs.overrides.contains_key(path.as_ref()) || fs.is_file(path.as_ref()),
             Self::Zip(fs) => fs.is_file(path.as_ref()),
             Self::Empty => false,
         };
@@ -143,7 +178,12 @@ impl FileSystem {
 
     pub fn is_directory<P: AsRef<Path>>(&mut self, path: P) -> bool {
         let result = match self {
-            Self::Disk(fs) => fs.is_directory(path.as_ref()),
+            Self::Disk(fs) => {
+                fs.overrides
+                    .keys()
+                    .any(|item| item.starts_with(path.as_ref()))
+                    || fs.is_directory(path.as_ref())
+            }
             Self::Zip(fs) => fs.is_directory(path.as_ref()),
             Self::Empty => false,
         };
@@ -175,17 +215,28 @@ impl FileSystem {
 
         Ok(abs_path)
     }
+
+    pub(crate) fn apply_profile_files(&mut self, files: &HashMap<String, String>) {
+        if let Self::Disk(fs) = self {
+            for (path, contents) in files {
+                fs.overrides
+                    .insert(PathBuf::from(path.as_str()), contents.as_bytes().to_vec());
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct DiskFileSystem {
     root: PathBuf,
+    overrides: HashMap<PathBuf, Vec<u8>>,
 }
 
 impl DiskFileSystem {
     fn new(root: &Path) -> Result<Self> {
         Ok(Self {
             root: root.canonicalize_utf8()?,
+            overrides: HashMap::new(),
         })
     }
 

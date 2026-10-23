@@ -202,6 +202,32 @@ fn panic_detail(payload: &(dyn Any + Send)) -> String {
     }
 }
 
+fn prepare_native_dlls_before_game_entry(game: &Path) -> bool {
+    let is_server = std::env::current_exe()
+        .ok()
+        .and_then(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .is_some_and(|name| name.eq_ignore_ascii_case("enshrouded_server.exe"));
+    match std::panic::catch_unwind(|| shroudforge_api::prepare_native_dlls(game, is_server)) {
+        Ok(Ok(())) => true,
+        Ok(Err(error)) => {
+            let _ = shroudforge_logging::append(game, 'E', "dll-manager", &error);
+            false
+        }
+        Err(payload) => {
+            let _ = shroudforge_logging::append(
+                game,
+                'E',
+                "dll-manager",
+                &format!("Native DLL preparation failed: {}", panic_detail(&*payload)),
+            );
+            false
+        }
+    }
+}
+
 /// Applies stale pregame asset mods from the bootstrap thread before the live
 /// ECS runtime is created. This lets a normal game start use the bundled
 /// loader instead of requiring a separate `prepare` command.
@@ -249,7 +275,7 @@ pub unsafe extern "C" fn shroudforge_prepare_startup(game: *const u16) -> bool {
                 &format!("Could not start headless config controller: {error}"),
             );
         }
-        match startup_result {
+        let assets_ready = match startup_result {
             Ok(()) => {
                 let message = format!(
                     "Early startup asset pass completed in {} ms",
@@ -263,7 +289,8 @@ pub unsafe extern "C" fn shroudforge_prepare_startup(game: *const u16) -> bool {
                     shroudforge_logging::append(&game, 'W', "startup-assets", &error.to_string());
                 pregame::recover_failed_startup(&game, &error.to_string())
             }
-        }
+        };
+        assets_ready && prepare_native_dlls_before_game_entry(&game)
     }) {
         Ok(result) => result,
         Err(payload) => {
@@ -278,13 +305,14 @@ pub unsafe extern "C" fn shroudforge_prepare_startup(game: *const u16) -> bool {
                         panic_detail(&*payload)
                     ),
                 );
-                return pregame::recover_failed_startup(
+                let assets_ready = pregame::recover_failed_startup(
                     &game,
                     &format!(
                         "Rust panic during startup asset preparation: {}",
                         panic_detail(&*payload)
                     ),
                 );
+                return assets_ready && prepare_native_dlls_before_game_entry(&game);
             }
             false
         }

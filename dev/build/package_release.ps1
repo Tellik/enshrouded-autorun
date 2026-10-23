@@ -77,6 +77,7 @@ if (-not $WithoutUpdater) {
 }
 New-Item -ItemType Directory -Force -Path (Join-Path $dataPackage 'runtime\profiles') | Out-Null
 Get-ChildItem -LiteralPath (Join-Path $root 'modules\game-runtime\profiles') -Exclude 'dev' | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $dataPackage 'runtime\profiles') -Recurse -Force }
+Copy-Item -LiteralPath (Join-Path $root 'modules\modloader\mod-profiles') -Destination (Join-Path $dataPackage 'runtime\profiles\mod-profiles') -Recurse -Force
 Copy-ShroudForgeMods (Join-Path $package 'mods')
 # Explicit release inputs: never ship an installation's generated state, events or locks.
 $configSource = Join-Path $root 'modules/loader-config'
@@ -103,8 +104,8 @@ try {
     $entryNames = @($releaseZip.Entries | ForEach-Object { $_.FullName })
     $updaterEntryPresent = $entryNames -contains 'shroudforge/shroudforge-updater.exe'
     if ($entryNames -notcontains 'winmm.dll' -or $entryNames -notcontains 'dbghelp.dll' -or $entryNames -notcontains 'dinput8.dll' -or $entryNames -notcontains 'shroudforge/shroudforge.exe' -or (-not $WithoutUpdater -and -not $updaterEntryPresent) -or ($WithoutUpdater -and $updaterEntryPresent) -or $entryNames -notcontains 'shroudforge/shroudforge-runtime.dll' -or $entryNames -notcontains 'shroudforge/kfc-runtime.dll' -or $entryNames -notcontains 'shroudforge/config/modloader-config.json' -or
-        $entryNames -notcontains 'shroudforge/version.json' -or $entryNames -notcontains 'shroudforge/runtime/profiles/enshrouded/client/1076226.json') {
-        throw 'Release archive is missing the launcher, loader configuration, or version file.'
+        $entryNames -notcontains 'shroudforge/version.json' -or $entryNames -notcontains 'shroudforge/runtime/profiles/enshrouded/client/1076226.json' -or $entryNames -notcontains 'shroudforge/runtime/profiles/mod-profiles/README.md' -or $entryNames -notcontains 'shroudforge/runtime/profiles/mod-profiles/creative.json') {
+        throw 'Release archive is missing the launcher, loader configuration, version file, or mod compatibility profiles.'
     }
 } finally {
     $releaseZip.Dispose()

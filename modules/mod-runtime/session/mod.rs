@@ -4,10 +4,7 @@ use std::{
         HashMap, HashSet,
         hash_map::{self, Entry},
     },
-    io::Read,
-    path::PathBuf as NativePathBuf,
     rc::Rc,
-    sync::mpsc::{self, Receiver, TryRecvError},
 };
 
 use bitflags::bitflags;
@@ -18,7 +15,7 @@ use kfc::{
     reflection::{TypeHandle, TypeIndex, TypeRegistry},
     resource::value::Value,
 };
-use mod_loader::{Capability, Mod, ModEnvironment};
+use mod_loader::{Mod, ModEnvironment};
 use once_cell::unsync::OnceCell;
 
 use crate::{
@@ -41,8 +38,6 @@ pub struct AppState {
     runtime_write_fault: RefCell<Option<(u64, String)>>,
     runtime_ownership:
         Rc<RefCell<crate::lua::ingame::overrides::claim_runtime_storage::OwnershipStore>>,
-    native_dlls: RefCell<Vec<NativeDll>>,
-    pending_native_dlls: RefCell<Vec<PendingNativeDll>>,
     env: ModEnvironment,
     api: ShroudForgeApi,
     config: AppConfig,
@@ -211,7 +206,6 @@ impl Drop for AppState {
                 warn!(error = %error, "Failed to abort typed asset transaction");
             }
         }
-        self.shutdown_native_dlls();
     }
 }
 
@@ -221,8 +215,6 @@ mod create_mod_session;
 pub(crate) mod loaded_resource_indexes;
 mod loaded_resources;
 mod native_plugins;
-mod read_native_plugin_declaration;
 mod record_runtime_state;
 pub use asset_resources::ResourceInfo;
 use asset_resources::ResourceSource;
-use native_plugins::{NativeDll, PendingNativeDll};

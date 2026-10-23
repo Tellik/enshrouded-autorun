@@ -5,6 +5,8 @@ pub use mod_errors::*;
 mod mod_log_macros;
 use mod_log_macros as log;
 pub mod check_mod_conflicts;
+pub mod dll_manager;
+pub mod mod_profiles;
 mod infer_mod_api_contract;
 pub use check_mod_conflicts as compatibility;
 mod plan_mod_load_order;

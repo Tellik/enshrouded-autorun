@@ -29,7 +29,7 @@ pub(crate) fn update_mod_configuration(
         Err(error) => return Err(error),
     };
     update(&mut extension)?;
-    crate::config::validate_document(root, crate::documents::EXTENDED_MOD, &extension)?;
+    crate::parse_mod_manifest::validate_extended_mod_document(root, &extension)?;
     let wire_manifest = serde_json::from_slice(&read_package_file(&package, "mod.json")?)
         .map_err(|error| error.to_string())?;
     crate::config::parse_manifest_with_extension(root, wire_manifest, Some(extension.clone()))?;

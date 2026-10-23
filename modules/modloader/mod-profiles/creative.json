@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "creative-mode",
+  "modId": "creative",
+  "packageDirectory": "creative",
+  "name": "Creative Mode",
+  "target": "both",
+  "extendedModJson": {
+    "schemaVersion": 1,
+    "targets": ["client", "server"],
+    "launcher": "EML"
+  },
+  "files": [
+    {
+      "path": "creative.dll",
+      "mode": "library"
+    }
+  ]
+}

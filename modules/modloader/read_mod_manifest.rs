@@ -12,8 +12,8 @@ fn read_package_json(fs: &mut FileSystem, name: &str) -> Result<Value, String> {
 }
 
 pub fn read_manifest(root: &Path, fs: &mut FileSystem) -> Result<ModManifest, String> {
-    let value = read_package_json(fs, "mod.json")?;
-    let extended = match fs.read_file("extended.mod.json") {
+    let mut value = read_package_json(fs, "mod.json")?;
+    let mut extended = match fs.read_file("extended.mod.json") {
         Ok(reader) => Some(
             serde_json::from_reader(reader)
                 .map_err(|error| format!("extended.mod.json: {error}"))?,
@@ -21,11 +21,75 @@ pub fn read_manifest(root: &Path, fs: &mut FileSystem) -> Result<ModManifest, St
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
         Err(error) => return Err(format!("extended.mod.json: {error}")),
     };
+    apply_manifest_profile(root, fs, &mut value, &mut extended);
     let mut manifest = parse_manifest_with_extension(root, value, extended)?;
     let mut source = String::new();
     collect_lua_sources(fs, camino::Utf8Path::new("src"), &mut source)?;
     infer_api_contract(&mut manifest, &source);
     Ok(manifest)
+}
+
+fn apply_manifest_profile(
+    root: &Path,
+    fs: &mut FileSystem,
+    mod_json: &mut Value,
+    extended_mod_json: &mut Option<Value>,
+) {
+    let Some(package_directory) = fs.root().file_name() else {
+        return;
+    };
+    let Some(mod_id) = mod_json.get("id").and_then(Value::as_str) else {
+        return;
+    };
+    let profile = crate::mod_profiles::profile_for_package(root, package_directory, Some(mod_id));
+    let Some(profile) = profile else {
+        return;
+    };
+    if let Some(mut overlay) = profile.mod_json {
+        if let Some(additions) = overlay
+            .as_object_mut()
+            .and_then(|object| object.remove("capabilities"))
+        {
+            let existing = mod_json.get("capabilities");
+            // Preserve invalid source values for the normal manifest validator.
+            if existing.is_none_or(Value::is_array) {
+                let mut capabilities = Vec::new();
+                for capability in existing
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .chain(additions.as_array().into_iter().flatten())
+                {
+                    if !capabilities.contains(capability) {
+                        capabilities.push(capability.clone());
+                    }
+                }
+                mod_json["capabilities"] = Value::Array(capabilities);
+            }
+        }
+        merge_profile_object(mod_json, &overlay);
+    }
+    if let Some(overlay) = profile.extended_mod_json {
+        let extended = extended_mod_json.get_or_insert_with(|| serde_json::json!({}));
+        merge_profile_object(extended, &overlay);
+    }
+    fs.apply_profile_files(&profile.package_files);
+    tracing::debug!(target: "shroudforge::dll_manager", mod_id = %profile.mod_id,
+        profile_id = %profile.id, "Applied compatibility profile to in-memory manifests");
+}
+
+fn merge_profile_object(target: &mut Value, overlay: &Value) {
+    let (Some(target), Some(overlay)) = (target.as_object_mut(), overlay.as_object()) else {
+        return;
+    };
+    for (key, value) in overlay {
+        match (target.get_mut(key), value) {
+            (Some(existing), Value::Object(_)) => merge_profile_object(existing, value),
+            _ => {
+                target.insert(key.clone(), value.clone());
+            }
+        }
+    }
 }
 
 fn collect_lua_sources(

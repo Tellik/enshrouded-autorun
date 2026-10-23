@@ -85,6 +85,9 @@ pub fn native_runtime_library(root: &Path) -> PathBuf {
 pub fn runtime_profiles_dir(root: &Path) -> PathBuf {
     runtime_dir(root).join("profiles")
 }
+pub fn mod_profiles_dir(root: &Path) -> PathBuf {
+    runtime_profiles_dir(root).join("mod-profiles")
+}
 pub fn diagnostic_jobs_dir(root: &Path) -> PathBuf {
     runtime_dir(root).join("diagnostics").join("jobs")
 }

@@ -6,6 +6,9 @@ pub(crate) fn runtime_profile_ids(root: &Path) -> Vec<String> {
     let mut profiles = Vec::new();
     let mut pending = vec![directory];
     while let Some(current) = pending.pop() {
+        if current == shroudforge_loader_config::paths::mod_profiles_dir(root) {
+            continue;
+        }
         let Ok(entries) = fs::read_dir(current) else {
             continue;
         };

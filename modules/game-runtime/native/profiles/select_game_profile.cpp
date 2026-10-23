@@ -46,7 +46,13 @@ bool Load() {
         auto load_external_profiles = [&](const std::string& id_filter) {
             std::vector<nlohmann::json> loaded_profiles;
             if (!std::filesystem::exists(profile_root)) return loaded_profiles;
-            for (const auto& entry : std::filesystem::recursive_directory_iterator(profile_root)) {
+            for (auto iterator = std::filesystem::recursive_directory_iterator(profile_root);
+                iterator != std::filesystem::recursive_directory_iterator(); ++iterator) {
+                const auto& entry = *iterator;
+                if (entry.is_directory() && entry.path().filename() == L"mod-profiles") {
+                    iterator.disable_recursion_pending();
+                    continue;
+                }
                 if (!entry.is_regular_file() || entry.path().extension() != L".json") continue;
                 std::ifstream profile_file(entry.path());
                 if (!profile_file) continue;

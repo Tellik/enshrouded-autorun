@@ -153,16 +153,31 @@ pub fn download_catalog_version(
         Some("Download verified. Preparing mod installation"),
     )?;
 
-    let manifest = shroudforge_package::config::read_manifest_path(root, &temporary);
-    let manifest = match manifest {
-        Ok(manifest) => manifest,
-        Err(error) => {
-            return Err(format!("Invalid mod.json: {error}"));
-        }
+    let mods = shroudforge_loader_config::paths::mods_dir(root);
+    fs::create_dir_all(&mods).map_err(|error| error.to_string())?;
+    let staging_root = if update_mod_id.is_some() {
+        shroudforge_loader_config::paths::updates_dir(root).join("mod-staging")
+    } else {
+        downloads.clone()
     };
-    if let Err(error) = shroudforge_package::validate_manifest(&manifest) {
-        return Err(format!("Invalid mod manifest: {error}"));
-    }
+    fs::create_dir_all(&staging_root).map_err(|error| error.to_string())?;
+    let transaction = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let extraction = staging_root.join(format!("{}-{transaction}-extract", std::process::id()));
+    fs::create_dir(&extraction).map_err(|error| error.to_string())?;
+    let extraction_cleanup = StagingDirectory {
+        path: extraction.clone(),
+        keep: false,
+    };
+    extract_zip(root, &temporary, &extraction)?;
+    shroudforge_updater::check_update_cancelled(root)?;
+    let package = select_extracted_package(root, &extraction, update_mod_id)?;
+    let manifest = shroudforge_package::config::read_manifest_path(root, &package)
+        .map_err(|error| format!("Invalid mod.json: {error}"))?;
+    shroudforge_package::validate_manifest(&manifest)
+        .map_err(|error| format!("Invalid mod manifest: {error}"))?;
     if update_mod_id.is_none() && find_mod_package(root, &manifest.id).is_some() {
         return Err(format!("Mod '{}' is already installed", manifest.name));
     }
@@ -174,34 +189,52 @@ pub fn download_catalog_version(
             manifest.id
         ));
     }
-    let mods = shroudforge_loader_config::paths::mods_dir(root);
-    fs::create_dir_all(&mods).map_err(|error| error.to_string())?;
-    let staging_root = if update_mod_id.is_some() {
-        shroudforge_loader_config::paths::updates_dir(root).join("mod-staging")
+    let profiles = shroudforge_package::mod_profiles::read_profiles(root)
+        .map_err(|errors| errors.join("\n"))?;
+    let profile = shroudforge_package::mod_profiles::select_profile(
+        &profiles,
+        &manifest.id,
+        Some(&manifest.id),
+        None,
+    );
+    if let Some(profile) = profile {
+        import_profile_companions(root, &extraction, &package, profile)?;
+        for file in &profile.files {
+            let path = package.join(&file.path);
+            crate::extract_mod_archive::ensure_child(&package, &path)?;
+            if !path.is_file() {
+                return Err(format!(
+                    "Compatibility profile '{}' requires native component '{}'",
+                    profile.name, file.path,
+                ));
+            }
+        }
+    }
+    let native_entrypoint = profile.is_some_and(|profile| !profile.files.is_empty());
+    let lua_entrypoint = package.join("src/mod.lua").is_file()
+        || profile.is_some_and(|profile| profile.package_files.contains_key("src/mod.lua"));
+    let ini_entrypoint = if lua_entrypoint || native_entrypoint {
+        false
     } else {
-        downloads.clone()
+        valid_native_ini_entrypoint(&package)?
     };
-    fs::create_dir_all(&staging_root).map_err(|error| error.to_string())?;
-    let staging = staging_root.join(format!(
-        "{}-{}-extract",
-        manifest.id,
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-    ));
-    fs::create_dir(&staging).map_err(|error| error.to_string())?;
+    if !lua_entrypoint && !native_entrypoint && !ini_entrypoint {
+        return Err(
+            "The mod has no src/mod.lua entrypoint, enabled native-plugin.ini or matching native compatibility profile"
+                .into(),
+        );
+    }
+    let staging = staging_root.join(format!("{}-{transaction}-package", manifest.id));
+    fs::rename(&package, &staging)
+        .map_err(|error| format!("Could not prepare the extracted mod folder: {error}"))?;
     let mut staging_cleanup = StagingDirectory {
         path: staging.clone(),
         keep: false,
     };
+    // Only the selected package proceeds. Wrapper folders and unrelated root DLLs
+    // belong to extraction and are removed by its guard.
+    drop(extraction_cleanup);
     shroudforge_updater::check_update_cancelled(root)?;
-    extract_zip(root, &temporary, &staging)?;
-    shroudforge_updater::check_update_cancelled(root)?;
-    let extracted = shroudforge_package::config::read_manifest_path(root, &staging)?;
-    if extracted.id != manifest.id || !staging.join("src/mod.lua").is_file() {
-        return Err("extracted mod must have the same id and a src/mod.lua entrypoint".into());
-    }
     let destination = mods.join(&manifest.id);
     if let Some(expected_id) = update_mod_id {
         if manifest.id != expected_id {
@@ -218,4 +251,119 @@ pub fn download_catalog_version(
             .commit(&destination)?;
         Ok((manifest.id, destination))
     }
+}
+
+fn valid_native_ini_entrypoint(package: &Path) -> Result<bool, String> {
+    let (state, dll) = shroudforge_package::dll_manager::read_plugin_ini(package);
+    if state != "enabled" {
+        return Ok(false);
+    }
+    let dll = dll.ok_or("Enabled native-plugin.ini must declare a DLL")?;
+    let relative = Path::new(&dll);
+    if relative
+        .components()
+        .any(|part| !matches!(part, std::path::Component::Normal(_)))
+        || !dll.to_ascii_lowercase().ends_with(".dll")
+    {
+        return Err("native-plugin.ini must name a DLL inside the mod folder".into());
+    }
+    let package = package.canonicalize().map_err(|error| error.to_string())?;
+    let path = package
+        .join(relative)
+        .canonicalize()
+        .map_err(|error| format!("native-plugin.ini DLL '{dll}' was not found: {error}"))?;
+    if !path.starts_with(&package) || !path.is_file() {
+        return Err("native-plugin.ini DLL must stay inside its mod folder".into());
+    }
+    Ok(true)
+}
+
+/// Archive layout belongs to installation. The running mod loader sees folders only.
+fn select_extracted_package(
+    root: &Path,
+    extraction: &Path,
+    expected_id: Option<&str>,
+) -> Result<PathBuf, String> {
+    let mut directories = vec![extraction.to_path_buf()];
+    let mut packages = Vec::new();
+    while let Some(directory) = directories.pop() {
+        shroudforge_updater::check_update_cancelled(root)?;
+        if directory.join("mod.json").is_file() {
+            packages.push(directory.clone());
+        }
+        for entry in fs::read_dir(&directory).map_err(|error| error.to_string())? {
+            let entry = entry.map_err(|error| error.to_string())?;
+            if entry
+                .file_type()
+                .map_err(|error| error.to_string())?
+                .is_dir()
+            {
+                directories.push(entry.path());
+            }
+        }
+    }
+    packages.sort();
+    if let Some(expected_id) = expected_id {
+        packages.retain(|package| {
+            fs::read(package.join("mod.json"))
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                .is_some_and(|manifest| manifest["id"].as_str() == Some(expected_id))
+        });
+    }
+    match packages.as_slice() {
+        [package] => Ok(package.clone()),
+        [] if expected_id.is_some() => Err(format!("The archive contains no mod.json for the requested mod '{}'", expected_id.unwrap())),
+        [] => Err("The archive contains no mod.json. For a native-only mod, put its own folder in mods and select its entry DLL in DLL Manager".into()),
+        _ => Err("The archive contains multiple mod packages. Install one mod folder at a time".into()),
+    }
+}
+
+fn import_profile_companions(
+    root: &Path,
+    extraction: &Path,
+    package: &Path,
+    profile: &shroudforge_package::mod_profiles::ModCompatibilityProfile,
+) -> Result<(), String> {
+    let mut mappings: Vec<_> = profile.import_files.iter().collect();
+    mappings.sort_by_key(|(source, _)| *source);
+    for (source, destination) in mappings {
+        shroudforge_updater::check_update_cancelled(root)?;
+        let target = package.join(destination);
+        crate::extract_mod_archive::ensure_child(package, &target)?;
+        if target.is_file() {
+            continue;
+        }
+        let companion = package.ancestors().take_while(|ancestor| ancestor.starts_with(extraction))
+            .map(|ancestor| ancestor.join(source)).find(|candidate| candidate.is_file())
+            .ok_or_else(|| format!("Compatibility profile '{}' requires companion file '{source}' in the mod archive", profile.name))?;
+        crate::extract_mod_archive::ensure_child(extraction, &companion)?;
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        let mut input = fs::File::open(&companion).map_err(|error| error.to_string())?;
+        let mut output = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&target)
+            .map_err(|error| {
+                format!("Could not import native companion '{destination}': {error}")
+            })?;
+        crate::apply_release_files::copy_reader_with_cancellation(
+            &mut input,
+            &mut output,
+            root,
+            "native mod companion import",
+        )?;
+        let _ = shroudforge_logging::append(
+            root,
+            'I',
+            "mod-installation",
+            &format!(
+                "Imported native companion {source} into {}/{destination} using compatibility profile {}",
+                profile.package_directory, profile.name,
+            ),
+        );
+    }
+    Ok(())
 }

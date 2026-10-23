@@ -117,6 +117,8 @@ pub(crate) fn save_setting(
     }
     let module = module.ok_or("missing module setting target")?;
     let valid = match module {
+        "modDetection" => matches!(key, "enabled" | "tolerateUnknownManifestFields"),
+        "dllManager" => matches!(key, "enabled" | "profiles" | "excludedDllNames"),
         "debugConsole" => {
             matches!(
                 key,
@@ -190,6 +192,15 @@ pub(crate) fn save_setting(
             Ok(())
         });
     }
+    let normalized_dll_setting = match (module, key) {
+        ("dllManager", "profiles") => Some(shroudforge_package::dll_manager::validate_profiles(
+            root, setting,
+        )?),
+        ("dllManager", "excludedDllNames") => {
+            Some(shroudforge_package::dll_manager::normalize_excluded_dll_names(setting)?)
+        }
+        _ => None,
+    };
     if module == "network" && key != "enabled" {
         let text = setting.as_str().ok_or("Network settings must be text")?;
         if key == "serverSteamId"
@@ -223,7 +234,9 @@ pub(crate) fn save_setting(
         } else if module == "updates.recycleBin" {
             config["modules"]["updates"]["recycleBin"][key] = setting.clone();
         } else {
-            config["modules"][module][key] = setting.clone();
+            config["modules"][module][key] = normalized_dll_setting
+                .clone()
+                .unwrap_or_else(|| setting.clone());
         }
         Ok(())
     })

@@ -7,6 +7,7 @@ use std::sync::Arc;
 mod ingame;
 mod logging;
 mod lua;
+mod native_dlls;
 pub mod reflection;
 mod session;
 mod startup;
@@ -135,6 +136,7 @@ pub struct RunArgs {
 }
 
 pub use lua::definitions::export_lua_definitions::export_lua_definitions;
+pub use native_dlls::prepare_startup as prepare_native_dlls;
 pub use runtime::IngameRuntime;
 pub use startup::manage_asset_baseline::{
     backup_companion_file, create_working_kfc_backup, restore, working_baseline_is_incompatible,
