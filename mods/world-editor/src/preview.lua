@@ -57,10 +57,14 @@ return function(editor)
     end
 
     function editor.key_pressed(key)
-        local down = shroudforge.input.is_key_down(key)
-        local pressed = down and not editor.previous_key_state[key]
-        editor.previous_key_state[key] = down
-        if pressed then shroudforge.log.debug("World Editor input: key=" .. tostring(key)) end
+        local binding = editor.setting(key)
+        local down = shroudforge.input.is_keybind_down(key)
+        local previous = editor.previous_key_state[key]
+        local pressed = down and (not previous or (previous.binding == binding and not previous.down))
+        editor.previous_key_state[key] = {binding = binding, down = down}
+        if pressed then
+            shroudforge.log.debug("World Editor input: action=" .. key .. " key=" .. tostring(shroudforge.input.keybind_label(key)))
+        end
         return pressed
     end
 
@@ -83,7 +87,7 @@ return function(editor)
         panel_height = math.floor(math.min(400, math.max(140, panel_height)))
         panel_position_x = math.floor(math.min(8192, math.max(-1, panel_position_x)))
         panel_position_y = math.floor(math.min(8192, math.max(0, panel_position_y)))
-        local text = table.concat({
+        local lines = {
             "saveState=" .. editor.save_progress.state,
             "saveCompleted=" .. tostring(editor.save_progress.completed),
             "savePhase=" .. editor.save_progress.phase,
@@ -95,7 +99,7 @@ return function(editor)
             "processTotal=" .. tostring(editor.process_progress.total),
             "processSequence=" .. tostring(editor.process_progress.sequence),
             "stage=" .. tostring(editor.editor_stage),
-            "hint=" .. tostring(editor.editor_hint),
+            "hint=" .. editor.format_keybind_hint(editor.editor_hint),
             "selected=" .. tostring(editor.active_blueprint_name or ""),
             "axis=" .. axis,
             "turns=" .. tostring(editor.rotation_turns()),
@@ -109,7 +113,15 @@ return function(editor)
             "runtimeReadinessReason=" .. editor.native_readiness_reason,
             "sessionGeneration=" .. tostring(editor.current_session()),
             "archivedSessions=" .. tostring(#editor.retired_sessions),
-        }, "\n") .. "\n"
+        }
+        local keybind_keys = {}
+        for key in pairs(editor.previous_key_state) do keybind_keys[#keybind_keys + 1] = key end
+        table.sort(keybind_keys)
+        for _, key in ipairs(keybind_keys) do
+            -- The native panel resolves these currently applied settings with SDL.
+            lines[#lines + 1] = "keybind." .. key .. "=" .. tostring(editor.setting(key))
+        end
+        local text = table.concat(lines, "\n") .. "\n"
         if text == editor.last_published_editor_state then return true end
         local ok, reason = pcall(io.export, "world-editor/editor-state.txt", text)
         if not ok then
@@ -171,10 +183,10 @@ return function(editor)
             else editor.selection_target = point end
             if which == "a" then
                 editor.editor_stage = "need_b"
-                editor.editor_hint = "Corner A is marked. Aim at the opposite corner and press F5 again."
+                editor.editor_hint = "Corner A is marked. Aim at the opposite corner and press {{keybind:markCursorNext}} again."
             elseif which == "b" then
                 editor.editor_stage = "ready"
-                editor.editor_hint = "Both corners are marked. Press F8 to capture and save the blueprint."
+                editor.editor_hint = "Both corners are marked. Press {{keybind:captureAndSave}} to capture and save the blueprint."
             end
             editor.publish_editor_state()
             shroudforge.log.debug(string.format("World Editor cursor selection %s = %.3f, %.3f, %.3f",
@@ -184,7 +196,7 @@ return function(editor)
 
     function editor.preview_paste_at(point)
         if not editor.clipboard then
-            editor.set_editor_message("need_a", "No blueprint is active. Press F5 to create one or select a saved blueprint.")
+            editor.set_editor_message("need_a", "No blueprint is active. Press {{keybind:markCursorNext}} to create one or select a saved blueprint.")
             shroudforge.log.warn("World Editor: copy or load a blueprint before previewing")
             return
         end
@@ -206,7 +218,7 @@ return function(editor)
         for _, cell in ipairs(plan.cells or {}) do if cell ~= 0 then occupied = occupied + 1 end end
         editor.placement_preview = {blueprint = editor.clipboard, target = target, anchor = anchor, turns = turns, axis = axis,
             plan = plan, bounds = editor.plan_world_bounds(plan, anchor)}
-        editor.set_editor_message("selected", "Preview ready. No world changes were made. Press F7 to place the blueprint.")
+        editor.set_editor_message("selected", "Preview ready. No world changes were made. Press {{keybind:pasteAtCursor}} to place the blueprint.")
         shroudforge.log.info(string.format(
             "World Editor placement plan prepared: axis=%s turns=%d anchor=%.3f,%.3f,%.3f voxels=%s size=%d,%d,%d occupied=%d props=%d. No world changes were made.",
             axis, turns, anchor[1], anchor[2], anchor[3], tostring(plan.hasVoxels), plan.sx, plan.sy, plan.sz, occupied, #plan.props))
@@ -217,7 +229,7 @@ return function(editor)
 
     function editor.preview_paste()
         if not editor.clipboard then
-            editor.set_editor_message("need_a", "No blueprint is active. Press F5 to create one or select a saved blueprint.")
+            editor.set_editor_message("need_a", "No blueprint is active. Press {{keybind:markCursorNext}} to create one or select a saved blueprint.")
             shroudforge.log.warn("World Editor: copy or load a blueprint before previewing")
             return
         end
@@ -239,24 +251,24 @@ return function(editor)
             editor.clipboard, editor.active_blueprint_name, editor.placement_preview = nil, nil, nil
             editor.selection_a, editor.selection_b = nil, nil
             editor.editor_stage = "need_a"
-            editor.editor_hint = "New blueprint selected. Aim at the first corner and press F5 to mark it."
+            editor.editor_hint = "New blueprint selected. Aim at the first corner and press {{keybind:markCursorNext}} to mark it."
             editor.publish_editor_state()
         end
         editor.request_cursor_action(function(point)
             if starting_new_capture then
                 editor.selection_a, editor.selection_b = point, nil
                 editor.editor_stage = "need_b"
-                editor.editor_hint = "Corner A is marked. Aim at the opposite corner and press F5 again."
+                editor.editor_hint = "Corner A is marked. Aim at the opposite corner and press {{keybind:markCursorNext}} again."
                 editor.publish_editor_state()
-                shroudforge.log.debug(string.format("World Editor help: first corner marked at %.3f, %.3f, %.3f. Aim at the opposite corner and press F5 again.",
-                    point.x, point.y, point.z))
+                shroudforge.log.debug(editor.format_keybind_hint(string.format("World Editor help: first corner marked at %.3f, %.3f, %.3f. Aim at the opposite corner and press {{keybind:markCursorNext}} again.",
+                    point.x, point.y, point.z)))
             else
                 editor.selection_b = point
                 editor.editor_stage = "ready"
-                editor.editor_hint = "Both corners are marked. Press F8 to capture and save the blueprint."
+                editor.editor_hint = "Both corners are marked. Press {{keybind:captureAndSave}} to capture and save the blueprint."
                 editor.publish_editor_state()
-                shroudforge.log.debug(string.format("World Editor help: second corner marked at %.3f, %.3f, %.3f. Selection is ready. Press F8 to capture and save.",
-                    point.x, point.y, point.z))
+                shroudforge.log.debug(editor.format_keybind_hint(string.format("World Editor help: second corner marked at %.3f, %.3f, %.3f. Selection is ready. Press {{keybind:captureAndSave}} to capture and save.",
+                    point.x, point.y, point.z)))
             end
         end, starting_new_capture and "Reading the first selection corner…" or "Reading the second selection corner…")
     end
@@ -267,8 +279,8 @@ return function(editor)
         editor.selection_a, editor.selection_b = nil, nil
         editor.set_editor_message("need_a", "New blueprint selected.")
         editor.editor_stage = "need_a"
-        editor.editor_hint = "New blueprint selected. Aim at the first corner and press F5 to mark it."
+        editor.editor_hint = "New blueprint selected. Aim at the first corner and press {{keybind:markCursorNext}} to mark it."
         editor.publish_editor_state()
-        shroudforge.log.debug("World Editor: new blueprint capture selected. Press F5 to mark the first corner.")
+        shroudforge.log.debug(editor.format_keybind_hint("World Editor: new blueprint capture selected. Press {{keybind:markCursorNext}} to mark the first corner."))
     end
 end

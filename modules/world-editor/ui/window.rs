@@ -26,9 +26,6 @@ use windows_sys::Win32::Foundation::CloseHandle;
 use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
 use windows_sys::Win32::System::Threading::GetCurrentProcessId;
 use windows_sys::Win32::System::Threading::WaitForSingleObject;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_F1;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_F2;
 use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
 use wry::WebContext;
@@ -36,9 +33,12 @@ use wry::WebViewBuilder;
 
 pub(crate) fn run_module() -> Result<(), Box<dyn std::error::Error>> {
     let arguments = arguments()?;
+    if let Err(error) = shroudforge_logging::initialize(&arguments.root, false) {
+        eprintln!("Could not initialize World Editor logging: {error}");
+    }
     let config = shroudforge_loader_config::config::read_loader(&arguments.root)?;
     let preferences = config["modules"]["worldEditor"].clone();
-    let toggle_key = preferences["toggleKey"].as_i64().unwrap_or(VK_F2 as i64) as i32;
+    let mut toggle_key = shroudforge_hotkeys::parse_value(&preferences["toggleKey"])?;
     let refresh_ms = preferences["refreshMilliseconds"]
         .as_u64()
         .unwrap_or(400)
@@ -46,7 +46,7 @@ pub(crate) fn run_module() -> Result<(), Box<dyn std::error::Error>> {
     let initial_state = view_state(&arguments.root).unwrap_or_else(|_| empty_state());
     let initial_window_state = shroudforge_loader_config::config::window_state(&arguments.root);
     // Always start hidden for a new game session. A persisted open state must not
-    // make the overlay appear before the player asks for it with F1–F8.
+    // make the overlay appear before the player asks for it.
     let _ = shroudforge_loader_config::config::request_window_visibility(
         &arguments.root,
         "worldEditor",
@@ -68,6 +68,10 @@ pub(crate) fn run_module() -> Result<(), Box<dyn std::error::Error>> {
         .map(open_event)
         .unwrap_or(std::ptr::null_mut());
     let event_loop = EventLoop::new();
+    event_loop.set_device_event_filter(tao::event_loop::DeviceEventFilter::Always);
+    if let Err(error) = shroudforge_hotkeys::initialize() {
+        let _ = shroudforge_logging::append(&arguments.root, 'W', "hotkeys", &error);
+    }
     let window = create_editor_window(&event_loop, &initial_state)?;
     position_window(
         &window,
@@ -121,7 +125,6 @@ pub(crate) fn run_module() -> Result<(), Box<dyn std::error::Error>> {
         "worldEditor",
         module_enabled && window_visible,
     );
-    let mut function_keys_down = [false; 8];
     let mut toggle_down = false;
     let mut next_visibility_poll = Instant::now();
     let mut next_settings_poll = Instant::now();
@@ -267,6 +270,12 @@ pub(crate) fn run_module() -> Result<(), Box<dyn std::error::Error>> {
                     if let Ok(config) =
                         shroudforge_loader_config::config::read_loader(&arguments.root)
                     {
+                        if let Ok(next_key) = shroudforge_hotkeys::parse_value(&config["modules"]["worldEditor"]["toggleKey"]) {
+                            if next_key != toggle_key {
+                                toggle_key = next_key;
+                                toggle_down = toggle_key.as_ref().is_some_and(shroudforge_hotkeys::is_hotkey_down);
+                            }
+                        }
                         let next_enabled = config["modules"]["worldEditor"]["enabled"] != false;
                         if next_enabled != module_enabled {
                             module_enabled = next_enabled;
@@ -299,17 +308,11 @@ pub(crate) fn run_module() -> Result<(), Box<dyn std::error::Error>> {
                 if !foreground.is_null() { unsafe { GetWindowThreadProcessId(foreground, &mut foreground_pid) }; }
                 let is_game = arguments.desktop || foreground_pid == arguments.game_pid;
                 let is_overlay = foreground_pid == unsafe { GetCurrentProcessId() };
-                let mut function_key_pressed = [false; 8];
-                for (index, was_down) in function_keys_down.iter_mut().enumerate() {
-                    let down = unsafe { GetAsyncKeyState(VK_F1 as i32 + index as i32) } < 0;
-                    function_key_pressed[index] = down && !*was_down;
-                    *was_down = down;
-                }
-                let toggle = unsafe { GetAsyncKeyState(toggle_key) } < 0;
+                let toggle = toggle_key.as_ref().is_some_and(shroudforge_hotkeys::is_hotkey_down);
                 let toggle_pressed = toggle && !toggle_down;
-                if module_enabled && (is_game || is_overlay) {
+                if module_enabled && (is_game || is_overlay) && !shroudforge_hotkeys::is_capture_active() {
                     let was_visible = window_visible;
-                    if toggle_pressed || function_key_pressed[1] {
+                    if toggle_pressed {
                         window_visible = !window_visible;
                         if window_visible {
                             let height = if manager_open {

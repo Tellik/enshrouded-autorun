@@ -35,6 +35,42 @@
     "Adds F3-F8 shortcuts, cursor-targeted paste, capture-to-blueprint workflow, rotation and paste modes, and conflict-checked undo. F1 remains available to the game."
   ],
   "settings": {
+    "rotateBlueprint": {
+      "value": "SDL:60",
+      "control": "keybind",
+      "label": "Rotate blueprint 90°",
+      "applyAt": "live"
+    },
+    "undoVoxels": {
+      "value": "SDL:61",
+      "control": "keybind",
+      "label": "Undo last paste",
+      "applyAt": "live"
+    },
+    "markCursorNext": {
+      "value": "SDL:62",
+      "control": "keybind",
+      "label": "Mark next selection corner",
+      "applyAt": "live"
+    },
+    "resetEditor": {
+      "value": "SDL:63",
+      "control": "keybind",
+      "label": "Reset / release stuck server operation",
+      "applyAt": "live"
+    },
+    "pasteAtCursor": {
+      "value": "SDL:64",
+      "control": "keybind",
+      "label": "Paste at cursor",
+      "applyAt": "live"
+    },
+    "captureAndSave": {
+      "value": "SDL:65",
+      "control": "keybind",
+      "label": "Capture and save blueprint",
+      "applyAt": "live"
+    },
     "panelWidth": {
       "value": 1180,
       "min": 760,
@@ -151,7 +187,7 @@
       "value": 0,
       "min": 0,
       "max": 3,
-      "label": "Initial paste rotation (F3 cycles in game, 0–3)"
+      "label": "Initial paste rotation (0–3, rotate in game with the configured shortcut)"
     },
     "rotationAxis": {
       "value": "y",
@@ -240,38 +276,46 @@
     },
     {
       "label": "Keyboard shortcuts",
-      "description": "Shortcuts work while the game window is focused.",
+      "description": "Edit the shortcuts here or in Compatibility → Hotkeys. Changes apply while playing. An empty binding disables a shortcut.",
+      "settings": [
+        "rotateBlueprint",
+        "undoVoxels",
+        "markCursorNext",
+        "resetEditor",
+        "pasteAtCursor",
+        "captureAndSave"
+      ],
       "actions": [
         {
           "id": "rotateBlueprint",
-          "label": "F3 — Rotate blueprint 90°",
+          "label": "Rotate blueprint 90°",
           "style": "secondary"
         },
         {
           "id": "undoVoxels",
-          "label": "F4 — Undo last paste",
+          "label": "Undo last paste",
           "style": "secondary"
         },
         {
           "id": "markCursorNext",
-          "label": "F5 — Mark next selection corner",
+          "label": "Mark next selection corner",
           "style": "secondary"
         },
         {
           "id": "resetEditor",
-          "label": "F6 — Reset / release stuck server operation",
+          "label": "Reset / release stuck server operation",
           "style": "secondary",
-          "confirm": "If a server paste or undo is stalled or incomplete, F6 asks the dedicated server to abandon it and release its lock. Partial terrain or props may remain. F7 unlocks only after server confirmation."
+          "confirm": "If a server paste or undo is stalled or incomplete, Reset / release asks the dedicated server to abandon it and release its lock. Partial terrain or props may remain. Paste unlocks only after server confirmation."
         },
         {
           "id": "pasteAtCursor",
-          "label": "F7 — Paste at cursor",
+          "label": "Paste at cursor",
           "style": "danger",
           "confirm": "Write the active blueprint at the current cursor position?"
         },
         {
           "id": "captureAndSave",
-          "label": "F8 — Capture and save blueprint",
+          "label": "Capture and save blueprint",
           "style": "secondary"
         }
       ]

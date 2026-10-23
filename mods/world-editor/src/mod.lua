@@ -18,6 +18,15 @@ function editor.setting(name)
     return value
 end
 
+-- Keep instructions live when settings or the keyboard layout change.
+function editor.format_keybind_hint(message)
+    return (tostring(message or ""):gsub("{{keybind:([%w_.-]+)}}", function(key)
+        local ok, label = pcall(shroudforge.input.keybind_label, key)
+        if ok then return label or "Disabled" end
+        -- Unrelated error text can contain an unknown placeholder. Keep it intact.
+    end))
+end
+
 editor.clipboard = nil
 editor.placement_preview = nil
 editor.undo_state = nil
@@ -51,7 +60,7 @@ editor.observed_rotation_setting = nil
 editor.active_rotation_turns = nil
 editor.voxel_grid_spec = nil
 editor.editor_stage = "need_a"
-editor.editor_hint = "Select the Building Hammer, choose a Single Voxel, aim at the first corner, then press F5."
+editor.editor_hint = "Select the Building Hammer, choose a Single Voxel, aim at the first corner, then press {{keybind:markCursorNext}}."
 editor.last_published_editor_state = nil
 editor.last_execution_backend = nil
 editor.last_logged_p2p_target = nil
@@ -180,8 +189,8 @@ return {
             if editor.recover_server_undo_token() then
                 shroudforge.log.warn("World Editor recovered a pending server undo token from the local journal")
                 editor.set_editor_message("recovery", backend == "p2p" and
-                    "Recovered an unfinished server undo. Press F4 to resume it. F7 stays paused until the server confirms." or
-                    "Recovered an unfinished server undo. Rejoin that Dedicated Server world and press F4 to resume it.")
+                    "Recovered an unfinished server undo. Press {{keybind:undoVoxels}} to resume it. {{keybind:pasteAtCursor}} stays paused until the server confirms." or
+                    "Recovered an unfinished server undo. Rejoin that Dedicated Server world and press {{keybind:undoVoxels}} to resume it.")
             end
             local status = runtime.network and runtime.network.status and runtime.network.status() or nil
             if status and status.local_steam_id then
@@ -195,12 +204,12 @@ return {
         editor.update_world_session()
         local reset = false
         if not editor.editor_is_server then
-            local rotate = editor.key_pressed("F3")
-            local undo = editor.key_pressed("F4")
-            local mark = editor.key_pressed("F5")
-            reset = editor.key_pressed("F6")
-            local paste = editor.key_pressed("F7")
-            local capture = editor.key_pressed("F8")
+            local rotate = editor.key_pressed("rotateBlueprint")
+            local undo = editor.key_pressed("undoVoxels")
+            local mark = editor.key_pressed("markCursorNext")
+            reset = editor.key_pressed("resetEditor")
+            local paste = editor.key_pressed("pasteAtCursor")
+            local capture = editor.key_pressed("captureAndSave")
             if reset then
                 editor.reset_editor()
             else
@@ -259,7 +268,7 @@ return {
             if readiness_log_state ~= editor.last_readiness_log_state then
                 editor.last_readiness_log_state = readiness_log_state
                 if editor.readiness_logged then
-                    shroudforge.log.info("World Editor native entity APIs ready: F3 rotate, F4 undo, F5 mark A/B, F6 reset, F7 paste, F8 capture/save.")
+                    shroudforge.log.info(editor.format_keybind_hint("World Editor native entity APIs ready: {{keybind:rotateBlueprint}} rotate, {{keybind:undoVoxels}} undo, {{keybind:markCursorNext}} mark A/B, {{keybind:resetEditor}} reset, {{keybind:pasteAtCursor}} paste, {{keybind:captureAndSave}} capture/save."))
                 else
                     shroudforge.log.debug("World Editor runtime readiness " .. editor.native_readiness_state .. ": " .. editor.native_readiness_reason)
                 end

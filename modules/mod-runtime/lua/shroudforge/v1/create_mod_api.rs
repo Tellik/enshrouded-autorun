@@ -62,6 +62,24 @@ pub fn create(lua: &mlua::Lua, r#mod: &Mod) -> mlua::Result<Table> {
         .game_dir()
         .as_std_path()
         .to_path_buf();
+    #[cfg(windows)]
+    if lua
+        .app_data_ref::<crate::env::AppState>()
+        .is_some_and(|state| state.is_client() && state.phase() == crate::RuntimePhase::Ingame)
+        && r#mod
+            .info()
+            .settings
+            .iter()
+            .any(|setting| matches!(setting.control, Some(mod_loader::SettingControl::Keybind)))
+    {
+        static INITIALIZE_INPUT: std::sync::Once = std::sync::Once::new();
+        INITIALIZE_INPUT.call_once(|| {
+            let executable = shroudforge_loader_config::paths::loader_executable(&game_dir);
+            if let Err(error) = shroudforge_hotkeys::initialize_runtime(&executable) {
+                tracing::warn!(target: "shroudforge::runtime", "Keyboard shortcuts unavailable: {error}");
+            }
+        });
+    }
     let mod_id = r#mod.info().id.clone();
 
     let settings = lua.create_table()?;
@@ -87,9 +105,27 @@ pub fn create(lua: &mlua::Lua, r#mod: &Mod) -> mlua::Result<Table> {
     table.raw_set("settings", settings)?;
 
     let input = lua.create_table()?;
+    let keybind_settings = r#mod.info().settings.clone();
+    let keybind_id = mod_id.clone();
+    let declared_keybinds = keybind_settings.clone();
     input.raw_set(
-        "is_key_down",
-        lua.create_function(|_, key: String| Ok(is_game_key_down(&key)))?,
+        "is_keybind_down",
+        lua.create_function(move |lua, key: String| {
+            let binding = read_keybind(lua, &keybind_id, &declared_keybinds, &key)?;
+            Ok(binding.is_some_and(|binding| {
+                is_game_focused()
+                    && !shroudforge_hotkeys::is_capture_active()
+                    && shroudforge_hotkeys::is_hotkey_down(&binding)
+            }))
+        })?,
+    )?;
+    let keybind_id = mod_id.clone();
+    input.raw_set(
+        "keybind_label",
+        lua.create_function(move |lua, key: String| {
+            Ok(read_keybind(lua, &keybind_id, &keybind_settings, &key)?
+                .map(|binding| binding.label()))
+        })?,
     )?;
     table.raw_set("input", input)?;
 
@@ -147,42 +183,64 @@ pub fn create(lua: &mlua::Lua, r#mod: &Mod) -> mlua::Result<Table> {
     Ok(table)
 }
 
-fn is_game_key_down(key: &str) -> bool {
+fn read_keybind(
+    lua: &mlua::Lua,
+    mod_id: &str,
+    declared: &[mod_loader::SettingDefinition],
+    key: &str,
+) -> mlua::Result<Option<shroudforge_hotkeys::Hotkey>> {
+    if !declared.iter().any(|setting| {
+        setting.key == key && matches!(setting.control, Some(mod_loader::SettingControl::Keybind))
+    }) {
+        return Err(mlua::Error::runtime("setting is not a declared keybind"));
+    }
+    let current: Table = lua.named_registry_value(&format!("shroudforge.settings.{mod_id}"))?;
+    let mut controller_values = serde_json::Map::new();
+    for condition in declared
+        .iter()
+        .filter_map(|setting| setting.enabled_when.as_ref())
+    {
+        controller_values.insert(
+            condition.setting.clone(),
+            read_setting_value(&current, &condition.setting)?,
+        );
+    }
+    if !mod_loader::setting_is_enabled(key, declared, &serde_json::Value::Object(controller_values))
+    {
+        return Ok(None);
+    }
+    shroudforge_hotkeys::parse_value(&read_setting_value(&current, key)?)
+        .map_err(mlua::Error::runtime)
+}
+
+fn read_setting_value(current: &Table, key: &str) -> mlua::Result<serde_json::Value> {
+    Ok(match current.raw_get::<Value>(key)? {
+        Value::Boolean(value) => serde_json::Value::Bool(value),
+        Value::Integer(value) => json!(value),
+        Value::Number(value) => json!(value),
+        Value::String(value) => json!(value.to_str()?.to_string()),
+        _ => serde_json::Value::Null,
+    })
+}
+
+fn is_game_focused() -> bool {
     #[cfg(windows)]
     {
         use windows_sys::Win32::{
             System::Threading::GetCurrentProcessId,
-            UI::{
-                Input::KeyboardAndMouse::GetAsyncKeyState,
-                WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId},
-            },
+            UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId},
         };
 
-        let virtual_key = match key {
-            "F1" => 0x70,
-            "F2" => 0x71,
-            "F3" => 0x72,
-            "F4" => 0x73,
-            "F5" => 0x74,
-            "F6" => 0x75,
-            "F7" => 0x76,
-            "F8" => 0x77,
-            _ => return false,
-        };
         let foreground = unsafe { GetForegroundWindow() };
         if foreground.is_null() {
             return false;
         }
         let mut process_id = 0;
         unsafe { GetWindowThreadProcessId(foreground, &mut process_id) };
-        if process_id != unsafe { GetCurrentProcessId() } {
-            return false;
-        }
-        return unsafe { GetAsyncKeyState(virtual_key) } < 0;
+        return process_id == unsafe { GetCurrentProcessId() };
     }
     #[cfg(not(windows))]
     {
-        let _ = key;
         false
     }
 }

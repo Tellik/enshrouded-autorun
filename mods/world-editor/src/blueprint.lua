@@ -11,7 +11,7 @@ return function(editor)
 
     function editor.rotate_blueprint()
         if not editor.clipboard then
-            editor.set_editor_message("need_a", "No blueprint is active. Press F5 to start a capture or select a saved blueprint.")
+            editor.set_editor_message("need_a", "No blueprint is active. Press {{keybind:markCursorNext}} to start a capture or select a saved blueprint.")
             shroudforge.log.warn("World Editor: capture or load a blueprint before rotating it")
             return
         end
@@ -20,11 +20,11 @@ return function(editor)
         local axis = editor.clipboard.region.rotationAxis or editor.setting("rotationAxis")
         if axis ~= "x" and axis ~= "y" and axis ~= "z" then axis = "y" end
         local degrees = editor.active_rotation_turns * 90
-        shroudforge.log.info(string.format(
-            "World Editor rotation: %d/3 quarter turns (%d degrees) around %s. F3 rotates again, F7 places it, and Preview checks the cursor target.",
-            editor.active_rotation_turns, degrees, string.upper(axis)))
+        shroudforge.log.info(editor.format_keybind_hint(string.format(
+            "World Editor rotation: %d/3 quarter turns (%d degrees) around %s. {{keybind:rotateBlueprint}} rotates again, {{keybind:pasteAtCursor}} places it, and Preview checks the cursor target.",
+            editor.active_rotation_turns, degrees, string.upper(axis))))
         editor.editor_stage = "selected"
-        editor.set_editor_message("selected", string.format("Rotation set to %d°. Aim at the target and press F7 to place the blueprint.", degrees))
+        editor.set_editor_message("selected", string.format("Rotation set to %d°. Aim at the target and press {{keybind:pasteAtCursor}} to place the blueprint.", degrees))
     end
 
     function editor.finite_number(value)
@@ -513,8 +513,8 @@ return function(editor)
         editor.placement_preview = nil
         editor.active_blueprint_name = name
         editor.editor_stage = "selected"
-        editor.set_editor_message("selected", "Blueprint " .. name .. " loaded and selected. Press F7 to place it. Open Manage to add a cover from F12 screenshots.")
-        shroudforge.log.info(string.format("World Editor loaded blueprint '%s' (%d cells, %d props). It is selected and ready for F7 placement.", editor.active_blueprint_name, #cells, #props))
+        editor.set_editor_message("selected", "Blueprint " .. name .. " loaded and selected. Press {{keybind:pasteAtCursor}} to place it. Open Manage to add a cover from F12 screenshots.")
+        shroudforge.log.info(editor.format_keybind_hint(string.format("World Editor loaded blueprint '%s' (%d cells, %d props). It is selected and ready for {{keybind:pasteAtCursor}} placement.", editor.active_blueprint_name, #cells, #props)))
         return true
     end
 end

@@ -605,7 +605,7 @@ return function(api, callbacks)
                     pending.elapsed, pending.since_progress = 0, 0
                     outgoing[#outgoing + 1] = {peer = pending.peer, payload = pending.payload}
                     if callbacks.on_result then callbacks.on_result("abandon", false, nil,
-                        "server-release-not-confirmed-after-60-seconds. Press F6 to resend the same release",
+                        "server-release-not-confirmed-after-60-seconds. Press {{keybind:resetEditor}} to resend the same release",
                         pending.peer, pending.request_id, true) end
                 elseif pending.operation == "capture" then
                     outgoing = {}
@@ -613,7 +613,7 @@ return function(api, callbacks)
                 else
                     outgoing = {}
                     queue_result(pending.request_id, pending.operation, false, nil,
-                        "no-response-from-server-peer-after-60-seconds, outcome is unknown. F6 can request release",
+                        "no-response-from-server-peer-after-60-seconds, outcome is unknown. {{keybind:resetEditor}} can request release",
                         true)
                 end
             end

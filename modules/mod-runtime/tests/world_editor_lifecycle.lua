@@ -16,6 +16,8 @@ end
 -- Independent snapshot of the retained setting values, including manual fallback
 -- coordinates. The fixture reads the actual shipped extended.mod.json values.
 local expected_settings = {
+    rotateBlueprint="SDL:60", undoVoxels="SDL:61", markCursorNext="SDL:62",
+    resetEditor="SDL:63", pasteAtCursor="SDL:64", captureAndSave="SDL:65",
     panelWidth=1180, panelHeight=190, panelPositionX=-1, panelPositionY=92,
     maximumCopyableProps=60000, sourceX=0, sourceY=0, sourceZ=0,
     sizeX=8, sizeY=8, sizeZ=8, blueprintName="my_blueprint", blueprintNewName="my_blueprint_copy",
@@ -66,7 +68,8 @@ local function fixture(context, session, deny_unverified_features, is_server)
     environment.shroudforge = {
         settings={get=function(name) return f.settings[name] end},
         ui={on_action=function(name, action) f.actions[name] = action end},
-        input={is_key_down=function() return false end},
+        input={is_keybind_down=function() return false end,
+            keybind_label=function(key) return f.settings[key] ~= "" and "Fixture shortcut" or nil end},
         log={debug=ignore_log, info=ignore_log, warn=ignore_log, error=ignore_log, trace=ignore_log},
     }
     environment.game = {assets={get_loaded_resources_by_type=function(name)

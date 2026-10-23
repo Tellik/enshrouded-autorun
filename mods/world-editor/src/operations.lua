@@ -62,7 +62,7 @@ return function(editor)
         local message = "Automatic world target detection is waiting for a validated world session. " ..
             tostring(operation or "No world change was sent.")
         editor.set_editor_message(nil, message)
-        shroudforge.log.warn("World Editor blocked " .. tostring(operation or "world change") ..
+        shroudforge.log.warn("World Editor blocked " .. editor.format_keybind_hint(tostring(operation or "world change")) ..
             ": native world target is unknown, no local write or P2P request was sent")
         return false
     end
@@ -80,7 +80,7 @@ return function(editor)
         if not spec then
             -- ABI-12 bridges with the bool-only metadata export cannot carry
             -- Pending separately. Keep this one known voxel-grid rejection
-            -- inside the same bounded F8 deadline, without guessing metadata.
+            -- inside the same bounded Capture and save blueprint deadline, without guessing metadata.
             if reason == "Grid is unavailable. This backend currently exposes 'voxel'" then
                 return nil, "voxel-grid-pending"
             end
@@ -511,7 +511,7 @@ return function(editor)
                 editor.defer_world_action("runtime.world.voxel.read", retry, retry_elapsed, true)
                 return
             end
-            editor.set_editor_message("ready", "Capture stopped because terrain data could not be read. Check runtime status, then try F8 again.")
+            editor.set_editor_message("ready", "Capture stopped because terrain data could not be read. Check runtime status, then try {{keybind:captureAndSave}} again.")
             runtime.report_effect("waiting", read_reason or "voxel read failed")
             shroudforge.log.warn("World Editor voxel copy failed: " .. tostring(read_reason))
             editor.finish_process("error", "Terrain could not be read: " .. tostring(read_reason), "warn")
@@ -555,16 +555,16 @@ return function(editor)
         if not editor.selection_a then
             editor.clipboard, editor.active_blueprint_name, editor.placement_preview = nil, nil, nil
             editor.editor_stage = "need_a"
-            editor.editor_hint = "Select the Building Hammer, choose a Single Voxel, aim at the first corner, then press F5."
+            editor.editor_hint = "Select the Building Hammer, choose a Single Voxel, aim at the first corner, then press {{keybind:markCursorNext}}."
             editor.publish_editor_state()
-            shroudforge.log.debug("World Editor help: select the building hammer, choose a single voxel, aim at the first corner, then press F5.")
+            shroudforge.log.debug(editor.format_keybind_hint("World Editor help: select the building hammer, choose a single voxel, aim at the first corner, then press {{keybind:markCursorNext}}."))
             return
         end
         if not editor.selection_b then
             editor.editor_stage = "need_b"
-            editor.editor_hint = "Corner A is marked. Aim at the opposite corner and press F5 again."
+            editor.editor_hint = "Corner A is marked. Aim at the opposite corner and press {{keybind:markCursorNext}} again."
             editor.publish_editor_state()
-            shroudforge.log.debug("World Editor help: aim at the opposite corner and press F5 before capturing with F8.")
+            shroudforge.log.debug(editor.format_keybind_hint("World Editor help: aim at the opposite corner and press {{keybind:markCursorNext}} before capturing with {{keybind:captureAndSave}}."))
             return
         end
         if not editor.editor_is_server and editor.execution_backend() == "p2p" then
@@ -579,7 +579,7 @@ return function(editor)
         editor.save_step(0, "Capturing blueprint")
         editor.copy_voxels(true)
         if editor.editor_stage == "capturing" and not editor.pending_prop_capture and not editor.pending_world_action then
-            editor.cancel_pending_queries("Blueprint was not saved. Check the runtime status and export folder, then try F8 again.", "ready")
+            editor.cancel_pending_queries("Blueprint was not saved. Check the runtime status and export folder, then try {{keybind:captureAndSave}} again.", "ready")
         end
     end
 
@@ -609,7 +609,7 @@ return function(editor)
 
     function editor.paste_voxels(use_current_cursor, cursor_override, captured_props, target_override, retry_elapsed, preparation)
         if not editor.clipboard then
-            editor.set_editor_message("need_a", "No blueprint is active. Press F5 to create one or select a saved blueprint.")
+            editor.set_editor_message("need_a", "No blueprint is active. Press {{keybind:markCursorNext}} to create one or select a saved blueprint.")
             shroudforge.log.warn("World Editor: capture or load a blueprint before pasting")
             return
         end
@@ -618,11 +618,11 @@ return function(editor)
             return
         end
         if editor.remote_release_pending then
-            editor.set_editor_message("recovery", "The server has not confirmed release of the previous operation. Press F6 to resend the release request; F7 stays paused until confirmation.")
+            editor.set_editor_message("recovery", "The server has not confirmed release of the previous operation. Press {{keybind:resetEditor}} to resend the release request; {{keybind:pasteAtCursor}} stays paused until confirmation.")
             return
         end
         if editor.remote_recovery_required then
-            editor.set_editor_message("recovery", "The server has an unfinished World Editor operation. Press F6 to abandon it and release the server before starting another placement.")
+            editor.set_editor_message("recovery", "The server has an unfinished World Editor operation. Press {{keybind:resetEditor}} to abandon it and release the server before starting another placement.")
             return
         end
         if editor.remote_request_pending or editor.remote_active_request or (editor.p2p_bridge and editor.p2p_bridge.pending()) then
@@ -637,12 +637,12 @@ return function(editor)
             return
         end
         if editor.undo_state and editor.undo_state.recovery_required then
-            editor.set_editor_message("recovery", "Placement is paused. Press F4 to finish undoing the previous placement first.")
-            shroudforge.log.warn("World Editor: restore the incomplete previous placement with F4 before starting another paste")
+            editor.set_editor_message("recovery", "Placement is paused. Press {{keybind:undoVoxels}} to finish undoing the previous placement first.")
+            shroudforge.log.warn(editor.format_keybind_hint("World Editor: restore the incomplete previous placement with {{keybind:undoVoxels}} before starting another paste"))
             return
         end
         local backend = editor.execution_backend()
-        if not editor.require_execution_backend(backend, "F7 placement") then return end
+        if not editor.require_execution_backend(backend, "{{keybind:pasteAtCursor}} placement") then return end
         if backend == "p2p" then
             if editor.paste_remote then editor.paste_remote(use_current_cursor, cursor_override) end
             return
@@ -722,7 +722,7 @@ return function(editor)
         local anchor, target = context.anchor, context.target
         local rotated = context.plan
         if not anchor or not rotated then
-            editor.set_editor_message("selected", "Placement stopped because its plan is incomplete. Aim again, then press F7.")
+            editor.set_editor_message("selected", "Placement stopped because its plan is incomplete. Aim again, then press {{keybind:pasteAtCursor}}.")
             shroudforge.log.warn("World Editor: placement plan is incomplete")
             editor.finish_process("error", "The placement plan is incomplete.", "warn")
             return
@@ -732,7 +732,7 @@ return function(editor)
         if axis ~= "x" and axis ~= "y" and axis ~= "z" then axis = "y" end
         if context.blueprint ~= editor.clipboard or context.turns ~= turns or context.axis ~= axis or
            context.plan.hasVoxels ~= editor.clipboard.hasVoxels then
-            editor.set_editor_message("selected", "Placement settings changed while preparing. Aim again and press F7.")
+            editor.set_editor_message("selected", "Placement settings changed while preparing. Aim again and press {{keybind:pasteAtCursor}}.")
             shroudforge.log.warn("World Editor: placement settings changed while the prop query was pending. Prepare the preview again.")
             editor.finish_process("error", "Placement settings changed during preparation.", "warn")
             return
@@ -974,7 +974,7 @@ return function(editor)
         editor.undo_state.entities, editor.undo_state.entity_index = spawned, #spawned
         editor.undo_state.recovery_required = false
         editor.placement_preview = nil
-        editor.set_editor_message("selected", "Blueprint placed successfully. Press F4 to undo it or F7 to place it again.")
+        editor.set_editor_message("selected", "Blueprint placed successfully. Press {{keybind:undoVoxels}} to undo it or {{keybind:pasteAtCursor}} to place it again.")
         runtime.report_effect("write-confirmed", string.format("Wrote and verified %d voxel cells and %d new props in live ECS. Save persistence is not verified.",
             #(editor.clipboard.cells or {}), #spawned))
         shroudforge.log.info(string.format("World Editor placed blueprint with %d voxel cells and %d props at %.3f,%.3f,%.3f",
@@ -1007,7 +1007,7 @@ return function(editor)
             return false
         end
         if backend == "p2p" or editor.remote_request_pending or (editor.p2p_bridge and editor.p2p_bridge.pending()) then
-            editor.set_editor_message("selected","Use blueprint paste and F4 undo for server edits.")
+            editor.set_editor_message("selected","Use blueprint paste and {{keybind:undoVoxels}} undo for server edits.")
             return false
         end
         return true
@@ -1268,9 +1268,9 @@ return function(editor)
                 editor.finish_process("complete", "The server released the previous World Editor operation. Partial world changes may remain.")
             else
                 editor.remote_release_pending = true
-                editor.set_editor_message("recovery", "The server has not confirmed the release. F7 stays paused. Press F6 to resend the same release request. " .. tostring(reason))
+                editor.set_editor_message("recovery", "The server has not confirmed the release. {{keybind:pasteAtCursor}} stays paused. Press {{keybind:resetEditor}} to resend the same release request. " .. tostring(reason))
                 shroudforge.log.warn("World Editor server release is not confirmed: " .. tostring(reason))
-                editor.finish_process("error", "The server has not confirmed release. Press F6 to retry: " .. tostring(reason), "warn")
+                editor.finish_process("error", editor.format_keybind_hint("The server has not confirmed release. Press {{keybind:resetEditor}} to retry: ") .. tostring(reason), "warn")
             end
         elseif operation == "paste" then
             if uncertain then
@@ -1288,17 +1288,17 @@ return function(editor)
                 editor.persist_server_undo_token()
             end
             if uncertain then
-                editor.set_editor_message("recovery", "The server did not answer within 60 seconds. The placement result is unknown. Press F6 to ask the server to abandon this operation; F7 stays paused until release is confirmed.")
-                shroudforge.log.warn("World Editor P2P paste timed out; outcome is unknown and F6 can request release")
-                editor.finish_process("error", "The server did not answer. Press F6 to request release; the placement result may be partial.", "warn")
+                editor.set_editor_message("recovery", "The server did not answer within 60 seconds. The placement result is unknown. Press {{keybind:resetEditor}} to ask the server to abandon this operation; {{keybind:pasteAtCursor}} stays paused until release is confirmed.")
+                shroudforge.log.warn(editor.format_keybind_hint("World Editor P2P paste timed out; outcome is unknown and {{keybind:resetEditor}} can request release"))
+                editor.finish_process("error", editor.format_keybind_hint("The server did not answer. Press {{keybind:resetEditor}} to request release; the placement result may be partial."), "warn")
             elseif ok then
-                editor.set_editor_message("selected", "Server placed the blueprint through its native world runtime. Press F4 to undo.")
+                editor.set_editor_message("selected", "Server placed the blueprint through its native world runtime. Press {{keybind:undoVoxels}} to undo.")
                 shroudforge.log.info("World Editor P2P paste confirmed by dedicated server, undo token=" .. tostring(transaction))
                 editor.finish_process("complete", "The server confirmed the placement in its live world. Save persistence is not verified.")
             else
                 if transaction then editor.remote_recovery_required = true end
                 editor.set_editor_message(transaction and "recovery" or "selected",
-                    transaction and "Server placement needs recovery. Press F4 to retry the server undo, or F6 to abandon this operation and release the server. Partial changes may remain; F7 waits for confirmation." or
+                    transaction and "Server placement needs recovery. Press {{keybind:undoVoxels}} to retry the server undo, or {{keybind:resetEditor}} to abandon this operation and release the server. Partial changes may remain; {{keybind:pasteAtCursor}} waits for confirmation." or
                         ("Server refused blueprint placement: " .. tostring(reason)))
                 shroudforge.log.warn("World Editor P2P paste failed: " .. tostring(reason))
                 editor.finish_process("error", "The server did not complete the placement: " .. tostring(reason), "warn")
@@ -1314,9 +1314,9 @@ return function(editor)
                 end
             end
             if uncertain then
-                editor.set_editor_message("recovery", "The server did not answer within 60 seconds. The undo result is unknown. Press F6 to ask the server to abandon this operation; F7 stays paused until release is confirmed.")
-                shroudforge.log.warn("World Editor P2P undo timed out; outcome is unknown and F6 can request release")
-                editor.finish_process("error", "The server did not answer. Press F6 to request release; undo may be partial.", "warn")
+                editor.set_editor_message("recovery", "The server did not answer within 60 seconds. The undo result is unknown. Press {{keybind:resetEditor}} to ask the server to abandon this operation; {{keybind:pasteAtCursor}} stays paused until release is confirmed.")
+                shroudforge.log.warn(editor.format_keybind_hint("World Editor P2P undo timed out; outcome is unknown and {{keybind:resetEditor}} can request release"))
+                editor.finish_process("error", editor.format_keybind_hint("The server did not answer. Press {{keybind:resetEditor}} to request release; undo may be partial."), "warn")
             elseif ok then
                 editor.remote_undo = nil
                 editor.remote_recovery_required = false
@@ -1326,7 +1326,7 @@ return function(editor)
                 editor.finish_process("complete", "The server confirmed that undo restored the previous live world state.")
             else
                 editor.remote_recovery_required = true
-                editor.set_editor_message("recovery", "Server undo is incomplete. Press F4 to retry, or F6 to abandon this operation and release the server. Partial changes may remain; F7 waits for confirmation. " .. tostring(reason))
+                editor.set_editor_message("recovery", "Server undo is incomplete. Press {{keybind:undoVoxels}} to retry, or {{keybind:resetEditor}} to abandon this operation and release the server. Partial changes may remain; {{keybind:pasteAtCursor}} waits for confirmation. " .. tostring(reason))
                 shroudforge.log.warn("World Editor P2P undo is incomplete: " .. tostring(reason))
                 editor.finish_process("error", "Server undo is incomplete and can be retried: " .. tostring(reason), "warn")
             end
@@ -1360,14 +1360,14 @@ return function(editor)
 
     function editor.on_p2p_stalled(operation, peer)
         if operation == "capture" then
-            editor.set_editor_message("capturing", "Waiting for the server capture. F6 cancels this read-only request.")
+            editor.set_editor_message("capturing", "Waiting for the server capture. {{keybind:resetEditor}} cancels this read-only request.")
             return
         end
         local label = operation == "undo" and "undo" or "placement"
         editor.remote_stalled = true
-        editor.set_editor_message("recovery", "The server has not reported progress for 10 seconds while " .. label .. " the blueprint. The result may be unknown. Press F6 to abandon the operation and request release; F7 stays paused until the server confirms.")
-        editor.finish_process("error", "The server has not reported progress for 10 seconds. Press F6 to abandon the operation and request release; F7 stays paused until confirmation.", "warn")
-        shroudforge.log.warn("World Editor P2P " .. label .. " made no progress for 10 seconds with server " .. tostring(peer) .. "; F6 offers abandon and release")
+        editor.set_editor_message("recovery", "The server has not reported progress for 10 seconds while " .. label .. " the blueprint. The result may be unknown. Press {{keybind:resetEditor}} to abandon the operation and request release; {{keybind:pasteAtCursor}} stays paused until the server confirms.")
+        editor.finish_process("error", editor.format_keybind_hint("The server has not reported progress for 10 seconds. Press {{keybind:resetEditor}} to abandon the operation and request release; {{keybind:pasteAtCursor}} stays paused until confirmation."), "warn")
+        shroudforge.log.warn("World Editor P2P " .. label .. " made no progress for 10 seconds with server " .. tostring(peer) .. editor.format_keybind_hint("; {{keybind:resetEditor}} offers abandon and release"))
     end
 
     function editor.capture_remote()
@@ -1377,7 +1377,7 @@ return function(editor)
         end
         local peer = editor.configured_server_steam_id()
         if not peer then
-            editor.set_editor_message("ready", "The dedicated server has not been discovered. Wait for its Steam P2P connection, then retry F8.")
+            editor.set_editor_message("ready", "The dedicated server has not been discovered. Wait for its Steam P2P connection, then retry {{keybind:captureAndSave}}.")
             return
         end
         local session = editor.current_session()
@@ -1473,9 +1473,9 @@ return function(editor)
         if retained and retained.undo.recovery_required then
             -- The client may have timed out or lost the original paste reply after
             -- the server created its undo journal. Return the existing token with
-            -- the refusal so the client can recover it and retry F4.
+            -- the refusal so the client can recover it and retry Undo last paste.
             done(false, retained.transaction,
-                "server-has-an-unresolved-world-editor-transaction, press F4 to resume its undo")
+                "server-has-an-unresolved-world-editor-transaction, press {{keybind:undoVoxels}} to resume its undo")
             return
         end
         if editor.server_remote_paste or editor.server_remote_transaction or editor.undo_state then
@@ -1563,7 +1563,7 @@ return function(editor)
 
     editor.abandon_remote = function()
         if not editor.p2p_bridge then
-            editor.set_editor_message("recovery", "Steam P2P is unavailable. The server release could not be requested; F7 stays paused.")
+            editor.set_editor_message("recovery", "Steam P2P is unavailable. The server release could not be requested; {{keybind:pasteAtCursor}} stays paused.")
             return false
         end
         local request = editor.remote_active_request
@@ -1571,13 +1571,13 @@ return function(editor)
         local transaction = editor.remote_undo and editor.remote_undo.transaction or nil
         if not peer then peer = editor.configured_server_steam_id() end
         if not peer then
-            editor.set_editor_message("recovery", "The server connection is unavailable. F6 cannot request release yet; F7 stays paused until the server confirms.")
+            editor.set_editor_message("recovery", "The server connection is unavailable. {{keybind:resetEditor}} cannot request release yet; {{keybind:pasteAtCursor}} stays paused until the server confirms.")
             return false
         end
         local target_request_id = request and request.request_id or nil
         local ok, request_id = editor.p2p_bridge.start_abandon(peer, transaction, target_request_id)
         if not ok then
-            editor.set_editor_message("recovery", "Could not request server release: " .. tostring(request_id) .. ". F7 stays paused.")
+            editor.set_editor_message("recovery", "Could not request server release: " .. tostring(request_id) .. ". {{keybind:pasteAtCursor}} stays paused.")
             return false
         end
         local already_waiting = editor.remote_release_pending
@@ -1587,7 +1587,7 @@ return function(editor)
             editor.begin_process("Release server World Editor operation", "Requesting server release", 1,
                 "Asking the dedicated server to discard the old recovery and confirm that its lock is released.")
         end
-        editor.set_editor_message("recovery", "F6 sent the release request. Waiting for server confirmation; F7 stays paused until the server confirms. Press F6 again to resend if the reply is lost.")
+        editor.set_editor_message("recovery", "{{keybind:resetEditor}} sent the release request. Waiting for server confirmation; {{keybind:pasteAtCursor}} stays paused until the server confirms. Press {{keybind:resetEditor}} again to resend if the reply is lost.")
         shroudforge.log.info("World Editor queued idempotent abandon request " .. tostring(request_id) ..
             " for server peer " .. peer .. " targeting transaction " .. tostring(transaction or target_request_id or "unknown"))
         return true
@@ -1624,13 +1624,13 @@ return function(editor)
         end
         -- The persisted token can outlive a successful server-side undo when its
         -- acknowledgement is lost. The server owns the authoritative journal and
-        -- rejects F7 while that journal is genuinely unresolved, so a stale client
+        -- rejects Paste at cursor while that journal is genuinely unresolved, so a stale client
         -- token must not permanently lock placement.
         local peer, discovered_local_server = editor.configured_server_steam_id()
         if not peer then
             editor.process_progress.sequence = editor.process_progress.sequence + 1
             shroudforge.log.warn(string.format("World Editor operation #%d (place-blueprint): blocked. Dedicated Server SteamID64 is missing, request=not-sent.", editor.process_progress.sequence))
-            editor.set_editor_message("selected", "Set the dedicated server's SteamID64 in World Editor → Server P2P before using F7 online.")
+            editor.set_editor_message("selected", "Set the dedicated server's SteamID64 in World Editor → Server P2P before using {{keybind:pasteAtCursor}} online.")
             return
         end
         local function start_at(anchor)
@@ -1651,7 +1651,7 @@ return function(editor)
             end
             editor.remote_request_pending = true
             editor.remote_active_request = {peer = peer, request_id = request, operation = "paste"}
-            editor.set_editor_message("building", "Sending the existing V7 blueprint to the dedicated server. Its runtime performs the placement. Wait for confirmation before pressing F4.")
+            editor.set_editor_message("building", "Sending the existing V7 blueprint to the dedicated server. Its runtime performs the placement. Wait for confirmation before pressing {{keybind:undoVoxels}}.")
             shroudforge.log.debug("World Editor queued P2P blueprint request " .. tostring(request) .. " to server Steam peer " .. peer ..
                 (discovered_local_server and " (discovered from the running Dedicated Server)" or " (configured fallback)"))
             shroudforge.log.info("World Editor: blueprint placement request sent to the dedicated server. Waiting for its result.")
@@ -1716,7 +1716,7 @@ return function(editor)
             local recovery_required = editor.undo_state.recovery_required
             editor.undo_state = nil
             if recovery_required then
-                editor.finish_server_remote_paste(job, false, transaction, "placement-partially-applied. Press F4 for server recovery")
+                editor.finish_server_remote_paste(job, false, transaction, "placement-partially-applied. Press {{keybind:undoVoxels}} for server recovery")
             else
                 editor.finish_server_remote_paste(job, true, transaction, "placement-confirmed")
             end

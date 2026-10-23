@@ -42,11 +42,22 @@ function shroudforge_notifications.publish(notice) end
 --- @class ShroudForgeInput
 shroudforge_input = {}
 
---- Returns true while F1 through F8 is held and the game window is focused.
---- Poll from a runtime `on_update` callback and detect rising edges.
---- @param key 'F1'|'F2'|'F3'|'F4'|'F5'|'F6'|'F7'|'F8'
+--- Returns true while either configured keyboard or mouse chord and its exact modifiers are held
+--- and a window in the game process is focused. The setting must declare `control: "keybind"`
+--- in `extended.mod.json`. Saved changes follow the existing mod-settings live/restart policy.
+--- An empty binding or a false enabledWhen condition disables the shortcut.
+--- Poll from `on_update` and detect rising edges.
+--- @param setting_key string Key of this mod's declared keybind setting.
 --- @return boolean
-function shroudforge_input.is_key_down(key) end
+function shroudforge_input.is_keybind_down(setting_key) end
+
+--- Returns the current display label supplied by SDL, including modifiers and both alternatives.
+--- One setting string stores a keyboard chord, a mouse chord, or keyboard|mouse,
+--- for example `Ctrl+SDL:29|Mouse:4`. The editor shows separate columns for each device.
+--- Returns nil when the shortcut is disabled.
+--- @param setting_key string Key of this mod's declared keybind setting.
+--- @return string|nil
+function shroudforge_input.keybind_label(setting_key) end
 
 --- @class ShroudForge
 --- @field version string Version of the ShroudForge Lua API.
@@ -54,6 +65,6 @@ function shroudforge_input.is_key_down(key) end
 --- @field mod_kind 'lua' Runtime package kind for the currently running mod.
 --- @field settings ShroudForgeSettings Read the current values from the mod's settings.
 --- @field ui ShroudForgeUi Register callbacks for Modloader buttons.
---- @field input ShroudForgeInput Read supported function-key states.
+--- @field input ShroudForgeInput Read declared keyboard and mouse shortcuts using SDL.
 --- @field notifications ShroudForgeNotifications Publish notices in the local Modloader feed.
 shroudforge = {}

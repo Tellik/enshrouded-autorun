@@ -110,21 +110,21 @@ return function(editor)
 
     editor.undo_voxels = function()
         local backend = editor.execution_backend()
-        if not editor.require_execution_backend(backend, "F4 undo") then return end
+        if not editor.require_execution_backend(backend, "{{keybind:undoVoxels}} undo") then return end
         if backend == "p2p" then
             if editor.remote_undo and editor.undo_remote then
                 editor.undo_remote()
             elseif editor.remote_undo then
                 editor.set_editor_message("recovery", "The server undo token is retained, but Steam P2P is unavailable.")
             else
-                editor.set_editor_message(nil, "There is no server placement to undo. Place a blueprint on the server with F7 first.")
+                editor.set_editor_message(nil, "There is no server placement to undo. Place a blueprint on the server with {{keybind:pasteAtCursor}} first.")
             end
             return
         end
         -- A recovered server token belongs to a different process/world. Let a
-        -- newer local singleplayer placement keep its normal F4 priority.
+        -- newer local singleplayer placement keep its normal Undo last paste priority.
         if not editor.undo_state and editor.remote_undo then
-            editor.set_editor_message("recovery", "A server undo token is retained. Rejoin its Dedicated Server world and press F4 to resume that undo.")
+            editor.set_editor_message("recovery", "A server undo token is retained. Rejoin its Dedicated Server world and press {{keybind:undoVoxels}} to resume that undo.")
             return
         end
         local expected = editor.undo_state and editor.undo_state.session
@@ -136,7 +136,7 @@ return function(editor)
             end
         end
         if not editor.undo_state then
-            editor.set_editor_message(nil, "Nothing to undo. Place a blueprint with F7 first.")
+            editor.set_editor_message(nil, "Nothing to undo. Place a blueprint with {{keybind:pasteAtCursor}} first.")
             shroudforge.log.warn("World Editor: there is no verified blueprint placement to undo")
             return
         end
@@ -179,14 +179,14 @@ return function(editor)
                 local current_cells, read_reason = runtime.world.voxel.read(region.x, region.y, region.z,
                     region.sx, region.sy, region.sz)
                 if not current_cells then
-                    editor.set_editor_message("recovery", "Undo paused. The terrain snapshot could not be read. Press F4 to retry.")
+                    editor.set_editor_message("recovery", "Undo paused. The terrain snapshot could not be read. Press {{keybind:undoVoxels}} to retry.")
                     shroudforge.log.warn("World Editor paused undo because the pasted voxel region could not be checked: " .. tostring(read_reason))
                     editor.finish_process("error", "Terrain could not be checked. Retry undo after the runtime is available.", "warn")
                     return
                 end
                 local expected_cells = editor.undo_state.voxel_written and editor.undo_state.expected_cells or editor.undo_state.cells
                 if not editor.same_cells(current_cells, expected_cells) then
-                    editor.set_editor_message("recovery", "Undo paused because the terrain changed after placement. Restore those changes manually, then press F4 to retry.")
+                    editor.set_editor_message("recovery", "Undo paused because the terrain changed after placement. Restore those changes manually, then press {{keybind:undoVoxels}} to retry.")
                     shroudforge.log.warn("World Editor paused undo because the target voxels changed after the paste. No later changes were overwritten.")
                     editor.finish_process("error", "Terrain changed after the paste, so undo paused to protect later edits.", "warn")
                     return
@@ -197,7 +197,7 @@ return function(editor)
         local index = editor.undo_state.entity_index or #entities
         local removed_index = editor.undo_state.removed_prop_index or 0
         -- Lock the journal immediately before each mutation so a partial undo
-        -- cannot be replaced by F7. Read-only preflight refusals need no new lock.
+        -- cannot be replaced by Paste at cursor. Read-only preflight refusals need no new lock.
         -- Restore voxel cells before props so one unreadable prop cannot block the
         -- independent terrain snapshot. The journal preserves any remaining work.
         if editor.undo_state.hasVoxels and editor.undo_state.voxel_written then
@@ -206,7 +206,7 @@ return function(editor)
             local ok, reason = runtime.world.voxel.write(region.x, region.y, region.z,
                 region.sx, region.sy, region.sz, editor.undo_state.cells)
             if not ok then
-                editor.set_editor_message("recovery", "Undo paused because the previous terrain could not be restored. Press F4 to retry.")
+                editor.set_editor_message("recovery", "Undo paused because the previous terrain could not be restored. Press {{keybind:undoVoxels}} to retry.")
                 runtime.report_effect("write-failed", reason or "voxel undo failed")
                 shroudforge.log.error("World Editor voxel undo failed: " .. tostring(reason))
                 editor.finish_process("error", "Terrain restoration failed: " .. tostring(reason), "error")
@@ -218,7 +218,7 @@ return function(editor)
             editor.process_step("Terrain checked", 1, 4, "No terrain restoration is pending.")
         end
         -- A queued/paused prop dismantle must never block independent terrain
-        -- restoration. F4 may therefore restore the snapshot while that one input
+        -- restoration. Undo last paste may therefore restore the snapshot while that one input
         -- remains pending; it still must not queue a duplicate dismantle.
         if (#entities > 0 or #(editor.undo_state.removed_props or {}) > 0) and
            not editor.feature("runtime.world.entity.get_transform") then
@@ -230,13 +230,13 @@ return function(editor)
             local current, read_reason
             current, read_reason = editor.read_prop(entity.entityHandle, expected)
             if not current and read_reason ~= "entity-absent" then
-                editor.set_editor_message("recovery", "Undo paused because the prop state could not be read. Terrain has been restored. Press F4 to retry the prop.")
+                editor.set_editor_message("recovery", "Undo paused because the prop state could not be read. Terrain has been restored. Press {{keybind:undoVoxels}} to retry the prop.")
                 shroudforge.log.warn("World Editor paused prop undo because the live transform read failed: " .. tostring(read_reason))
                 editor.finish_process("error", "A placed prop could not be checked. Terrain restoration is retained.", "warn")
                 return
             end
             if current and not editor.undo_state.automaticRollback and not editor.transform_matches(current, entity.expected_transform) then
-                editor.set_editor_message("recovery", "Undo paused because a placed prop was moved or changed. Restore it to its pasted state, then press F4 to retry.")
+                editor.set_editor_message("recovery", "Undo paused because a placed prop was moved or changed. Restore it to its pasted state, then press {{keybind:undoVoxels}} to retry.")
                 runtime.report_effect("write-failed", "a pasted prop changed after paste")
                 shroudforge.log.warn("World Editor refused undo because a pasted prop changed after paste")
                 editor.finish_process("error", "A placed prop changed after paste, so undo paused to protect that change.", "warn")
@@ -249,7 +249,7 @@ return function(editor)
             local current, read_reason
             current, read_reason = editor.read_prop(prop.entityHandle, expected)
             if not current and read_reason ~= "entity-absent" then
-                editor.set_editor_message("recovery", "Undo paused because the replaced prop state could not be read. Terrain has been restored. Press F4 to retry.")
+                editor.set_editor_message("recovery", "Undo paused because the replaced prop state could not be read. Terrain has been restored. Press {{keybind:undoVoxels}} to retry.")
                 shroudforge.log.warn("World Editor paused replaced-prop undo because the live transform read failed: " .. tostring(read_reason))
                 editor.finish_process("error", "A replaced prop could not be checked. Retry undo when the runtime is ready.", "warn")
                 return
@@ -259,7 +259,7 @@ return function(editor)
                 -- still exists, so restoring it would create a duplicate.
                 prop.removal_skipped = true
             elseif current then
-                editor.set_editor_message("recovery", "Undo paused because a replaced prop is already present. Check the world, then press F4 to retry.")
+                editor.set_editor_message("recovery", "Undo paused because a replaced prop is already present. Check the world, then press {{keybind:undoVoxels}} to retry.")
                 runtime.report_effect("write-failed", "a replaced prop reappeared before undo")
                 shroudforge.log.warn("World Editor refused undo because a replaced prop is already live again")
                 editor.finish_process("error", "A replaced prop is already present. Undo paused to avoid a duplicate.", "warn")
@@ -272,7 +272,7 @@ return function(editor)
         while index >= 1 do
             local entity = entities[index]
             if not entity.entityHandle then
-                editor.set_editor_message("recovery", "Undo paused because a prop handle is missing. Press F4 to retry recovery.")
+                editor.set_editor_message("recovery", "Undo paused because a prop handle is missing. Press {{keybind:undoVoxels}} to retry recovery.")
                 runtime.report_effect("write-failed", "pasted prop has no live entity handle")
                 shroudforge.log.warn("World Editor paused undo because live prop state could not be inspected")
                 editor.finish_process("error", "A placed prop has no verifiable live handle.", "warn")
@@ -280,7 +280,7 @@ return function(editor)
             end
             local current, read_reason = editor.read_prop(entity.entityHandle, expected)
             if not current and read_reason ~= "entity-absent" then
-                editor.set_editor_message("recovery", "Undo paused because the prop state could not be read. Terrain has been restored. Press F4 to retry the prop.")
+                editor.set_editor_message("recovery", "Undo paused because the prop state could not be read. Terrain has been restored. Press {{keybind:undoVoxels}} to retry the prop.")
                 shroudforge.log.warn("World Editor paused prop removal because the live transform read failed: " .. tostring(read_reason))
                 editor.finish_process("error", "A placed prop could not be inspected. Retry undo later.", "warn")
                 return
@@ -303,7 +303,7 @@ return function(editor)
                 editor.undo_state.entity_index = index
             else
                 local detail = read_reason or remove_reason or "the exact pasted ECS handle is still present after the destroy call"
-                editor.set_editor_message("recovery", "Undo paused because a placed prop could not be removed. " .. tostring(detail) .. ". Press F4 to retry.")
+                editor.set_editor_message("recovery", "Undo paused because a placed prop could not be removed. " .. tostring(detail) .. ". Press {{keybind:undoVoxels}} to retry.")
                 runtime.report_effect("write-failed", detail)
                 shroudforge.log.error("World Editor paused undo and preserved its progress: " .. tostring(detail))
                 editor.finish_process("error", "A placed prop could not be removed: " .. tostring(detail), "error")
@@ -324,7 +324,7 @@ return function(editor)
                 if not current and read_reason == "entity-absent" then
                     prop.removal_skipped = nil
                 elseif not current or not editor.transform_matches(current, prop.expected_transform) then
-                    editor.set_editor_message("recovery", "Undo paused because a pending removal changed. Press F4 to retry.")
+                    editor.set_editor_message("recovery", "Undo paused because a pending removal changed. Press {{keybind:undoVoxels}} to retry.")
                     editor.finish_process("error", "The original prop could not be verified before completing recovery.", "warn")
                     return
                 end
@@ -343,7 +343,7 @@ return function(editor)
                 editor.undo_state.recovery_required = true
                 local scaled, scale_reason = runtime.world.entity.set_scale(entity_handle, prop.scale)
                 if not scaled then
-                    editor.set_editor_message("recovery", "Undo paused while restoring a replaced prop's scale. Press F4 to retry.")
+                    editor.set_editor_message("recovery", "Undo paused while restoring a replaced prop's scale. Press {{keybind:undoVoxels}} to retry.")
                     shroudforge.log.error("World Editor paused undo while restoring a replaced prop's scale: " ..
                         tostring(scale_reason or "native scale update failed"))
                     editor.finish_process("error", "A replaced prop's scale could not be restored.", "error")
@@ -352,7 +352,7 @@ return function(editor)
             end
             local restored = entity_handle and editor.read_prop(entity_handle, expected)
             if not restored or not editor.transform_matches(restored, prop.expected_transform) then
-                editor.set_editor_message("recovery", "Undo paused while restoring a replaced prop. Press F4 to retry.")
+                editor.set_editor_message("recovery", "Undo paused while restoring a replaced prop. Press {{keybind:undoVoxels}} to retry.")
                 shroudforge.log.error("World Editor paused undo while restoring a replaced target prop: " ..
                     tostring(spawn_reason or "spawn could not be verified by entity handle"))
                 editor.finish_process("error", "A replaced prop could not be verified after restoration.", "error")
@@ -385,9 +385,9 @@ return function(editor)
         editor.undo_voxels()
         if editor.undo_state then
             editor.undo_state.automaticRollback = nil
-            shroudforge.log.error("World Editor rollback is incomplete. Press F4 again after resolving the recovery issue.")
-            editor.set_editor_message("recovery", "Rollback is incomplete. Press F4 to continue restoring the previous world state.")
-            editor.finish_process("error", "Automatic rollback is incomplete. Press F4 to continue recovery.", "error")
+            shroudforge.log.error(editor.format_keybind_hint("World Editor rollback is incomplete. Press {{keybind:undoVoxels}} again after resolving the recovery issue."))
+            editor.set_editor_message("recovery", "Rollback is incomplete. Press {{keybind:undoVoxels}} to continue restoring the previous world state.")
+            editor.finish_process("error", editor.format_keybind_hint("Automatic rollback is incomplete. Press {{keybind:undoVoxels}} to continue recovery."), "error")
         else
             shroudforge.log.info("World Editor automatically restored the pre-paste snapshot")
             editor.set_editor_message("selected", "Placement failed, and the previous world state was restored.")
@@ -410,12 +410,12 @@ return function(editor)
         editor.placement_preview = nil
         editor.editor_stage = editor.undo_state and editor.undo_state.recovery_required and "recovery" or "need_a"
         editor.editor_hint = editor.remote_release_pending and
-            "F6 asked the dedicated server to abandon the previous operation. The server must confirm before F7 can start. Press F6 again to resend if the reply is lost." or
+            "{{keybind:resetEditor}} asked the dedicated server to abandon the previous operation. The server must confirm before {{keybind:pasteAtCursor}} can start. Press {{keybind:resetEditor}} again to resend if the reply is lost." or
             editor.remote_recovery_required and
-            "The dedicated server has an unfinished operation. Press F6 to abandon it; partial terrain or props may remain. F7 unlocks only after server confirmation." or
+            "The dedicated server has an unfinished operation. Press {{keybind:resetEditor}} to abandon it; partial terrain or props may remain. {{keybind:pasteAtCursor}} unlocks only after server confirmation." or
             editor.undo_state and editor.undo_state.recovery_required and
-            "Editor reset. The incomplete placement recovery is still retained. Press F4 to retry it. You can continue using capture and blueprint tools, but F7 stays paused until recovery completes." or
-            "Editor reset. Select the Building Hammer, choose a Single Voxel, aim at the first corner, then press F5."
+            "Editor reset. The incomplete placement recovery is still retained. Press {{keybind:undoVoxels}} to retry it. You can continue using capture and blueprint tools, but {{keybind:pasteAtCursor}} stays paused until recovery completes." or
+            "Editor reset. Select the Building Hammer, choose a Single Voxel, aim at the first corner, then press {{keybind:markCursorNext}}."
         editor.publish_editor_state()
         shroudforge.log.info("World Editor reset: capture cancelled and selection cleared, undo history preserved")
     end
@@ -456,7 +456,7 @@ return function(editor)
 
     editor.undo_remote = function()
         if not editor.remote_undo then
-            editor.set_editor_message(nil, "There is no confirmed server placement to undo. Place a blueprint on the server with F7 first.")
+            editor.set_editor_message(nil, "There is no confirmed server placement to undo. Place a blueprint on the server with {{keybind:pasteAtCursor}} first.")
             return
         end
         if not editor.p2p_bridge then editor.set_editor_message("recovery", "Steam P2P is unavailable. The server undo token is retained."); return end
@@ -474,7 +474,7 @@ return function(editor)
         end
         editor.remote_request_pending = true
         editor.remote_active_request = {peer = editor.remote_undo.peer, request_id = request, operation = "undo"}
-        editor.set_editor_message("building", "F4 sent the server-owned undo request. Waiting for its native readback result…")
+        editor.set_editor_message("building", "{{keybind:undoVoxels}} sent the server-owned undo request. Waiting for its native readback result…")
         shroudforge.log.debug("World Editor queued P2P undo request " .. tostring(request))
         shroudforge.log.info("World Editor: undo request sent to the dedicated server. Waiting for confirmation.")
     end
@@ -509,7 +509,7 @@ return function(editor)
         end
         if not job.started then
             -- Use the same guarded restoration and readiness continuation as
-            -- local F4, without another pair of non-reserving Scene samples.
+            -- local Undo last paste, without another pair of non-reserving Scene samples.
             editor.undo_voxels()
             job.started = true
         end
@@ -524,7 +524,7 @@ return function(editor)
             if editor.process_progress.state == "running" then
                 editor.finish_process("error", "Server undo paused: " .. tostring(editor.editor_hint), "warn")
             end
-            editor.finish_server_remote_undo(job, false, editor.editor_hint or "server-undo-needs-recovery. Retry F4")
+            editor.finish_server_remote_undo(job, false, editor.editor_hint or "server-undo-needs-recovery. Retry {{keybind:undoVoxels}}")
         end
     end
 end
