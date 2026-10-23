@@ -10,5 +10,5 @@ files:
       two_letters_code:
         de-AT: de-AT
         de-CH: de-CH
-        bar: bar
+        de-BAY: de-BAY
     update_option: update_as_unapproved
