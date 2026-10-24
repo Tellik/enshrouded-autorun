@@ -138,10 +138,15 @@ writes. Its raw input changed from idle `(0, 0)` to W `(0, +1)` and S `(0, -1)`;
 S stopped the diagnostic. This supports the hook's timing and local identity,
 but does not yet prove that a modified vector reaches gameplay or networking.
 
-The next source stage adds a 500 ms renewed native request, a one-second hook
+The next source stage added a 500 ms renewed native request, a one-second hook
 and local-input activity limit, exact-build and world/focus guards, native
 backward cancellation, and the `mods/autorun/` F8 toggle. The mod is disabled
-by default. It needs a live movement test before this can be called a working
-autorun implementation. The Lua keybind API still has no independent gameplay
-menu/death query. These states, native Windows, and joining a multiplayer host
-remain unverified and cannot be claimed as supported yet.
+by default. The Windows build and repository tests passed in
+[run 40114984834](https://github.com/Tellik/enshrouded-autorun/actions/runs/40114984834).
+The first single-player Proton test visibly moved the character at about the
+normal W speed after F8. A second F8 stopped it, and S canceled a later run;
+the game stayed stable. The native log counted 74 of 74 local hook writes
+before toggle-off and 181 writes before the S stop. The Lua keybind API still
+has no independent gameplay menu/death query. Focus loss, menus, death, travel,
+native Windows, and joining a multiplayer host remain unverified and cannot
+yet be claimed as supported.

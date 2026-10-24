@@ -15,5 +15,6 @@ sprint or the game's slower Walk action.
 The first test should take place in a safe, open area in a single-player world:
 wait for the world to settle, tap F8 once, verify forward movement and steering,
 tap F8 again to stop, then re-enable and press S to cancel. The mod logs native
-hook, local match, and write counts. Menus, death, travel, native Windows, and
-joining another host have not yet been verified.
+hook, local match, and write counts. This basic movement/toggle/S test worked
+under Proton. Menus, focus loss, death, travel, native Windows, and joining
+another host have not yet been verified.

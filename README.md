@@ -3,10 +3,11 @@
 An experimental client-side autorun mod, developed on a fork of
 [ShroudForge](https://github.com/bonsaibauer/shroudforge).
 
-**Status: the read-only input hook passed its single-player Proton timing test.
-The movement build is awaiting its first gameplay test.** There is no verified
-gameplay release. Build artifacts are development packages, and the autorun
-mod is disabled by default.
+**Status: the F8 movement proof of concept works in a single-player Proton
+world.** Toggle-off and S cancellation also worked without a crash. This is
+still a development build, and the autorun mod is disabled by default in the
+package. Menu, focus-loss, death, travel, multiplayer, and native Windows
+behavior still need testing.
 
 The first version toggles normal forward input with F8, equivalent to holding
 the game's forward control. Pressing F8 again or moving backward cancels it.
@@ -33,7 +34,9 @@ See the [implementation and validation plan](docs/development/autorun.en.md).
 The [Autorun Input Probe](mods/autorun-input-probe/README.md) does not move the
 character. In a single-player Proton test, 276 of 281 hook calls matched the
 verified local input. It observed W as `(0, +1)` and S as `(0, -1)`, with zero
-movement writes. The [Autorun mod](mods/autorun/) is the next test stage.
+movement writes. The subsequent [Autorun mod](mods/autorun/) test visibly
+moved the character at ordinary forward speed with F8 and stopped on F8/S.
+Its native log counted 74 local writes before toggle-off and 181 before S.
 
 ## Windows builds without a local Windows installation
 
