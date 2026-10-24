@@ -1,52 +1,31 @@
 # Autorun Input Probe
 
-This diagnostic checks ShroudForge 1.7.6's keybind API and Lua lifecycle on the
-target system. It changes a local test flag and writes logs. It does not apply
-movement, edit game assets, change player statistics, or send network requests.
-It also samples reflected movement input at most four times per second in an
-active world. When exactly one matching input entity exists, it logs changes to
-the movement stick. Unavailable or ambiguous sources are reported and skipped.
-An updated loader can also return the main client's input through a dedicated
-read-only API; the supplied upstream 1.7.6 build does not include that API.
+This temporary diagnostic checks the F8/S bindings and observes the game's
+local-client movement input. The exact-build native hook is armed by F8, but
+**this build does not write movement**. It reports hook hits, uniquely matched
+local-player hits, and the last observed movement axes. The hook is disabled on
+other Enshrouded builds and on a dedicated server.
 
-The source package is disabled by default. Enable it after disabling the other
-bundled gameplay mods. World Editor uses F8 by default and conflicts with this
-test. The prepared local baseline enables only this probe.
+The package is disabled by default. During this test, disable the bundled
+gameplay mods that use F8, including World Editor. The local test installation
+enables only this probe.
 
 ## Test
 
-1. Start Enshrouded with the compiled ShroudForge 1.7.6 loader and this mod.
-2. At the main menu, press F8, hold it for two seconds, then release it. Press
-   and release F8 again. Expect exactly two `Toggle #` messages: ON, then OFF.
-3. Press F8 once more, release it, then press S. Expect an OFF cancellation.
-4. Switch to another application and tap F8 there. Return to the game. The
-   background taps should not add toggle messages.
-5. Repeat in a single-player world and while a game menu or chat is open. Record
-   whether inputs are still reported in those contexts; this probe does not gate
-   gameplay menus or chat.
-   In the world, hold the normal forward key for two seconds, release it, then
-   hold the backward key for two seconds. Compare the `Read-only` movementStick
-   log entries for idle, forward, and backward input.
-6. Optionally change the toggle binding in the loader. A binding change resets
-   the diagnostic flag. Holding the new binding during the change must not
-   count as a press until it has been released and pressed again.
-7. Disable the probe in the loader or exit the game. Check for the unload entry
-   when the runtime provides a normal unload callback.
+1. Enter a single-player world, wait a few seconds, then tap F8 once.
+2. Stand still for two seconds. Hold the normal forward key for two seconds and
+   release it. Hold S for two seconds and release it. S cancels the diagnostic.
+3. Check `shroudforge/logs/shroudforge-client.log` in the game installation for
+   `[autorun-probe] Native hook` entries. The `local` count should rise and
+   the axes should change from `(0,0)` to roughly `(0,1)` under forward input.
+   S should cancel the hook. `writes` must remain zero.
+4. Tap F8 again, then switch to another application and return. The hook should
+   stop when the game loses focus. A second F8 tap toggles it off.
 
-Use F10 for the loader's debug window, or inspect
-`shroudforge/logs/shroudforge-client.log` under the game installation. Search for
-`[autorun-probe]`. The loader's **Write test status to log** action is an
-additional way to verify the callback is running.
+The read-only component snapshot may need several seconds to discover the
+unique local player when a world first loads. The probe keeps refreshing that
+identity after it stops logging ordinary input changes.
 
-## Limits
-
-The existing keybind API reports false both when a key is released and when the
-game loses focus. It does not expose an independent focus signal to this mod.
-Returning focus while a key is held may therefore look like a new press. This
-test flag is not a safe movement controller and does not auto-cancel on focus
-loss, menus, chat, or world changes. Those cases must be handled by the eventual
-movement integration before it can drive the character.
-
-Keyboard chords require exact modifiers in ShroudForge. The plain S test binding
-does not cover Shift+S; movement cancellation must eventually use the game's
-actual backward-input action and respect remapped controls.
+This stage validates whether the hook runs after the game's movement input is
+produced. The actual forward-input write remains disabled until those live
+observations match the earlier read-only W/S test.

@@ -160,6 +160,32 @@ bool LocalCursorInputAvailable(){
     return contract != EcsImplementation::configured_types.end() && contract->second && contract->second <= MaximumInputBytes;
 }
 
+bool MatchesPublishedLocalInput(const void* expected, std::uint64_t expected_session){
+    if (!expected || !expected_session) return false;
+    std::unique_lock operation_lock(EcsImplementation::operation_mutex, std::try_to_lock);
+    if (!operation_lock.owns_lock()) return false;
+    std::unique_lock input_lock(local_input_mutex, std::try_to_lock);
+    if (!input_lock.owns_lock() || !local_input.complete || local_input.ambiguous ||
+        !local_input.published.pointer || local_input.session != expected_session ||
+        local_input.component.size != 1536 ||
+        GetTickCount64() - local_input.completed_ms > 1200 ||
+        EcsImplementation::stop_requested.load(std::memory_order_acquire) ||
+        KfcRuntimeWorldSessionId() != expected_session) return false;
+    EngineContext::EcsView owner;
+    if (!EngineContext::ResolveClientEcs(owner) || owner != local_input.owner ||
+        !current_registry_header(local_input)) return false;
+    const auto layout = client_layout(owner);
+    if (!current_entity_header(local_input, layout) ||
+        local_input.published_slot >= local_input.entity_count) return false;
+    std::uintptr_t pointer{}, address{};
+    EntityView entity{};
+    return read(owner.entity_table + local_input.published_slot * sizeof(pointer), pointer) &&
+        pointer == local_input.published.pointer &&
+        entity_view(pointer, layout, entity) && entity == local_input.published &&
+        component_address(entity, layout, local_input.component, address) &&
+        address == reinterpret_cast<std::uintptr_t>(expected);
+}
+
 std::uint32_t ReadLocalCursorInput(std::size_t component_size, std::uint64_t expected_session,
                                   std::uint8_t* buffer, std::size_t capacity, std::uint64_t* sequence){
     if (!component_size || component_size > MaximumInputBytes || !expected_session || !buffer ||

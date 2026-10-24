@@ -51,6 +51,20 @@ pub(super) fn create_world(lua: &mlua::Lua, r#mod: &Mod) -> mlua::Result<mlua::T
         r#mod,
         super::player_input::read_local_player_input::lua_world_player_input_get,
     )?;
+    add_function_with_mod(
+        lua,
+        &player_input,
+        "autorun_set",
+        r#mod,
+        super::player_input::observe_autorun::lua_world_autorun_set,
+    )?;
+    add_function_with_mod(
+        lua,
+        &player_input,
+        "autorun_status",
+        r#mod,
+        super::player_input::observe_autorun::lua_world_autorun_status,
+    )?;
     world.raw_set("player_input", player_input)?;
     let entity = lua.create_table()?;
     add_function_with_mod(

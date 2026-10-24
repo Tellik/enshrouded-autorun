@@ -10,6 +10,8 @@ local observation_elapsed = 0
 local observed_session = 0
 local observation_count = 0
 local observation_status = {}
+local hook_observations = 0
+local last_hook_axes = nil
 
 local movement_sources = {
     { name = "local-client", component = "keen::ecs::ClientPlayerInput",
@@ -60,14 +62,42 @@ local function observe_movement(delta_seconds)
 
     local session = runtime.world.session_id()
     if session ~= observed_session then
+        if active then
+            runtime.world.player_input.autorun_set(false)
+            active = false
+            log("Diagnostic state=OFF; world session changed.")
+        end
         observed_session = session
         observation_count = 0
         observation_status = {}
         log("Read-only world session=" .. tostring(session))
     end
-    if session == 0 or observation_count >= 40 then return end
+    if session == 0 then return end
 
-    for _, source in ipairs(movement_sources) do
+    if active and hook_observations < 40 and runtime.world.player_input
+        and runtime.world.player_input.autorun_status then
+        local status, reason = runtime.world.player_input.autorun_status()
+        if status then
+            local axes = string.format("%.2f,%.2f", status.x, status.y)
+            if axes ~= last_hook_axes or hook_observations % 8 == 0 then
+                log(string.format("Native hook hits=%d local=%d writes=%d active=%s axes=(%s)",
+                    status.hits, status.localHits, status.writes,
+                    tostring(status.active), axes))
+                last_hook_axes = axes
+            end
+            hook_observations = hook_observations + 1
+            if not status.active then
+                active = false
+                log("Diagnostic state=OFF; native hook stopped.")
+            end
+        elseif observation_status.hook ~= tostring(reason) then
+            observation_status.hook = tostring(reason)
+            log("Native hook status unavailable: " .. tostring(reason))
+        end
+    end
+
+    if observation_count < 40 then
+      for _, source in ipairs(movement_sources) do
         local entities, query_reason = runtime.ecs.query(source.component)
         if entities == nil then
             observation_result(source, "query unavailable: " .. tostring(query_reason))
@@ -90,8 +120,10 @@ local function observe_movement(delta_seconds)
                 end
             end
         end
+      end
     end
 
+    -- Keep refreshing the unique local-input identity after log suppression.
     if runtime.world.player_input then
         local snapshot, reason = runtime.world.player_input.get()
         if snapshot == nil then
@@ -121,6 +153,8 @@ return {
         observed_session = 0
         observation_count = 0
         observation_status = {}
+        hook_observations = 0
+        last_hook_axes = nil
         log("Loaded. Input-only diagnostic; character movement is unchanged.")
         report_status()
     end,
@@ -137,6 +171,9 @@ return {
         local toggle_down, cancel_down = sample_keys()
 
         if new_toggle ~= toggle_binding or new_cancel ~= cancel_binding then
+            if runtime.world.player_input and runtime.world.player_input.autorun_set then
+                runtime.world.player_input.autorun_set(false)
+            end
             active = false
             toggle_binding, cancel_binding = new_toggle, new_cancel
             previous_toggle, previous_cancel = toggle_down, cancel_down
@@ -155,20 +192,37 @@ return {
         -- Cancellation takes priority even when both keys arrive in one update.
         if cancel_down then
             if active then
+                local status = runtime.world.player_input.autorun_status()
+                if status then
+                    log(string.format("Native hook before cancel: hits=%d local=%d writes=%d axes=(%.2f,%.2f)",
+                        status.hits, status.localHits, status.writes, status.x, status.y))
+                end
+                runtime.world.player_input.autorun_set(false)
                 active = false
                 log("Diagnostic state=OFF; cancelled by backward key.")
             end
         elseif toggle_down and not previous_toggle then
-            active = not active
-            toggle_count = toggle_count + 1
-            log("Toggle #" .. toggle_count .. ": diagnostic state=" .. state_label()
-                .. ". No movement is applied.")
+            local wanted = not active
+            local success, reason = runtime.world.player_input.autorun_set(wanted)
+            if success then
+                active = wanted
+                toggle_count = toggle_count + 1
+                hook_observations = 0
+                last_hook_axes = nil
+                log("Toggle #" .. toggle_count .. ": diagnostic state=" .. state_label()
+                    .. ". Native hook is read-only; no movement is applied.")
+            else
+                log("Native hook request unavailable: " .. tostring(reason))
+            end
         end
 
         previous_toggle, previous_cancel = toggle_down, cancel_down
     end,
 
     on_unload = function()
+        if runtime.world.player_input and runtime.world.player_input.autorun_set then
+            runtime.world.player_input.autorun_set(false)
+        end
         active = false
         log("Unloaded. Diagnostic state=OFF; no movement was applied.")
     end,

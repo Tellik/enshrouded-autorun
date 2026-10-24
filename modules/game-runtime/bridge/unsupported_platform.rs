@@ -95,6 +95,15 @@ pub fn world_cursor_read() -> Option<(Vec<u8>, u64)> {
 pub fn world_cursor_read_input(_: usize) -> Result<(Vec<u8>, u64), String> {
     Err("native local cursor access is available on Windows only".into())
 }
+pub fn world_autorun_available() -> bool {
+    false
+}
+pub fn world_autorun_set(_: bool, _: u64) -> Result<(), String> {
+    Err("native autorun input is available on Windows only".into())
+}
+pub fn world_autorun_status() -> Option<(u64, u64, u64, bool, f32, f32)> {
+    None
+}
 pub fn world_voxel_read(_: [i32; 3], _: [u32; 3], _: usize) -> Result<Vec<u16>, String> {
     Err("native voxel access is available on Windows only".into())
 }

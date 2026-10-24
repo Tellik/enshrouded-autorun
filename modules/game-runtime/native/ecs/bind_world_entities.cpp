@@ -3,6 +3,7 @@
 #include "ecs/registry/component_discovery_state.h"
 #include "engine-context/observe_entity_manager.h"
 #include "engine-hooks/install_engine_hooks.h"
+#include "player-input/autorun_movement.h"
 #include "ecs/ecs_session_state.h"
 
 using namespace EcsImplementation;
@@ -178,6 +179,7 @@ bool Initialize() {
     image_size = nt->OptionalHeader.SizeOfImage;
     stop_requested.store(false, std::memory_order_release);
     if (execution_profile) EngineHooks::Install();
+    AutoRunMovement::Install();
     // Metadata discovery remains available when a build lacks proven native
     // execution adapters. Original-owner entity reads do not authorize writes.
     return true;

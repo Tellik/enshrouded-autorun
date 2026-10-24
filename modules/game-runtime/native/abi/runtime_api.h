@@ -283,6 +283,15 @@ KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeWorldCursorRead(
 KFC_RUNTIME_API uint32_t KFC_RUNTIME_CALL KfcRuntimeWorldCursorReadInput(
     size_t component_size, uint64_t expected_session, uint8_t* buffer,
     size_t capacity, uint64_t* sequence);
+/* Optional exact-image local-client movement hook. Set(true) accepts only the
+   current world session. This diagnostic build observes the post-write input
+   point without changing movement. Set(false) always clears the request.
+   Status counters are process-local diagnostics, not gameplay confirmation. */
+KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeWorldAutoRunAvailable(void);
+KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeWorldAutoRunSet(bool enabled, uint64_t expected_session);
+KFC_RUNTIME_API bool KFC_RUNTIME_CALL KfcRuntimeWorldAutoRunStatus(
+    uint64_t* hook_hits, uint64_t* local_hits, uint64_t* writes, bool* active,
+    float* last_x, float* last_y);
 /* Optional ABI-12 client input extension. Exact build only. Dispatch is not a
    replicated-world acknowledgement. kind: select=0, place=1, remove=2, undo=3.
    Status: unknown=0, queued=1, pressed=2, dispatched=3, timeout=4, cancelled=5. */

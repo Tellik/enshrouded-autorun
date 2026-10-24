@@ -724,6 +724,17 @@ runtime.world.player_input = {}
 --- @return table? snapshot with `session`, `sequence`, and `movementStick = {x, y}`.
 --- @return string? reason
 function runtime.world.player_input.get() end
+--- Arm or clear the exact-build local-client autorun input hook. The initial
+--- diagnostic build observes movement but does not write game input.
+--- Availability: runtime.world.player_input.autorun.
+--- @param enabled boolean
+--- @return boolean success
+--- @return string? reason
+function runtime.world.player_input.autorun_set(enabled) end
+--- Read hook timing counters and the last observed local movement axes.
+--- @return table? status with hits, localHits, writes, active, x, and y.
+--- @return string? reason
+function runtime.world.player_input.autorun_status() end
 
 --- Ordinary local player building input; availability: runtime.world.building.input.
 --- Exact client build only; follows the existing game input path. The server

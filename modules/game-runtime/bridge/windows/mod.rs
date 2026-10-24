@@ -1,4 +1,6 @@
+mod autorun;
 mod native_abi;
+pub use autorun::*;
 
 pub use native_abi::{
     Component, GridSpec, GridSpecResult, PropRecipe, PropRecord, RuntimeResourceId,

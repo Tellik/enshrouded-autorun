@@ -77,6 +77,12 @@ pub(crate) fn available(state: &AppState, r#mod: &Mod, feature: &str) -> bool {
                 && has_capability(r#mod, Capability::Runtime)
                 && runtime_provider::world_operation_available("runtime.world.cursor.get")
         }
+        "runtime.world.player_input.autorun" => {
+            state.phase() == RuntimePhase::Ingame
+                && state.api().has_runtime(feature)
+                && has_capability(r#mod, Capability::Runtime)
+                && runtime_provider::world_autorun_available()
+        }
         "runtime.world.voxel.write" => {
             state.phase() == RuntimePhase::Ingame
                 && state.api().has_runtime(feature)
@@ -230,7 +236,9 @@ pub(super) fn operation_status(
         );
     }
     let world_ready =
-        if feature == "runtime.world.player_input.get" {
+        if feature == "runtime.world.player_input.autorun" {
+            runtime_provider::world_autorun_available()
+        } else if feature == "runtime.world.player_input.get" {
             runtime_provider::world_operation_available("runtime.world.cursor.get")
         } else if feature == "runtime.world.cursor.get" || feature == "runtime.world.building.input"
             || feature == "runtime.world.voxel.read" {

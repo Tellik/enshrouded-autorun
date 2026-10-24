@@ -2,6 +2,7 @@
 #include "ecs/entity_session.h"
 #include "loaded-resources/loaded_resource_access.h"
 #include "main-menu/native_main_menu.h"
+#include "player-input/autorun_movement.h"
 #include <algorithm>
 #include <cstring>
 #include <string>
@@ -39,6 +40,7 @@ KFC_RUNTIME_API void __cdecl KfcRuntimeTick() {
 
 KFC_RUNTIME_API void __cdecl KfcRuntimeShutdown() {
     provider_initialized.store(false, std::memory_order_release);
+    AutoRunMovement::Stop();
     KfcRuntimeNetworkServiceShutdown();
     NativeMainMenu::Shutdown();
     ResourceRuntime::Shutdown();

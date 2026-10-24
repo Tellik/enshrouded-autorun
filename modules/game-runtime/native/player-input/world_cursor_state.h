@@ -17,4 +17,5 @@ extern CursorMailbox cursor_mailbox;
 bool copy_cursor_safely(const void* source, std::uint8_t* output);
 
 bool LocalCursorInputAvailable();
+bool MatchesPublishedLocalInput(const void* expected, std::uint64_t expected_session);
 }

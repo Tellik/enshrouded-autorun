@@ -18,6 +18,7 @@
     "runtime.world.context.active",
     "runtime.world.cursor.get",
     "runtime.world.player_input.get",
+    "runtime.world.player_input.autorun",
     "runtime.world.building.input",
     "runtime.world.voxel.read",
     "runtime.world.voxel.write",
