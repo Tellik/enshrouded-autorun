@@ -1,0 +1,36 @@
+{
+  "$schema": "https://bonsaibauer.github.io/shroudforge/schemas/extended.mod.schema.json",
+  "schemaVersion": 1,
+  "enabled": false,
+  "targets": ["client"],
+  "launcher": "SF",
+  "links": {
+    "source-github": "https://github.com/Tellik/enshrouded-autorun"
+  },
+  "settings": {
+    "toggleProbe": {
+      "value": "SDL:65",
+      "control": "keybind",
+      "label": "Toggle input test",
+      "description": "F8 by default. Changes a diagnostic state only; does not move the character.",
+      "applyAt": "live"
+    },
+    "cancelProbe": {
+      "value": "SDL:22",
+      "control": "keybind",
+      "label": "Cancel input test",
+      "description": "S by default. Cancels the diagnostic toggle; bind this to your backward key if needed.",
+      "applyAt": "live"
+    }
+  },
+  "groups": [
+    {
+      "label": "Input diagnostic",
+      "description": "Results appear in the mod log. This is not the movement implementation.",
+      "settings": ["toggleProbe", "cancelProbe"],
+      "actions": [
+        {"id": "reportStatus", "label": "Write test status to log", "style": "secondary"}
+      ]
+    }
+  ]
+}

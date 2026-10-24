@@ -1,0 +1,12 @@
+{
+  "$schema": "../../modules/modloader/manifest/manifest.schema.json",
+  "id": "autorun-input-probe",
+  "name": "Autorun Input Probe",
+  "version": "0.1.0",
+  "description": "Checks hotkey polling and mod lifecycle for autorun development. Logs a diagnostic toggle without moving the character.",
+  "authors": ["Tellik"],
+  "license": "MIT",
+  "icon": null,
+  "dependencies": [],
+  "capabilities": ["runtime"]
+}

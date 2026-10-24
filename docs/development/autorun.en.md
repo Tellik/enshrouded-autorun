@@ -71,7 +71,20 @@ Successful compilation is not an in-game compatibility test.
 
 ## Current status
 
-Repository setup and a manual Windows build workflow are present. No autorun
-movement code, game-memory writes, gameplay tests, or multiplayer validation have
-been completed. The upstream binary package can serve as the baseline without
-waiting for a custom hosted build.
+Repository setup and a manual Windows build workflow are present. An input-only
+diagnostic is available under `mods/autorun-input-probe/`. Lua syntax, manifest
+structure, and a mocked lifecycle check passed. The behavior check covered
+holding a key, repeat presses, backward-key priority, activation while a key is
+held, live rebinding, and unload reset. It does not verify the native input API
+or real focus behavior.
+
+A local baseline uses the supplied compiled release, omits bundled gameplay
+mods, enables only the probe, and disables automatic updates and the loader's
+network module. Installation records and logs stay outside this public source
+checkout. The game executable and KFC files were hashed before and after
+installation and were unchanged. Live startup and input testing are pending.
+
+No autorun movement implementation or multiplayer validation has been completed.
+The existing Lua keybind API has no independent focus or gameplay-state query.
+The probe's test flag must not be reused as a movement controller without those
+additional gates and a bounded native request.
