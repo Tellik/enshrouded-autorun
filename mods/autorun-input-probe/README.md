@@ -3,6 +3,9 @@
 This diagnostic checks ShroudForge 1.7.6's keybind API and Lua lifecycle on the
 target system. It changes a local test flag and writes logs. It does not apply
 movement, edit game assets, change player statistics, or send network requests.
+It also samples reflected movement input at most four times per second in an
+active world. When exactly one matching input entity exists, it logs changes to
+the movement stick. Unavailable or ambiguous sources are reported and skipped.
 
 The source package is disabled by default. Enable it after disabling the other
 bundled gameplay mods. World Editor uses F8 by default and conflicts with this
@@ -19,6 +22,9 @@ test. The prepared local baseline enables only this probe.
 5. Repeat in a single-player world and while a game menu or chat is open. Record
    whether inputs are still reported in those contexts; this probe does not gate
    gameplay menus or chat.
+   In the world, hold the normal forward key for two seconds, release it, then
+   hold the backward key for two seconds. Compare the `Read-only` movementStick
+   log entries for idle, forward, and backward input.
 6. Optionally change the toggle binding in the loader. A binding change resets
    the diagnostic flag. Holding the new binding during the change must not
    count as a press until it has been released and pressed again.

@@ -90,10 +90,20 @@ The SDL input helper reported ready. The first F8 press produced one ON toggle;
 later presses produced OFF and ON. The optional Debug Console failed with
 WebView2 `HRESULT(0x80070002)` (file not found). Local test settings now disable
 the Debug Console and Modloader UI, which are separate from the game runtime.
-Backward-key cancellation, focus loss, world entry, and loader startup after
-that settings change are still pending live verification. The startup snapshot
-reported `profile=missing-or-ambiguous-profile` and unavailable game-thread
-access before world entry; this does not establish a usable native input hook.
+On the next launch, the windows were skipped and runtime startup completed
+without that WebView2 error. In a single-player world, F8 switched the probe
+ON and S canceled it. Background-focus behavior has not been confirmed.
+After world entry, the native snapshot reported a ready ECS registry and
+guarded local-authority entity access, while `game_thread=unavailable` and the
+general operation profile remained unavailable. This does not establish a
+usable native input hook.
+
+The installed game produced a type registry for this exact build. Its reflected
+`ClientPlayerInputData` has a 952-byte size, with `movementStick` at offset 696
+and `digitalInput` at 936. These differ from older layouts and are evidence for
+read-only sampling only. The probe now attempts bounded reads of the movement
+stick through the existing ECS API. It has not yet been installed or validated
+in the game.
 
 No autorun movement implementation or multiplayer validation has been completed.
 The existing Lua keybind API has no independent focus or gameplay-state query.

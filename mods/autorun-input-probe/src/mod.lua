@@ -6,6 +6,17 @@ local previous_toggle = false
 local previous_cancel = false
 local toggle_binding = nil
 local cancel_binding = nil
+local observation_elapsed = 0
+local observed_session = 0
+local observation_count = 0
+local observation_status = {}
+
+local movement_sources = {
+    { name = "local-client", component = "keen::ecs::ClientPlayerInput",
+      x = "data.movementStick.x", y = "data.movementStick.y" },
+    { name = "world-input", component = "keen::ecs::PlayerInput",
+      x = "fromClient.movementStick.x", y = "fromClient.movementStick.y" },
+}
 
 local function log(message)
     shroudforge.log.info("[autorun-probe] " .. message)
@@ -32,6 +43,55 @@ local function report_status()
         .. ". No movement is applied.")
 end
 
+local function observation_result(source, result)
+    if observation_status[source.name] ~= result and observation_count < 40 then
+        observation_status[source.name] = result
+        observation_count = observation_count + 1
+        log("Read-only " .. source.name .. " input: " .. result)
+    end
+end
+
+local function observe_movement(delta_seconds)
+    if type(delta_seconds) ~= "number" or delta_seconds < 0 then return end
+    observation_elapsed = observation_elapsed + delta_seconds
+    if observation_elapsed < 0.25 then return end
+    observation_elapsed = 0
+
+    local session = runtime.world.session_id()
+    if session ~= observed_session then
+        observed_session = session
+        observation_count = 0
+        observation_status = {}
+        log("Read-only world session=" .. tostring(session))
+    end
+    if session == 0 or observation_count >= 40 then return end
+
+    for _, source in ipairs(movement_sources) do
+        local entities, query_reason = runtime.ecs.query(source.component)
+        if entities == nil then
+            observation_result(source, "query unavailable: " .. tostring(query_reason))
+        elseif #entities ~= 1 then
+            observation_result(source, "matching entities=" .. tostring(#entities))
+        else
+            local fields, read_reason = runtime.ecs.read_fields(
+                entities[1], source.component, { source.x, source.y })
+            if fields == nil then
+                observation_result(source, "fields unavailable: " .. tostring(read_reason))
+            else
+                local x, y = fields[source.x], fields[source.y]
+                if type(x) ~= "number" or type(y) ~= "number" or x ~= x or y ~= y
+                    or x == math.huge or x == -math.huge
+                    or y == math.huge or y == -math.huge then
+                    observation_result(source, "fields were not finite numbers")
+                else
+                    local label = string.format("movementStick=(%.2f, %.2f)", x, y)
+                    observation_result(source, label)
+                end
+            end
+        end
+    end
+end
+
 shroudforge.ui.on_action("reportStatus", report_status)
 
 return {
@@ -43,11 +103,22 @@ return {
         toggle_binding, cancel_binding = read_bindings()
         -- An already held key must be released before its next press counts.
         previous_toggle, previous_cancel = sample_keys()
+        observation_elapsed = 0
+        observed_session = 0
+        observation_count = 0
+        observation_status = {}
         log("Loaded. Input-only diagnostic; character movement is unchanged.")
         report_status()
     end,
 
-    on_update = function()
+    on_update = function(delta_seconds)
+        -- Observations never alter gameplay and are sampled at most four times
+        -- per second. Failure is logged as unavailable without stopping hotkeys.
+        local observed, reason = pcall(observe_movement, delta_seconds)
+        if not observed and observation_status.error ~= tostring(reason) then
+            observation_status.error = tostring(reason)
+            log("Read-only movement observation unavailable: " .. tostring(reason))
+        end
         local new_toggle, new_cancel = read_bindings()
         local toggle_down, cancel_down = sample_keys()
 
