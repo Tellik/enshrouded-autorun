@@ -116,6 +116,15 @@ reader, returning the reflected movement vector, sequence, and world session.
 It still needs a Windows build and a live read test. A later movement request
 must use a verified producer-to-consumer hook rather than write this snapshot.
 
+An offline inspection of the exact `26082781` executable identified a likely
+client input producer at RVA `0x2437c0`. Its two direct callers resolve the
+`keen::ecs::ClientPlayerInput` component by the qualified type hash recorded
+in reflection. The producer writes the reflected `movementStick` fields at
+offsets `0x2b8` and `0x2bc` after processing ordinary directional input.
+This identifies a candidate for a future native hook; live ownership, update
+timing, and the subsequent network path still require validation before it
+can safely change movement.
+
 No autorun movement implementation or multiplayer validation has been completed.
 The existing Lua keybind API has no independent focus or gameplay-state query.
 The probe's test flag must not be reused as a movement controller without those
