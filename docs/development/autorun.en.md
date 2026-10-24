@@ -39,7 +39,8 @@ Windows gameplay remains a separate verification target.
 
 1. Load the supplied compiled ShroudForge release under Proton. Keep bundled
    gameplay mods disabled, record startup diagnostics, and verify the loader
-   and debug windows open. Keep the test version fixed during investigation.
+   and runtime initialize. The optional windows may be disabled if WebView2
+   cannot start. Keep the test version fixed during investigation.
 2. Add an input-only diagnostic mod. Verify one toggle per key press, key release,
    configurable bindings, focus loss, and reload behavior. This diagnostic must
    not move the character.
@@ -82,7 +83,17 @@ A local baseline uses the supplied compiled release, omits bundled gameplay
 mods, enables only the probe, and disables automatic updates and the loader's
 network module. Installation records and logs stay outside this public source
 checkout. The game executable and KFC files were hashed before and after
-installation and were unchanged. Live startup and input testing are pending.
+installation and were unchanged.
+
+The first Proton launch reached `Runtime initialized` and loaded the probe.
+The SDL input helper reported ready. The first F8 press produced one ON toggle;
+later presses produced OFF and ON. The optional Debug Console failed with
+WebView2 `HRESULT(0x80070002)` (file not found). Local test settings now disable
+the Debug Console and Modloader UI, which are separate from the game runtime.
+Backward-key cancellation, focus loss, world entry, and loader startup after
+that settings change are still pending live verification. The startup snapshot
+reported `profile=missing-or-ambiguous-profile` and unavailable game-thread
+access before world entry; this does not establish a usable native input hook.
 
 No autorun movement implementation or multiplayer validation has been completed.
 The existing Lua keybind API has no independent focus or gameplay-state query.

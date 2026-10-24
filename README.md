@@ -3,9 +3,9 @@
 An experimental client-side autorun mod, developed on a fork of
 [ShroudForge](https://github.com/bonsaibauer/shroudforge).
 
-**Status: input diagnostic ready for live testing. Autorun is not implemented
-yet.** There is no verified gameplay release. Build artifacts are development
-packages.
+**Status: input diagnostic loaded under Proton and F8 presses observed. Autorun
+is not implemented yet.** There is no verified gameplay release. Build
+artifacts are development packages.
 
 The first version will toggle normal forward movement with F8, equivalent to
 holding the game's forward control. It will preserve normal steering, collision,
@@ -31,8 +31,10 @@ See the [implementation and validation plan](docs/development/autorun.en.md).
 
 The [Autorun Input Probe](mods/autorun-input-probe/README.md) checks F8 toggling,
 backward-key cancellation, keybinding changes, and mod lifecycle through logs.
-It does not move the character. Its local Lua checks pass; live Proton input
-behavior is still pending.
+It does not move the character. Its local Lua checks pass, and the first Proton
+launch recorded ON, OFF, and ON F8 toggles. World, focus, and backward-key tests
+are still pending. The optional loader windows were disabled locally after the
+Debug Console failed to start through WebView2.
 
 ## Windows builds without a local Windows installation
 
