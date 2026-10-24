@@ -84,7 +84,7 @@ void __cdecl on_movement_input(void* input){
 
 std::vector<std::uint8_t> callback_code(){
     // Same register/XMM and stack preservation contract as the existing
-    ShroudForge cursor hook. RSI is nonvolatile and holds ClientPlayerInput.
+    // ShroudForge cursor hook. RSI is nonvolatile and holds ClientPlayerInput.
     std::vector<std::uint8_t> code{0x9c,0x50,0x51,0x52,0x41,0x50,0x41,0x51,0x41,0x52,0x41,0x53,
         0x48,0x81,0xec,0x80,0,0,0};
     for (unsigned index = 0; index < 6; ++index) {
