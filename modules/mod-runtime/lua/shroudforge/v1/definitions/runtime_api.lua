@@ -724,8 +724,10 @@ runtime.world.player_input = {}
 --- @return table? snapshot with `session`, `sequence`, and `movementStick = {x, y}`.
 --- @return string? reason
 function runtime.world.player_input.get() end
---- Arm or clear the exact-build local-client autorun input hook. The initial
---- diagnostic build observes movement but does not write game input.
+--- Arm or renew the exact-build local-client forward-input request, or clear it.
+--- An enabled request expires after 500 ms without renewal, and the native hook
+--- stops it on backward input, focus/session loss, or missing local input.
+--- Only the single-player Proton proof of concept is under live test.
 --- Availability: runtime.world.player_input.autorun.
 --- @param enabled boolean
 --- @return boolean success

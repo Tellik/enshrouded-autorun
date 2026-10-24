@@ -21,11 +21,17 @@ constexpr std::size_t MovementX = 0x2b8, MovementY = 0x2bc;
 constexpr std::uint8_t Original[]{0x0f, 0xb6, 0xc8, 0x84, 0xc0};
 constexpr auto Signature = "0F B6 C8 84 C0 74 5A 83 F9 01 74 20";
 constexpr auto ImageSha256 = "d64966e23b1a458ee6f147bcbceac0b577fa7e39a212f371287d8cc119817882";
-// The first deployment validates hook timing without changing game input.
-constexpr bool MovementWritesEnabled = false;
+constexpr bool MovementWritesEnabled = true;
+constexpr std::uint64_t RequestLifetimeMs = 500;
+constexpr std::uint64_t ActivityTimeoutMs = 1000;
 std::atomic<bool> installed{}, active{};
-std::atomic<std::uint64_t> request_session{}, hook_hits{}, local_hits{}, writes{};
+std::atomic<std::uint64_t> request_session{}, request_deadline{}, last_hook_hit{}, last_local_hit{};
+std::atomic<std::uint64_t> hook_hits{}, local_hits{}, writes{};
 std::atomic<float> observed_x{}, observed_y{};
+
+bool elapsed_more_than(std::uint64_t now, std::uint64_t previous, std::uint64_t limit){
+    return now >= previous && now - previous > limit;
+}
 
 bool foreground_game(){
     const auto window = GetForegroundWindow();
@@ -64,7 +70,14 @@ bool apply_forward(void* input, float x, float y){
 
 void __cdecl on_movement_input(void* input){
     if (!installed.load(std::memory_order_acquire) || !active.load(std::memory_order_acquire)) return;
+    const auto now = GetTickCount64();
+    if (now > request_deadline.load(std::memory_order_acquire) ||
+        elapsed_more_than(now, last_local_hit.load(std::memory_order_acquire), ActivityTimeoutMs)) {
+        active.store(false, std::memory_order_release);
+        return;
+    }
     hook_hits.fetch_add(1, std::memory_order_relaxed);
+    last_hook_hit.store(now, std::memory_order_release);
     const auto session = request_session.load(std::memory_order_acquire);
     if (!session || KfcRuntimeWorldSessionId() != session || !foreground_game()) {
         active.store(false, std::memory_order_release);
@@ -72,13 +85,15 @@ void __cdecl on_movement_input(void* input){
     }
     if (!WorldRuntime::Implementation::MatchesPublishedLocalInput(input, session)) return;
     local_hits.fetch_add(1, std::memory_order_relaxed);
+    last_local_hit.store(now, std::memory_order_release);
     float x{}, y{};
-    if (!read_axes(input, x, y)) return;
+    if (!read_axes(input, x, y)) { active.store(false, std::memory_order_release); return; }
     observed_x.store(x, std::memory_order_relaxed);
     observed_y.store(y, std::memory_order_relaxed);
     if (y < -0.1f) { active.store(false, std::memory_order_release); return; }
     if constexpr (MovementWritesEnabled) {
         if (apply_forward(input, x, y)) writes.fetch_add(1, std::memory_order_relaxed);
+        else active.store(false, std::memory_order_release);
     }
 }
 
@@ -154,19 +169,36 @@ bool Available(){ return installed.load(std::memory_order_acquire); }
 bool Set(bool enabled, std::uint64_t expected_session){
     if (!enabled) { Stop(); return true; }
     if (!Available() || !expected_session || KfcRuntimeWorldSessionId() != expected_session ||
-        !WorldRuntime::Implementation::LocalCursorInputAvailable()) return false;
+        !foreground_game()) return false;
+    const auto now = GetTickCount64();
+    if (active.load(std::memory_order_acquire) &&
+        request_session.load(std::memory_order_acquire) == expected_session &&
+        now <= request_deadline.load(std::memory_order_acquire)) {
+        request_deadline.store(now + RequestLifetimeMs, std::memory_order_release);
+        return true;
+    }
+    Stop();
+    if (!WorldRuntime::Implementation::LocalCursorInputAvailable()) return false;
     hook_hits.store(0, std::memory_order_relaxed);
     local_hits.store(0, std::memory_order_relaxed);
     writes.store(0, std::memory_order_relaxed);
     observed_x.store(0.0f, std::memory_order_relaxed);
     observed_y.store(0.0f, std::memory_order_relaxed);
     request_session.store(expected_session, std::memory_order_release);
+    last_hook_hit.store(now, std::memory_order_release);
+    last_local_hit.store(now, std::memory_order_release);
+    request_deadline.store(now + RequestLifetimeMs, std::memory_order_release);
     active.store(true, std::memory_order_release);
     return true;
 }
 void Status(std::uint64_t& hits, std::uint64_t& local, std::uint64_t& applied, bool& enabled,
             float& last_x, float& last_y){
-    if (active.load(std::memory_order_acquire) && !foreground_game()) Stop();
+    const auto now = GetTickCount64();
+    if (active.load(std::memory_order_acquire) &&
+        (!foreground_game() || KfcRuntimeWorldSessionId() != request_session.load(std::memory_order_acquire) ||
+         now > request_deadline.load(std::memory_order_acquire) ||
+         elapsed_more_than(now, last_hook_hit.load(std::memory_order_acquire), ActivityTimeoutMs) ||
+         elapsed_more_than(now, last_local_hit.load(std::memory_order_acquire), ActivityTimeoutMs))) Stop();
     hits = hook_hits.load(std::memory_order_relaxed);
     local = local_hits.load(std::memory_order_relaxed);
     applied = writes.load(std::memory_order_relaxed);

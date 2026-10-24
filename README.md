@@ -3,14 +3,16 @@
 An experimental client-side autorun mod, developed on a fork of
 [ShroudForge](https://github.com/bonsaibauer/shroudforge).
 
-**Status: input diagnostic loaded under Proton and F8 presses observed. Autorun
-is not implemented yet.** There is no verified gameplay release. Build
-artifacts are development packages.
+**Status: the read-only input hook passed its single-player Proton timing test.
+The movement build is awaiting its first gameplay test.** There is no verified
+gameplay release. Build artifacts are development packages, and the autorun
+mod is disabled by default.
 
-The first version will toggle normal forward movement with F8, equivalent to
-holding the game's forward control. It will preserve normal steering, collision,
-jumping, and manually activated sprint. Backward movement and leaving active
-gameplay will cancel autorun.
+The first version toggles normal forward input with F8, equivalent to holding
+the game's forward control. Pressing F8 again or moving backward cancels it.
+The native request also expires if the mod stops renewing it, the game loses
+focus, the world session changes, or the local input disappears. Menu, death,
+and travel behavior still need live verification.
 
 Single-player under Steam Proton is the first test target. Client-only
 multiplayer compatibility is required afterward and must be verified while
@@ -23,25 +25,20 @@ joining another host. Native Windows gameplay testing is also pending.
 - Initial Enshrouded Steam build: **26082781**.
 - Pinned parser, JSON, and SDL submodules are included through Git submodules.
 
-The build profile recognizes the target executable. That does not establish a
-working movement hook. The first runtime investigation will observe input
-without changing movement.
+The input hook is limited to this exact executable build. A game update requires
+fresh validation before enabling it again.
 
 See the [implementation and validation plan](docs/development/autorun.en.md).
 
-The [Autorun Input Probe](mods/autorun-input-probe/README.md) checks F8 toggling,
-backward-key cancellation, keybinding changes, and mod lifecycle through logs.
-It does not move the character. Its local Lua checks pass, and the first Proton
-launch recorded ON, OFF, and ON F8 toggles. A single-player test confirmed that
-S cancels the diagnostic. Read-only world input samples measured normal forward
-as `(0, +1)` and backward as `(0, -1)`. Focus testing is still
-pending. The optional loader windows were disabled locally after the Debug
-Console failed to start through WebView2.
+The [Autorun Input Probe](mods/autorun-input-probe/README.md) does not move the
+character. In a single-player Proton test, 276 of 281 hook calls matched the
+verified local input. It observed W as `(0, +1)` and S as `(0, -1)`, with zero
+movement writes. The [Autorun mod](mods/autorun/) is the next test stage.
 
 ## Windows builds without a local Windows installation
 
 Open [Actions → Autorun Windows Test Build](https://github.com/Tellik/enshrouded-autorun/actions/workflows/autorun-windows.yml)
-and select **Run workflow** on `main`. GitHub builds the Windows binaries, runs
+and select **Run workflow** on `autorun-poc`. GitHub builds the Windows binaries, runs
 the upstream build tests, and stores a ZIP plus checksum as a downloadable
 artifact for seven days. This workflow does not publish GitHub releases.
 
