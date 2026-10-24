@@ -221,3 +221,7 @@ Autorun DLL loaded, and its runtime initialized. The game executable, both
 KFC data files, and both stock ShroudForge runtime DLLs retained their original
 hashes. The standalone installation guide now includes the Proton pre-launch
 settings and the F8 conflict with World Editor found during this check.
+The corrected standalone ZIP and checksum passed packaging in
+[Windows build 40124296476](https://github.com/Tellik/enshrouded-autorun/actions/runs/40124296476).
+Its compiled plugin differed from the gameplay-tested DLL only in PE
+timestamps; the code bytes matched.
