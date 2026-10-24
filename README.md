@@ -10,9 +10,10 @@ This release supports **Enshrouded Steam build 26082781** with the unmodified
 **ShroudForge 1.7.6 dev build 40026840919**. The mod checks the exact game
 executable and stays inactive on a different build. Single-player and joining
 a dedicated server were tested on Linux with Proton Experimental, with Autorun
-installed only on the client. The Windows DLL builds successfully, but native
-Windows gameplay has not been tested. Menus, travel, death, disconnects, and
-multiplayer sessions with other active players also need further testing.
+installed only on the client. Another player was online during a dedicated-server
+test, although their view of the movement was not checked. The Windows DLL
+builds successfully, but native Windows gameplay has not been tested. Menus,
+travel, death, and disconnects also need further testing.
 
 ## Download
 
@@ -48,7 +49,7 @@ gameplay is not yet verified; please report the result if you test it.
 
 ### Linux / Proton
 
-These steps reproduce the tested setup without WebView2. In Steam's
+These steps reproduce the simplest tested setup without WebView2. In Steam's
 Enshrouded **Launch Options**, enter:
 
 ```text
@@ -67,6 +68,42 @@ Before the first launch, while the game is closed:
    tested version (`modules.updates.automatic.enabled: false` in its config).
 4. Start the game. The Modloader window is intentionally disabled on this
    path; edit Autorun's `extended.mod.json` while the game is closed.
+
+#### Optional: use the Modloader UI on Proton
+
+The stock ShroudForge Modloader can also configure Autorun on Proton. This was
+tested with Proton Experimental under Hyprland/XWayland: F9 opened the window,
+the pointer was visible and aligned, and click-to-record F7 and Mouse X2
+bindings both worked in game. It requires Microsoft's WebView2 runtime in the
+**Enshrouded Proton prefix**; the runtime is not included with either ZIP.
+
+1. Close the game. Download the **x64 Evergreen Standalone Installer** from
+   [Microsoft's WebView2 page](https://developer.microsoft.com/en-us/microsoft-edge/webview2/).
+   Use [Protontricks](https://github.com/Matoking/protontricks) to run the
+   downloaded installer in Enshrouded's prefix (Steam app ID `1203620`):
+
+   ```text
+   protontricks-launch --appid 1203620 /absolute/path/MicrosoftEdgeWebView2RuntimeInstallerX64.exe /silent /install
+   ```
+
+2. On the tested Hyprland/XWayland setup, this Wine setting fixed a hidden
+   pointer and clicks landing below their target:
+
+   ```text
+   protontricks 1203620 windowmanagerdecorated=n
+   ```
+
+3. In `shroudforge/config/modloader-config.json`, set
+   `modules.modloaderUi.enabled` to `true`. Keep
+   `modules.debugConsole.enabled` set to `false`; that window was not tested.
+   Set `general.locale` to `"en"` if you want the UI in English.
+4. Start the game, press **F9**, open Autorun, and record a keyboard or mouse
+   shortcut. If you enable Autorun for the first time in the UI, restart the
+   game so its native plugin loads.
+
+The no-WebView2 setup above remains available if this window behaves poorly
+on another desktop. To undo the Wine setting, run
+`protontricks 1203620 windowmanagerdecorated=y` while the game is closed.
 
 ## Use and configure
 

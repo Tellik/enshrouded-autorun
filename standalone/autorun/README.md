@@ -39,7 +39,7 @@ layout passed automated checks.
 
 ### Linux / Proton
 
-These steps reproduce the tested Proton setup without requiring WebView2.
+These steps reproduce the simplest tested Proton setup without WebView2.
 Before the first launch, set Steam's Enshrouded **Launch Options** to:
 
 ```text
@@ -60,6 +60,14 @@ Then, while the game is closed:
    `worldEditor` module there.
 4. Start the game. The Modloader window is intentionally disabled; configure
    Autorun by editing its `extended.mod.json` while the game is closed.
+
+To configure the mod through ShroudForge on Proton, install the official
+[Microsoft WebView2 x64 Evergreen Standalone Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
+in Enshrouded's Proton prefix. The [main guide](../../README.md#optional-use-the-modloader-ui-on-proton)
+has the Protontricks commands and the Hyprland/XWayland window setting that
+made the cursor visible and clicks accurate in the tested setup. Then enable
+`modules.modloaderUi.enabled` and press F9 in game. The runtime is not part of
+either release ZIP.
 
 ### Check the installation
 
@@ -99,8 +107,9 @@ can enable it after checking its game build and bindings.
 Wait for the world to load in a safe open area, then tap the toggle. Forward
 movement uses the game's ordinary input speed and preserves left/right
 steering. Backward movement or loss of game focus stops it. Turn it off before
-opening menus. Menu, death, travel, disconnect, native Windows gameplay, and
-other active multiplayer players still need dedicated checks. The plugin does
+opening menus. Menu, death, travel, disconnect, and native Windows gameplay
+still need dedicated checks. Another player was online during a dedicated-server
+test, but their view of the movement was not checked. The plugin does
 not force sprint or the game's slower Walk action.
 
 For a first check, tap F8 and release all movement keys: the character should
@@ -116,8 +125,12 @@ it, and S canceled a later run in both worlds. The game stayed stable. The
 loader reported one plugin and no load issues; the plugin log recorded 55
 local input writes before toggle-off and 57 before S cancellation on the
 dedicated server. This confirms that editing the installed keybind takes
-effect on the next launch. Live Modloader rebinding, multiplayer with other
-active players, and native Windows gameplay remain untested.
+effect on the next launch. A later Proton/Hyprland check installed Microsoft's
+WebView2 runtime and enabled the stock Modloader UI. F9 opened the window;
+click-to-record changed the toggle to F7 and Mouse X2 (`"SDL:64|Mouse:5"`),
+and both bindings worked in game. The cursor was visible and aligned after
+applying Wine's `windowmanagerdecorated=n` setting. Native Windows gameplay
+remains untested.
 
 A separate clean-install check removed the previous ShroudForge and mod files,
 then extracted the stock ShroudForge 1.7.6 ZIP and this Autorun ZIP into the
