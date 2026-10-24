@@ -167,3 +167,31 @@ the character forward after F8 and stayed stable. The first activation recorded
 client-only movement delivery and both stops on one dedicated-server session.
 Menus, focus loss, death, travel, disconnect, native Windows, and sessions with
 other active players remain unverified.
+
+## Standalone stock-ShroudForge package
+
+The fork-integrated native request above is a proof of concept, not a runtime
+dependency for the separately installable mod. `standalone/autorun/` now builds
+a package-local `autorun.dll` loaded through stock ShroudForge's
+`native-plugin.ini` mechanism. It checks the stock ABI-12 world exports and the
+exact Enshrouded image before installing its own input hook. The mod reads the
+ShroudForge keybind settings from its own `extended.mod.json`, with F8 and S as
+defaults. It also accepts supported alternate keys and fails closed on invalid
+settings or an unsupported game image. The ZIP contains no replacement
+ShroudForge runtime DLLs.
+
+[Windows build 40122879851](https://github.com/Tellik/enshrouded-autorun/actions/runs/40122879851)
+compiled and packaged the independent plugin. The ZIP layout and checksum
+passed verification. Its DLL imports only Windows system libraries and no
+dynamic MSVC C++ runtime. In the local install test, both installed ShroudForge
+runtime DLL hashes matched the supplied stock 1.7.6 release. The stock loader
+reported one native plugin and no load issues. In a single-player Proton world,
+the configured F7 toggle started normal forward movement, a second F7 stopped
+it, and S canceled it; the game stayed stable. The plugin log recorded local
+input writes and both stop reasons. A subsequent dedicated-server Proton test
+with the same stock runtime and package again moved the character forward,
+stopped on F7, and canceled on S without a crash. The standalone plugin log
+recorded 55 local writes before F7 toggle-off and 57 before S cancellation.
+No Autorun installation was needed on the dedicated server. This verifies
+basic client-only delivery in one server session; other active players and
+lifecycle cases remain untested.

@@ -5,7 +5,8 @@ This is a separate, client-only ShroudForge mod. It does not replace
 ShroudForge 1.7.6 loads the mod's own `bin/autorun.dll` through
 `native-plugin.ini`. The plugin is restricted to Enshrouded Steam build
 `26082781`; it stays inactive if the executable or stock ShroudForge ABI does
-not match. This standalone build still needs live gameplay verification.
+not match. Single-player and dedicated-server Proton tests on stock
+ShroudForge 1.7.6 passed with F7 as a custom hotkey.
 
 ## Install
 
@@ -23,9 +24,9 @@ not match. This standalone build still needs live gameplay verification.
    installed`. If it says the game image or ABI is unsupported, leave the mod
    off and check for an updated build.
 
-No server installation or save changes are needed. This version is designed
-for normal forward movement on the local client; multiplayer still needs a
-live standalone-package test.
+No server installation or save changes are needed. This version moves the
+local client at normal forward speed. A dedicated-server test passed without
+installing Autorun on the server.
 
 ## Change the hotkey
 
@@ -47,8 +48,8 @@ malformed settings fail closed and are reported in `autorun-plugin.log`.
 The current native plugin recognizes A–Z, 0–9, F1–F12, Enter, Escape,
 Backspace, Tab, Space, Insert, Delete, Home, End, Page Up/Down, arrow keys,
 and mouse buttons 1–5. It does not consume those keys, so avoid conflicting
-game or mod bindings. The package is disabled by default until standalone
-gameplay testing is complete.
+game or mod bindings. The package is disabled by default so each installation
+can enable it after checking its game build and bindings.
 
 ## Use and limits
 
@@ -58,6 +59,18 @@ steering. Backward movement or loss of game focus stops it. Turn it off before
 opening menus. Menu, death, travel, disconnect, native Windows gameplay, and
 other active multiplayer players still need dedicated checks. The plugin does
 not force sprint or the game's slower Walk action.
+
+## Verified test
+
+With unmodified ShroudForge 1.7.6 and Enshrouded Steam build `26082781`,
+single-player and dedicated-server Proton tests used `"SDL:64"` (F7) instead
+of the default F8. F7 started normal forward movement, a second F7 stopped
+it, and S canceled a later run in both worlds. The game stayed stable. The
+loader reported one plugin and no load issues; the plugin log recorded 55
+local input writes before toggle-off and 57 before S cancellation on the
+dedicated server. This confirms that editing the installed keybind takes
+effect on the next launch. Live Modloader rebinding, multiplayer with other
+active players, and native Windows gameplay remain untested.
 
 Source and build workflow: https://github.com/Tellik/enshrouded-autorun
 The bundled `LICENSE` retains ShroudForge's MIT notice for reused hook helpers.

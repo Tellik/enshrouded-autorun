@@ -1,24 +1,29 @@
 # Enshrouded Autorun
 
-An experimental client-side autorun mod, developed on a fork of
-[ShroudForge](https://github.com/bonsaibauer/shroudforge).
+An experimental client-side autorun mod for
+[ShroudForge](https://github.com/bonsaibauer/shroudforge). The independently
+installable package works with **unmodified ShroudForge 1.7.6**; the fork also
+retains the earlier movement proof of concept and its diagnostics.
 
-**Status: the F8 movement proof of concept works in a single-player Proton
-world and when joining a dedicated server with only the client mod installed.**
-Toggle-off and S cancellation worked without a crash in both tests. This is
-still a development build, and the autorun mod is disabled by default in the
-package. Menu, focus-loss, death, travel, native Windows, and multiplayer
-sessions with other active players still need testing.
+**Status: the standalone package has passed single-player and dedicated-server
+Proton gameplay tests on stock ShroudForge 1.7.6.** A changed F7 binding
+started movement, a second F7 stopped it, and S canceled it; the game stayed
+stable in both tests. The dedicated server had no Autorun installation. The
+standalone package is disabled by default. Menu, focus-loss, death, travel,
+native Windows, and multiplayer sessions with other active players still need
+testing.
 
-The first version toggles normal forward input with F8, equivalent to holding
-the game's forward control. Pressing F8 again or moving backward cancels it.
-The native request also expires if the mod stops renewing it, the game loses
-focus, the world session changes, or the local input disappears. Menu, death,
-and travel behavior still need live verification.
+The default hotkey is **F8**, but it can be changed in the Modloader or in
+`mods/autorun/extended.mod.json`. The first press starts normal forward
+movement; another press or backward input stops it. The native request also
+expires if the game loses focus, the world session changes, or the local input
+disappears. Menu, death, and travel behavior still need live verification.
 
-The first dedicated-server test confirmed client-only movement delivery without
-a server mod. Broader multiplayer compatibility, including other active players
-and lifecycle cases, and native Windows gameplay testing are still pending.
+Download the separate `autorun-0.2.0.zip` build artifact from the
+[standalone Windows build](https://github.com/Tellik/enshrouded-autorun/actions/runs/40122879851),
+and follow the [standalone installation and hotkey instructions](standalone/autorun/README.md).
+It installs into the game's `mods` directory; no ShroudForge runtime files or
+server files need replacing.
 
 ## Development base
 
@@ -46,15 +51,15 @@ tests in [run 40119687161](https://github.com/Tellik/enshrouded-autorun/actions/
 ## Windows builds without a local Windows installation
 
 Open [Actions → Autorun Windows Test Build](https://github.com/Tellik/enshrouded-autorun/actions/workflows/autorun-windows.yml)
-and select **Run workflow** on `autorun-poc`. GitHub builds the Windows binaries, runs
-the native ECS check and upstream build tests, and stores a ZIP plus checksum as a downloadable
-artifact for seven days. This workflow does not publish GitHub releases.
+and select **Run workflow** on `autorun-poc`. Select `standalone_only` for the
+independent mod ZIP and checksum without rebuilding the ShroudForge fork. The
+full workflow additionally runs the native ECS and upstream build tests and
+packages the fork. Artifacts are available for seven days; this workflow does
+not publish GitHub releases.
 
-The workflow uses ShroudForge's existing build and packaging scripts. Its package
-currently includes the upstream bundled mods and their defaults. For baseline
-testing, disable those mods before entering a world. In particular, World Editor
-already uses F8. The supplied upstream binary release can be used for the first
-Proton loader test without compiling this fork.
+The standalone ZIP contains only Autorun and its own plugin. The full fork
+package includes upstream bundled mods and their defaults; disable those mods
+for baseline testing. In particular, World Editor already uses F8.
 
 The inherited upstream release and documentation workflows are retained for
 reference and are disabled in this fork.
