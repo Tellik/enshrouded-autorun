@@ -16,6 +16,7 @@ FILES = (
     "extended.mod.json",
     "native-plugin.ini",
     "README.md",
+    "LICENSE.nlohmann",
 )
 
 

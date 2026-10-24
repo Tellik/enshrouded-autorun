@@ -17,4 +17,6 @@ target_include_directories(enshrouded-autorun PRIVATE
     "${RUNTIME_NATIVE}/json/single_include")
 target_compile_definitions(enshrouded-autorun PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_link_libraries(enshrouded-autorun PRIVATE bcrypt)
+set_property(TARGET enshrouded-autorun PROPERTY
+    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 set_target_properties(enshrouded-autorun PROPERTIES OUTPUT_NAME "autorun" PREFIX "")

@@ -60,4 +60,5 @@ other active multiplayer players still need dedicated checks. The plugin does
 not force sprint or the game's slower Walk action.
 
 Source and build workflow: https://github.com/Tellik/enshrouded-autorun
-The bundled license retains ShroudForge's MIT notice for reused hook helpers.
+The bundled `LICENSE` retains ShroudForge's MIT notice for reused hook helpers.
+`LICENSE.nlohmann` covers the JSON parser compiled into the plugin.
