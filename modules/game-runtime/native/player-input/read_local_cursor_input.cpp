@@ -92,8 +92,11 @@ void restart_scan(LocalInputState& state, bool retain_published = false){
     state.candidate = {};
     state.candidate_slot = 0;
     state.complete = state.ambiguous = false;
-    state.completed_ms = 0;
-    if (!retain_published) { state.published = {}; state.published_slot = 0; }
+    if (!retain_published) {
+        state.completed_ms = 0;
+        state.published = {};
+        state.published_slot = 0;
+    }
 }
 
 std::uint32_t scan_local_input(LocalInputState& state, const ResolvedLayout& layout){
@@ -162,13 +165,18 @@ bool LocalCursorInputAvailable(){
 
 bool MatchesPublishedLocalInput(const void* expected, std::uint64_t expected_session){
     if (!expected || !expected_session) return false;
+    // A periodic full rescan can take several frames. Keep the last unique
+    // result briefly while rechecking its owner, registry, entity identity,
+    // component address and any conflicting candidate on every hook call.
     std::unique_lock operation_lock(EcsImplementation::operation_mutex, std::try_to_lock);
     if (!operation_lock.owns_lock()) return false;
     std::unique_lock input_lock(local_input_mutex, std::try_to_lock);
-    if (!input_lock.owns_lock() || !local_input.complete || local_input.ambiguous ||
-        !local_input.published.pointer || local_input.session != expected_session ||
+    if (!input_lock.owns_lock() || !local_input.configured || local_input.ambiguous ||
+        !local_input.published.pointer || !local_input.completed_ms ||
+        (local_input.candidate.pointer && local_input.candidate != local_input.published) ||
+        local_input.session != expected_session ||
         local_input.component.size != 1536 ||
-        GetTickCount64() - local_input.completed_ms > 1200 ||
+        GetTickCount64() - local_input.completed_ms > 12000 ||
         EcsImplementation::stop_requested.load(std::memory_order_acquire) ||
         KfcRuntimeWorldSessionId() != expected_session) return false;
     EngineContext::EcsView owner;
