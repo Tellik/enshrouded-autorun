@@ -8,6 +8,11 @@ ShroudForge 1.7.6 loads the mod's own `bin/autorun.dll` through
 not match. Single-player and dedicated-server Proton tests on stock
 ShroudForge 1.7.6 passed with F7 as a custom hotkey.
 
+Download the `autorun-0.2.0.zip` asset from the
+[Autorun release](https://github.com/Tellik/enshrouded-autorun/releases/tag/v0.2.0)
+and `shroudforge-1.7.6-40026840919.zip` from the separate
+[ShroudForge 1.7.6 dev release](https://github.com/bonsaibauer/shroudforge/releases/tag/v1.7.6-dev.40026840919).
+
 ## Install the files (Windows and Linux/Proton)
 
 1. Close the game. Extract the unmodified ShroudForge 1.7.6 ZIP into the

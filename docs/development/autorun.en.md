@@ -1,4 +1,8 @@
-# Autorun implementation and validation
+# Autorun implementation and validation record
+
+This records the fork-integrated proof of concept and the standalone package's
+validation. For installation and current compatibility, use the
+[Autorun README](../../README.md).
 
 ## Target behavior
 
@@ -58,18 +62,21 @@ Windows gameplay remains a separate verification target.
 
 ## Ownership
 
+The original fork-integrated prototype followed this ownership plan:
+
 Native input integration belongs in `modules/game-runtime/native/player-input/`
 and its validated hook/profile integration. Rust adapters belong in the existing
 `modules/game-runtime/bridge/` structure. Lua bindings belong in
 `modules/mod-runtime/lua/`. The eventual mod belongs directly under `mods/`.
 Choose concrete interfaces after tracing their real callers and lifecycle.
 
-Build orchestration uses `.github/workflows/autorun-windows.yml` and the existing
-`dev/build/release_build.ps1`. It runs the native ECS test, upstream Windows
-bootstrap, and Rust workspace tests before packaging. Successful compilation
-is not an in-game compatibility test.
+The current `.github/workflows/autorun-windows.yml` builds and checks only the
+standalone mod ZIP. Earlier fork builds also used `dev/build/release_build.ps1`
+and its native, bootstrap, and Rust tests. The development ShroudForge runtime
+is not distributed with Autorun. Successful compilation is not an in-game
+compatibility test.
 
-## Current status
+## Development history
 
 Repository setup and a manual Windows build workflow are present. An input-only
 diagnostic is available under `mods/autorun-input-probe/`. Lua syntax, manifest
