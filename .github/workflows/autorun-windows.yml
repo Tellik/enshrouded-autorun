@@ -64,6 +64,21 @@ jobs:
           AUTORUN_BUILD_NUMBER: autorun-${{ github.run_id }}
         run: .\dev\build\release_build.ps1 -BuildNumber $env:AUTORUN_BUILD_NUMBER
 
+      - name: Build and verify standalone mod package
+        run: |
+          $visualStudio = & .\dev\build\find_visual_studio.ps1
+          $runtimeCmake = Join-Path $visualStudio 'Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe'
+          & $runtimeCmake -S .\standalone\autorun\native -B .\build\autorun-plugin -A x64
+          if ($LASTEXITCODE -ne 0) { throw 'Standalone plugin configuration failed.' }
+          & $runtimeCmake --build .\build\autorun-plugin --config Release --target enshrouded-autorun
+          if ($LASTEXITCODE -ne 0) { throw 'Standalone plugin build failed.' }
+          $plugin = Get-ChildItem .\build\autorun-plugin -Recurse -Filter autorun.dll | Select-Object -First 1
+          if (-not $plugin) { throw 'Standalone plugin DLL is missing.' }
+          python .\dev\build\package_autorun.py --dll $plugin.FullName --out .\build\autorun-0.2.0.zip
+          if ($LASTEXITCODE -ne 0) { throw 'Standalone mod packaging failed.' }
+          python .\dev\build\package_autorun.py --verify .\build\autorun-0.2.0.zip
+          if ($LASTEXITCODE -ne 0) { throw 'Standalone mod verification failed.' }
+
       - name: Upload development package and checksum
         uses: actions/upload-artifact@v7
         with:
@@ -71,5 +86,7 @@ jobs:
           path: |
             build/shroudforge-*-autorun-*.zip
             build/shroudforge-*-autorun-*.zip.sha256
+            build/autorun-0.2.0.zip
+            build/autorun-0.2.0.zip.sha256
           if-no-files-found: error
           retention-days: 7
