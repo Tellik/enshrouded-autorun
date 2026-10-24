@@ -21,13 +21,15 @@ constexpr std::size_t MovementX = 0x2b8, MovementY = 0x2bc;
 constexpr std::uint8_t Original[]{0x0f, 0xb6, 0xc8, 0x84, 0xc0};
 constexpr auto Signature = "0F B6 C8 84 C0 74 5A 83 F9 01 74 20";
 constexpr auto ImageSha256 = "d64966e23b1a458ee6f147bcbceac0b577fa7e39a212f371287d8cc119817882";
-constexpr bool MovementWritesEnabled = true;
+// Temporary multiplayer identity trace. This package must not alter movement.
+constexpr bool MovementWritesEnabled = false;
 constexpr std::uint64_t RequestLifetimeMs = 500;
 constexpr std::uint64_t ActivityTimeoutMs = 1000;
 std::atomic<bool> installed{}, active{};
 std::atomic<std::uint64_t> request_session{}, request_deadline{}, last_hook_hit{}, last_local_hit{};
 std::atomic<std::uint64_t> hook_hits{}, local_hits{}, writes{};
 std::atomic<float> observed_x{}, observed_y{};
+std::atomic<void*> first_observed_input{};
 
 bool elapsed_more_than(std::uint64_t now, std::uint64_t previous, std::uint64_t limit){
     return now >= previous && now - previous > limit;
@@ -69,14 +71,27 @@ bool apply_forward(void* input, float x, float y){
 }
 
 void __cdecl on_movement_input(void* input){
-    if (!installed.load(std::memory_order_acquire) || !active.load(std::memory_order_acquire)) return;
+    if (!installed.load(std::memory_order_acquire) || !input ||
+        !KfcRuntimeWorldSessionId() || !foreground_game()) return;
+    void* empty{};
+    first_observed_input.compare_exchange_strong(empty, input, std::memory_order_acq_rel);
+    hook_hits.fetch_add(1, std::memory_order_relaxed);
+    if (first_observed_input.load(std::memory_order_acquire) == input) {
+        local_hits.fetch_add(1, std::memory_order_relaxed);
+        float x{}, y{};
+        if (read_axes(input, x, y)) {
+            observed_x.store(x, std::memory_order_relaxed);
+            observed_y.store(y, std::memory_order_relaxed);
+        }
+    }
+    if constexpr (!MovementWritesEnabled) return;
+    if (!active.load(std::memory_order_acquire)) return;
     const auto now = GetTickCount64();
     if (now > request_deadline.load(std::memory_order_acquire) ||
         elapsed_more_than(now, last_local_hit.load(std::memory_order_acquire), ActivityTimeoutMs)) {
         active.store(false, std::memory_order_release);
         return;
     }
-    hook_hits.fetch_add(1, std::memory_order_relaxed);
     last_hook_hit.store(now, std::memory_order_release);
     const auto session = request_session.load(std::memory_order_acquire);
     if (!session || KfcRuntimeWorldSessionId() != session || !foreground_game()) {
@@ -84,7 +99,6 @@ void __cdecl on_movement_input(void* input){
         return;
     }
     if (!WorldRuntime::Implementation::MatchesPublishedLocalInput(input, session)) return;
-    local_hits.fetch_add(1, std::memory_order_relaxed);
     last_local_hit.store(now, std::memory_order_release);
     float x{}, y{};
     if (!read_axes(input, x, y)) { active.store(false, std::memory_order_release); return; }
@@ -168,6 +182,7 @@ void Stop(){ active.store(false, std::memory_order_release); }
 bool Available(){ return installed.load(std::memory_order_acquire); }
 bool Set(bool enabled, std::uint64_t expected_session){
     if (!enabled) { Stop(); return true; }
+    if constexpr (!MovementWritesEnabled) return false;
     if (!Available() || !expected_session || KfcRuntimeWorldSessionId() != expected_session ||
         !foreground_game()) return false;
     const auto now = GetTickCount64();
