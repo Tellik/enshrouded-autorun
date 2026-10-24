@@ -46,21 +46,23 @@ jobs:
           git submodule status --recursive
           if ($LASTEXITCODE -ne 0) { throw 'Submodule inspection failed.' }
 
-      - name: Build, test, and package with upstream build scripts
-        env:
-          AUTORUN_BUILD_NUMBER: autorun-${{ github.run_id }}
-        run: .\dev\build\release_build.ps1 -BuildNumber $env:AUTORUN_BUILD_NUMBER
-
       - name: Build and run client input safety test
         run: |
           $visualStudio = & .\dev\build\find_visual_studio.ps1
           $runtimeCmake = Join-Path $visualStudio 'Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe'
+          & $runtimeCmake -S . -B .\build\native-runtime -A x64
+          if ($LASTEXITCODE -ne 0) { throw 'Native ECS read test configuration failed.' }
           & $runtimeCmake --build .\build\native-runtime --config Release --target kfc-runtime-test-ecs-read
           if ($LASTEXITCODE -ne 0) { throw 'Native ECS read test build failed.' }
           $test = Get-ChildItem .\build\native-runtime -Recurse -Filter kfc-runtime-test-ecs-read.exe | Select-Object -First 1
           if (-not $test) { throw 'Native ECS read test executable is missing.' }
           & $test.FullName
           if ($LASTEXITCODE -ne 0) { throw 'Native ECS read test failed.' }
+
+      - name: Build, test, and package with upstream build scripts
+        env:
+          AUTORUN_BUILD_NUMBER: autorun-${{ github.run_id }}
+        run: .\dev\build\release_build.ps1 -BuildNumber $env:AUTORUN_BUILD_NUMBER
 
       - name: Upload development package and checksum
         uses: actions/upload-artifact@v7

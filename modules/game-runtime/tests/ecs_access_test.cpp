@@ -46,10 +46,11 @@ SIZE_T WINAPI counted_ecs_virtual_query(LPCVOID address, PMEMORY_BASIC_INFORMATI
 
 namespace {
 unsigned checks{};
-void check(bool value) {
+void check_at(bool value, int line) {
     ++checks;
-    if (!value) { std::fprintf(stderr, "ECS read check %u failed\n", checks); std::exit(1); }
+    if (!value) { std::fprintf(stderr, "ECS read check %u failed at line %d\n", checks, line); std::exit(1); }
 }
+#define check(...) check_at((__VA_ARGS__), __LINE__)
 template<class T> void put(void* bytes, std::size_t offset, const T& value) {
     std::memcpy(static_cast<unsigned char*>(bytes) + offset, &value, sizeof(value));
 }
@@ -941,7 +942,7 @@ int main() {
     EcsRuntime::Tick();
     const auto unreadable_session=KfcRuntimeWorldSessionId();
     check(KfcRuntimeWorldCursorReadInput(input_bytes.size(),unreadable_session,input_bytes.data(),input_bytes.size(),&input_sequence)==5);
-    check(input_bytes==untouched_input && input_sequence==untouched_sequence);
+    check(input_bytes==untouched_input && input_sequence==selected_sequence);
     client_table[1]=0;
     check(KfcRuntimeWorldCursorReadInput(input_bytes.size(),unreadable_session,input_bytes.data(),input_bytes.size(),&input_sequence)==1);
     client_table[0]=0;
