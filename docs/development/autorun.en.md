@@ -113,8 +113,14 @@ The existing native reader can resolve the separate main-client ECS owner and
 copy its unique `ClientPlayerInput` without invoking engine functions. This
 fork adds a read-only Lua `runtime.world.player_input.get()` wrapper around that
 reader, returning the reflected movement vector, sequence, and world session.
-It still needs a Windows build and a live read test. A later movement request
-must use a verified producer-to-consumer hook rather than write this snapshot.
+The Windows build and tests passed, and a single-player Proton test then read
+the client input live. Client and local-authority samples agreed at idle
+`(0, 0)`, forward `(0, +1)`, and backward `(0, -1)`. F8 toggled the diagnostic
+flag and S canceled it. The native reader briefly reported unavailable while
+the world initialized, then found the unique local input. These samples confirm
+the local client field and normal direction; they do not prove a safe write
+phase or multiplayer delivery. A later movement request must use a verified
+producer-to-consumer hook rather than write this snapshot.
 
 An offline inspection of the exact `26082781` executable identified a likely
 client input producer at RVA `0x2437c0`. Its two direct callers resolve the
