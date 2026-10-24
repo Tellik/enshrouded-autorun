@@ -49,3 +49,13 @@ Desktop.ini
 # Legacy UI outputs. Current generators write to /build/ui/.
 /modules/modloader/ui/dist/
 /modules/modloader/ui/generated-flags.ts
+
+# Local autorun test inputs, game installation, and Proton output
+/*.zip
+/*.tar.gz
+/local-test/
+/proton-prefix/
+enshrouded*.exe
+enshrouded*.dat
+enshrouded*.kfc
+enshrouded*.kfc_resources

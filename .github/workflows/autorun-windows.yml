@@ -1,0 +1,62 @@
+name: Autorun Windows Test Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: autorun-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test Windows x64
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out source and pinned dependencies
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Set up Node.js and cache npm downloads
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: modules/modloader/ui/package-lock.json
+
+      - name: Cache Rust build dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Record compiler versions and dependency revisions
+        run: |
+          rustc --version
+          if ($LASTEXITCODE -ne 0) { throw 'Rust compiler is unavailable.' }
+          cargo --version
+          if ($LASTEXITCODE -ne 0) { throw 'Cargo is unavailable.' }
+          node --version
+          if ($LASTEXITCODE -ne 0) { throw 'Node.js is unavailable.' }
+          git submodule status --recursive
+          if ($LASTEXITCODE -ne 0) { throw 'Submodule inspection failed.' }
+
+      - name: Build, test, and package with upstream build scripts
+        env:
+          AUTORUN_BUILD_NUMBER: autorun-${{ github.run_id }}
+        run: .\dev\build\release_build.ps1 -BuildNumber $env:AUTORUN_BUILD_NUMBER
+
+      - name: Upload development package and checksum
+        uses: actions/upload-artifact@v7
+        with:
+          name: enshrouded-autorun-windows-${{ github.run_id }}
+          path: |
+            build/shroudforge-*-autorun-*.zip
+            build/shroudforge-*-autorun-*.zip.sha256
+          if-no-files-found: error
+          retention-days: 7
