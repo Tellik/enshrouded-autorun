@@ -32,9 +32,11 @@ See the [implementation and validation plan](docs/development/autorun.en.md).
 The [Autorun Input Probe](mods/autorun-input-probe/README.md) checks F8 toggling,
 backward-key cancellation, keybinding changes, and mod lifecycle through logs.
 It does not move the character. Its local Lua checks pass, and the first Proton
-launch recorded ON, OFF, and ON F8 toggles. World, focus, and backward-key tests
-are still pending. The optional loader windows were disabled locally after the
-Debug Console failed to start through WebView2.
+launch recorded ON, OFF, and ON F8 toggles. A single-player test confirmed that
+S cancels the diagnostic. Read-only world input samples measured normal forward
+as `(0, +1)` and backward as `(0, -1)`. Focus testing is still
+pending. The optional loader windows were disabled locally after the Debug
+Console failed to start through WebView2.
 
 ## Windows builds without a local Windows installation
 

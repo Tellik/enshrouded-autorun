@@ -6,6 +6,8 @@ movement, edit game assets, change player statistics, or send network requests.
 It also samples reflected movement input at most four times per second in an
 active world. When exactly one matching input entity exists, it logs changes to
 the movement stick. Unavailable or ambiguous sources are reported and skipped.
+An updated loader can also return the main client's input through a dedicated
+read-only API; the supplied upstream 1.7.6 build does not include that API.
 
 The source package is disabled by default. Enable it after disabling the other
 bundled gameplay mods. World Editor uses F8 by default and conflicts with this

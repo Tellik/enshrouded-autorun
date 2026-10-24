@@ -17,6 +17,7 @@ local movement_sources = {
     { name = "world-input", component = "keen::ecs::PlayerInput",
       x = "fromClient.movementStick.x", y = "fromClient.movementStick.y" },
 }
+local native_input_source = { name = "local-client-reader" }
 
 local function log(message)
     shroudforge.log.info("[autorun-probe] " .. message)
@@ -89,6 +90,19 @@ local function observe_movement(delta_seconds)
                 end
             end
         end
+    end
+
+    if runtime.world.player_input then
+        local snapshot, reason = runtime.world.player_input.get()
+        if snapshot == nil then
+            observation_result(native_input_source, "unavailable: " .. tostring(reason))
+        else
+            observation_result(native_input_source,
+                string.format("movementStick=(%.2f, %.2f)",
+                    snapshot.movementStick.x, snapshot.movementStick.y))
+        end
+    else
+        observation_result(native_input_source, "requires an updated loader build")
     end
 end
 

@@ -714,6 +714,17 @@ runtime.world.cursor = {}
 --- @return string? reason
 function runtime.world.cursor.get() end
 
+--- Read a validated snapshot of the unique local ClientPlayerInput from the
+--- main-client ECS owner. It does not write input or select a player in the
+--- hosted authority world. Discovery can return nil,reason while scanning;
+--- retry on a later update. The movement vector follows the game's input axes.
+--- Availability: runtime.world.player_input.get.
+--- @class RuntimeWorldPlayerInputApi
+runtime.world.player_input = {}
+--- @return table? snapshot with `session`, `sequence`, and `movementStick = {x, y}`.
+--- @return string? reason
+function runtime.world.player_input.get() end
+
 --- Ordinary local player building input; availability: runtime.world.building.input.
 --- Exact client build only; follows the existing game input path. The server
 --- still checks permissions/resources/range. No server mod RPC is created.

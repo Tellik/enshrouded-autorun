@@ -102,8 +102,19 @@ The installed game produced a type registry for this exact build. Its reflected
 `ClientPlayerInputData` has a 952-byte size, with `movementStick` at offset 696
 and `digitalInput` at 936. These differ from older layouts and are evidence for
 read-only sampling only. The probe now attempts bounded reads of the movement
-stick through the existing ECS API. It has not yet been installed or validated
-in the game.
+stick through the existing ECS API. A single-player test observed idle `(0, 0)`,
+forward `(0, +1)`, backward `(0, -1)`, and a normalized diagonal sample near
+`(-0.71, +0.71)` in the authority world's `PlayerInput` component. Its regular
+ECS query found no `ClientPlayerInput` in that owner. These are observations,
+not evidence that the authority component is a safe place to write or that a
+client-only installation will work in multiplayer.
+
+The existing native reader can resolve the separate main-client ECS owner and
+copy its unique `ClientPlayerInput` without invoking engine functions. This
+fork adds a read-only Lua `runtime.world.player_input.get()` wrapper around that
+reader, returning the reflected movement vector, sequence, and world session.
+It still needs a Windows build and a live read test. A later movement request
+must use a verified producer-to-consumer hook rather than write this snapshot.
 
 No autorun movement implementation or multiplayer validation has been completed.
 The existing Lua keybind API has no independent focus or gameplay-state query.

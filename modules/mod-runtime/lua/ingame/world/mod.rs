@@ -43,6 +43,15 @@ pub(super) fn create_world(lua: &mlua::Lua, r#mod: &Mod) -> mlua::Result<mlua::T
         super::player_input::read_building_cursor::lua_world_cursor_get,
     )?;
     world.raw_set("cursor", cursor)?;
+    let player_input = lua.create_table()?;
+    add_function_with_mod(
+        lua,
+        &player_input,
+        "get",
+        r#mod,
+        super::player_input::read_local_player_input::lua_world_player_input_get,
+    )?;
+    world.raw_set("player_input", player_input)?;
     let entity = lua.create_table()?;
     add_function_with_mod(
         lua,
