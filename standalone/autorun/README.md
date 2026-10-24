@@ -8,40 +8,59 @@ ShroudForge 1.7.6 loads the mod's own `bin/autorun.dll` through
 not match. Single-player and dedicated-server Proton tests on stock
 ShroudForge 1.7.6 passed with F7 as a custom hotkey.
 
-## Install
+## Install the files (Windows and Linux/Proton)
 
 1. Close the game. Extract the unmodified ShroudForge 1.7.6 ZIP into the
    Enshrouded folder containing `enshrouded.exe`. Its three proxy DLLs go
    beside the executable; its `shroudforge` and `mods` folders go beside it.
    Back up an existing `mods/autorun` folder, if present.
-2. Extract this ZIP **inside the game's `mods` folder**. The result must be
-   `Enshrouded/mods/autorun/mod.json`, `extended.mod.json`,
+2. Extract the Autorun ZIP **inside the game's `mods` folder**. The result
+   must be `Enshrouded/mods/autorun/mod.json`, `extended.mod.json`,
    `native-plugin.ini`, and `bin/autorun.dll`. Do not put the ZIP itself in
    `mods`; the native DLL loader needs a directory.
-3. If the ShroudForge Modloader window works, enable Autorun there and restart
-   the game. The DLL loads at startup. For an isolated test, disable the mods
-   bundled with ShroudForge. In particular, World Editor uses F8, Autorun's
-   default key; disable it or choose another Autorun key.
-4. On Proton without WebView2, use this manual path **before the first launch**:
-   open `shroudforge/config/modloader-config.json`. Under `modules`, change
-   the `enabled` values for `debugConsole` and `modloaderUi` to `false` so
-   neither window triggers a startup error. Change `"enabled": false` to
-   `"enabled": true` in `mods/autorun/extended.mod.json`. For an isolated
-   test, also set `"enabled": false` in each bundled mod's
-   `extended.mod.json`, especially `mods/world-editor`. For a fixed-version
-   compatibility test, also disable the `worldEditor` module and set
-   `modules.updates.automatic.enabled` to `false` in the same ShroudForge
-   config file. In Steam's Enshrouded launch options, use the setting from
-   the tested Proton setup:
 
-   ```text
-   WINEDLLOVERRIDES="dbghelp=n,b;winmm=n,b" %command%
-   ```
+The stock ShroudForge ZIP enables several bundled mods. World Editor uses
+F8, Autorun's default key. Disable World Editor or change Autorun's key;
+for an isolated first test, disable all bundled mods.
 
-   No Modloader window is needed on this path.
-5. Check `mods/autorun/autorun-plugin.log` for `Exact-build input hook
-   installed`. If it says the game image or ABI is unsupported, leave the mod
-   off and check for an updated build.
+### Windows
+
+1. Start Enshrouded and press F9 to open the ShroudForge Modloader.
+2. Enable Autorun. Disable World Editor if you want to keep F8 for Autorun.
+   Restart the game so its native DLL loads at startup.
+
+Native Windows gameplay has not yet been tested. The Windows build and ZIP
+layout passed automated checks.
+
+### Linux / Proton
+
+These steps reproduce the tested Proton setup without requiring WebView2.
+Before the first launch, set Steam's Enshrouded **Launch Options** to:
+
+```text
+WINEDLLOVERRIDES="dbghelp=n,b;winmm=n,b" %command%
+```
+
+Then, while the game is closed:
+
+1. Open `shroudforge/config/modloader-config.json`. Under `modules`, change
+   the `enabled` values for `debugConsole` and `modloaderUi` to `false`.
+   This prevents the two WebView2 windows from causing a startup error.
+2. Open `mods/autorun/extended.mod.json` and change `"enabled": false` to
+   `"enabled": true`.
+3. For an isolated first test, set `"enabled": false` in each bundled mod's
+   `extended.mod.json`, especially `mods/world-editor`. To hold ShroudForge
+   at the tested version, also set `modules.updates.automatic.enabled` to
+   `false` in its config file. The clean-install test also disabled the
+   `worldEditor` module there.
+4. Start the game. The Modloader window is intentionally disabled; configure
+   Autorun by editing its `extended.mod.json` while the game is closed.
+
+### Check the installation
+
+Check `mods/autorun/autorun-plugin.log` for `Exact-build input hook installed`.
+If it says the game image or ABI is unsupported, leave the mod off and check
+for an updated build.
 
 No server installation or save changes are needed. This version moves the
 local client at normal forward speed. A dedicated-server test passed without
@@ -54,7 +73,7 @@ also cancels movement. In the Modloader, open **Autorun → Keyboard shortcuts**
 or **Compatibility → Hotkeys**, record another shortcut, then release all keys.
 The plugin reads setting changes live and stops movement if a binding changes.
 
-If the Modloader window is unavailable under Proton, close the game and edit
+On Linux/Proton with the Modloader window disabled, close the game and edit
 `mods/autorun/extended.mod.json`. Change
 `settings.toggleAutorun.value` from `"SDL:65"` (F8) to `"SDL:64"` (F7),
 `"SDL:63"` (F6), or another supported key. `settings.cancelAutorun.value`
@@ -97,7 +116,7 @@ active players, and native Windows gameplay remain untested.
 
 A separate clean-install check removed the previous ShroudForge and mod files,
 then extracted the stock ShroudForge 1.7.6 ZIP and this Autorun ZIP into the
-paths above. After the Proton and bundled-mod settings in step 4, the game
+paths above. After the Linux/Proton and bundled-mod settings above, the game
 opened without a WebView2 error. The packaged default F8 binding moved
 forward, F8 stopped it, and S canceled it in both single-player and a
 dedicated-server world. The game remained stable. The plugin recorded 68

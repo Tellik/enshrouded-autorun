@@ -27,7 +27,8 @@ disappears. Menu, death, and travel behavior still need live verification.
 
 Download the separate `autorun-0.2.0.zip` build artifact from the
 [verified standalone Windows build](https://github.com/Tellik/enshrouded-autorun/actions/runs/40124296476),
-and follow the [standalone installation and hotkey instructions](standalone/autorun/README.md).
+and follow the [standalone guide](standalone/autorun/README.md), which has
+separate Windows and Linux/Proton installation steps and hotkey instructions.
 It installs into the game's `mods` directory; no ShroudForge runtime files or
 server files need replacing.
 
