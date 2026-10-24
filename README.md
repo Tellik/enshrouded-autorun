@@ -4,10 +4,11 @@ An experimental client-side autorun mod, developed on a fork of
 [ShroudForge](https://github.com/bonsaibauer/shroudforge).
 
 **Status: the F8 movement proof of concept works in a single-player Proton
-world.** Toggle-off and S cancellation also worked without a crash. This is
+world and when joining a dedicated server with only the client mod installed.**
+Toggle-off and S cancellation worked without a crash in both tests. This is
 still a development build, and the autorun mod is disabled by default in the
-package. Menu, focus-loss, death, travel, multiplayer, and native Windows
-behavior still need testing.
+package. Menu, focus-loss, death, travel, native Windows, and multiplayer
+sessions with other active players still need testing.
 
 The first version toggles normal forward input with F8, equivalent to holding
 the game's forward control. Pressing F8 again or moving backward cancels it.
@@ -15,9 +16,9 @@ The native request also expires if the mod stops renewing it, the game loses
 focus, the world session changes, or the local input disappears. Menu, death,
 and travel behavior still need live verification.
 
-Single-player under Steam Proton is the first test target. Client-only
-multiplayer compatibility is required afterward and must be verified while
-joining another host. Native Windows gameplay testing is also pending.
+The first dedicated-server test confirmed client-only movement delivery without
+a server mod. Broader multiplayer compatibility, including other active players
+and lifecycle cases, and native Windows gameplay testing are still pending.
 
 ## Development base
 
@@ -37,12 +38,16 @@ verified local input. It observed W as `(0, +1)` and S as `(0, -1)`, with zero
 movement writes. The subsequent [Autorun mod](mods/autorun/) test visibly
 moved the character at ordinary forward speed with F8 and stopped on F8/S.
 Its native log counted 74 local writes before toggle-off and 181 before S.
+The dedicated-server build then recorded 114 local writes before S cancellation
+and 337 before F8 toggle-off; the character moved forward and the game stayed
+stable. This build passed the native ECS selection test and upstream Windows
+tests in [run 40119687161](https://github.com/Tellik/enshrouded-autorun/actions/runs/40119687161).
 
 ## Windows builds without a local Windows installation
 
 Open [Actions → Autorun Windows Test Build](https://github.com/Tellik/enshrouded-autorun/actions/workflows/autorun-windows.yml)
 and select **Run workflow** on `autorun-poc`. GitHub builds the Windows binaries, runs
-the upstream build tests, and stores a ZIP plus checksum as a downloadable
+the native ECS check and upstream build tests, and stores a ZIP plus checksum as a downloadable
 artifact for seven days. This workflow does not publish GitHub releases.
 
 The workflow uses ShroudForge's existing build and packaging scripts. Its package

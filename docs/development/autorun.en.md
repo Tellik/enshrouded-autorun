@@ -65,10 +65,9 @@ and its validated hook/profile integration. Rust adapters belong in the existing
 Choose concrete interfaces after tracing their real callers and lifecycle.
 
 Build orchestration uses `.github/workflows/autorun-windows.yml` and the existing
-`dev/build/release_build.ps1`. It runs the upstream Windows bootstrap and Rust
-workspace tests before packaging. Native C++ test executables are separate
-targets and will need explicit execution when the movement integration is added.
-Successful compilation is not an in-game compatibility test.
+`dev/build/release_build.ps1`. It runs the native ECS test, upstream Windows
+bootstrap, and Rust workspace tests before packaging. Successful compilation
+is not an in-game compatibility test.
 
 ## Current status
 
@@ -156,7 +155,15 @@ The main-client ECS manager contained multiple `ClientPlayerInput` entities,
 so the single-player uniqueness rule rejected the request. A subsequent
 read-only multiplayer trace observed 1,649 movement-producer calls on exactly
 one input address. That input followed W as `(0, +1)`, S as `(0, -1)`, and
-release as `(0, 0)`. The next implementation matches that observed input
+release as `(0, 0)`. The current implementation matches that observed input
 address against the component addresses of all ECS candidates and fails closed
 if the producer changes input addresses, the session changes, or the ECS match
-is missing or ambiguous. Multiplayer movement delivery remains to be tested.
+is missing or ambiguous. The Windows native ECS check and upstream tests passed
+in [run 40119687161](https://github.com/Tellik/enshrouded-autorun/actions/runs/40119687161).
+With only the client mod installed, the next dedicated-server Proton test moved
+the character forward after F8 and stayed stable. The first activation recorded
+115 local hook matches and 114 writes before S canceled it. The second recorded
+337 local matches and writes before F8 toggle-off. This verifies basic
+client-only movement delivery and both stops on one dedicated-server session.
+Menus, focus loss, death, travel, disconnect, native Windows, and sessions with
+other active players remain unverified.
