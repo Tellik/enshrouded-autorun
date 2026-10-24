@@ -195,3 +195,29 @@ recorded 55 local writes before F7 toggle-off and 57 before S cancellation.
 No Autorun installation was needed on the dedicated server. This verifies
 basic client-only delivery in one server session; other active players and
 lifecycle cases remain untested.
+
+## Clean ZIP installation verification
+
+The next check moved the existing ShroudForge proxy DLLs, loader directory,
+and mods directory to a verified backup outside the game folder. The game
+executable and both KFC data files matched the originals captured before
+ShroudForge's first managed start. The supplied stock ShroudForge
+`1.7.6-40026840919` ZIP was extracted beside `enshrouded.exe`, and the
+standalone `autorun-0.2.0.zip` was extracted inside `mods`. Every unmodified
+installed file matched its archive byte-for-byte. The old input probe and
+fork-integrated Autorun were absent. The package's default F8 binding was
+retained. All five bundled ShroudForge mods were left disabled to isolate
+Autorun and avoid World Editor's F8 shortcut. The Proton setup disabled the
+Modloader and Debug Console windows before first launch because WebView2 was
+unavailable, and disabled automatic ShroudForge updates to hold the tested
+runtime version.
+
+Both a single-player world and a dedicated-server world started without a
+WebView2 error and remained stable. F8 started forward movement, another F8
+stopped it, and S canceled the next run in each world. The plugin log recorded
+68 local writes before toggle-off and 58 before S cancellation in single-player;
+the dedicated-server test recorded 53 and 54. The stock loader reported the
+Autorun DLL loaded, and its runtime initialized. The game executable, both
+KFC data files, and both stock ShroudForge runtime DLLs retained their original
+hashes. The standalone installation guide now includes the Proton pre-launch
+settings and the F8 conflict with World Editor found during this check.

@@ -10,17 +10,36 @@ ShroudForge 1.7.6 passed with F7 as a custom hotkey.
 
 ## Install
 
-1. Install unmodified ShroudForge 1.7.6 beside `enshrouded.exe` and close the
-   game. Back up an existing `mods/autorun` folder, if present.
+1. Close the game. Extract the unmodified ShroudForge 1.7.6 ZIP into the
+   Enshrouded folder containing `enshrouded.exe`. Its three proxy DLLs go
+   beside the executable; its `shroudforge` and `mods` folders go beside it.
+   Back up an existing `mods/autorun` folder, if present.
 2. Extract this ZIP **inside the game's `mods` folder**. The result must be
    `Enshrouded/mods/autorun/mod.json`, `extended.mod.json`,
    `native-plugin.ini`, and `bin/autorun.dll`. Do not put the ZIP itself in
    `mods`; the native DLL loader needs a directory.
-3. Enable Autorun in the ShroudForge Modloader and restart the game. The DLL
-   loads at game startup. Under Proton, if the Modloader window cannot run
-   without WebView2, close the game and change `"enabled": false` to
-   `"enabled": true` in `mods/autorun/extended.mod.json` instead.
-4. Check `mods/autorun/autorun-plugin.log` for `Exact-build input hook
+3. If the ShroudForge Modloader window works, enable Autorun there and restart
+   the game. The DLL loads at startup. For an isolated test, disable the mods
+   bundled with ShroudForge. In particular, World Editor uses F8, Autorun's
+   default key; disable it or choose another Autorun key.
+4. On Proton without WebView2, use this manual path **before the first launch**:
+   open `shroudforge/config/modloader-config.json`. Under `modules`, change
+   the `enabled` values for `debugConsole` and `modloaderUi` to `false` so
+   neither window triggers a startup error. Change `"enabled": false` to
+   `"enabled": true` in `mods/autorun/extended.mod.json`. For an isolated
+   test, also set `"enabled": false` in each bundled mod's
+   `extended.mod.json`, especially `mods/world-editor`. For a fixed-version
+   compatibility test, also disable the `worldEditor` module and set
+   `modules.updates.automatic.enabled` to `false` in the same ShroudForge
+   config file. In Steam's Enshrouded launch options, use the setting from
+   the tested Proton setup:
+
+   ```text
+   WINEDLLOVERRIDES="dbghelp=n,b;winmm=n,b" %command%
+   ```
+
+   No Modloader window is needed on this path.
+5. Check `mods/autorun/autorun-plugin.log` for `Exact-build input hook
    installed`. If it says the game image or ABI is unsupported, leave the mod
    off and check for an updated build.
 
@@ -60,6 +79,10 @@ opening menus. Menu, death, travel, disconnect, native Windows gameplay, and
 other active multiplayer players still need dedicated checks. The plugin does
 not force sprint or the game's slower Walk action.
 
+For a first check, tap F8 and release all movement keys: the character should
+continue forward. Tap F8 again to stop. Tap F8 once more and press S to
+cancel. If you configured a different toggle key, use that key instead.
+
 ## Verified test
 
 With unmodified ShroudForge 1.7.6 and Enshrouded Steam build `26082781`,
@@ -71,6 +94,17 @@ local input writes before toggle-off and 57 before S cancellation on the
 dedicated server. This confirms that editing the installed keybind takes
 effect on the next launch. Live Modloader rebinding, multiplayer with other
 active players, and native Windows gameplay remain untested.
+
+A separate clean-install check removed the previous ShroudForge and mod files,
+then extracted the stock ShroudForge 1.7.6 ZIP and this Autorun ZIP into the
+paths above. After the Proton and bundled-mod settings in step 4, the game
+opened without a WebView2 error. The packaged default F8 binding moved
+forward, F8 stopped it, and S canceled it in both single-player and a
+dedicated-server world. The game remained stable. The plugin recorded 68
+local writes before F8 stopped it and 58 before S canceled it in single-player;
+the dedicated-server run recorded 53 and 54. The game executable, both KFC
+data files, and both stock ShroudForge runtime DLLs retained their original
+hashes.
 
 Source and build workflow: https://github.com/Tellik/enshrouded-autorun
 The bundled `LICENSE` retains ShroudForge's MIT notice for reused hook helpers.

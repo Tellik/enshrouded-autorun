@@ -13,6 +13,12 @@ standalone package is disabled by default. Menu, focus-loss, death, travel,
 native Windows, and multiplayer sessions with other active players still need
 testing.
 
+A second test began by removing the previous loader and mods, then installing
+stock ShroudForge and Autorun directly from their ZIPs. With the guide's Proton
+settings and bundled mods disabled, the packaged default F8 toggle and S stop
+worked in both single-player and a dedicated-server world. No WebView2 error
+appeared; the game and loader files retained their expected hashes.
+
 The default hotkey is **F8**, but it can be changed in the Modloader or in
 `mods/autorun/extended.mod.json`. The first press starts normal forward
 movement; another press or backward input stops it. The native request also
