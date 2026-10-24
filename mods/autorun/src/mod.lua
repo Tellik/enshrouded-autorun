@@ -9,8 +9,6 @@ local previous_cancel = false
 local discovery_elapsed = 0
 local status_elapsed = 0
 local status_reports = 0
-local trace_elapsed = 0
-local trace_reports = 20
 
 local function log(message)
     shroudforge.log.info("[autorun] " .. message)
@@ -64,8 +62,6 @@ return {
         discovery_elapsed = 0
         status_elapsed = 0
         status_reports = 0
-        trace_elapsed = 0
-        trace_reports = 20
         log("Loaded. Toggle=" .. tostring(shroudforge.input.keybind_label("toggleAutorun"))
             .. "; cancel=" .. tostring(shroudforge.input.keybind_label("cancelAutorun")))
     end,
@@ -83,8 +79,6 @@ return {
             discovery_elapsed = 0
             status_elapsed = 0
             status_reports = 0
-            trace_elapsed = 0
-            trace_reports = 20
             return
         end
 
@@ -105,8 +99,6 @@ return {
             if active then
                 stop("toggle key")
             else
-                trace_elapsed = 0
-                trace_reports = 0
                 local available, reason = ready()
                 if available then
                     local success, why = runtime.world.player_input.autorun_set(true)
@@ -129,20 +121,6 @@ return {
             else
                 local success, why = runtime.world.player_input.autorun_set(true)
                 if not success then stop("native request failed: " .. tostring(why)) end
-            end
-        end
-
-        if trace_reports < 20 and type(delta_seconds) == "number" and delta_seconds > 0 then
-            trace_elapsed = trace_elapsed + delta_seconds
-            if trace_elapsed >= 0.5 then
-                trace_elapsed = 0
-                trace_reports = trace_reports + 1
-                local status = runtime.world.player_input.autorun_status()
-                if status then
-                    log(string.format("Read-only trace: hook=%d first=%d other=%d axes=(%.2f,%.2f)",
-                        status.hits, status.localHits, status.hits - status.localHits,
-                        status.x, status.y))
-                end
             end
         end
 

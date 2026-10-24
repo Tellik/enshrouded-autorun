@@ -2,6 +2,8 @@
 #include <cstdint>
 
 namespace AutoRunMovement {
+void ObserveInputForSession(const void* input, std::uint64_t session, std::uint64_t now);
+const void* StableInputForSession(std::uint64_t session, std::uint64_t now);
 bool Install();
 void Stop();
 bool Available();

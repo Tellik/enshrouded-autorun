@@ -150,3 +150,13 @@ before toggle-off and 181 writes before the S stop. The Lua keybind API still
 has no independent gameplay menu/death query. Focus loss, menus, death, travel,
 native Windows, and joining a multiplayer host remain unverified and cannot
 yet be claimed as supported.
+
+The first dedicated-server test stayed stable but F8 did not move the character.
+The main-client ECS manager contained multiple `ClientPlayerInput` entities,
+so the single-player uniqueness rule rejected the request. A subsequent
+read-only multiplayer trace observed 1,649 movement-producer calls on exactly
+one input address. That input followed W as `(0, +1)`, S as `(0, -1)`, and
+release as `(0, 0)`. The next implementation matches that observed input
+address against the component addresses of all ECS candidates and fails closed
+if the producer changes input addresses, the session changes, or the ECS match
+is missing or ambiguous. Multiplayer movement delivery remains to be tested.

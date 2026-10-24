@@ -1,4 +1,5 @@
 #include "player-input/world_cursor_state.h"
+#include "player-input/autorun_movement.h"
 #include "ecs/ecs_session_state.h"
 
 // The local input belongs to the original main-client ECS owner. The default
@@ -13,7 +14,7 @@ constexpr std::size_t MaximumInputBytes = 65536;
 struct LocalInputState {
     EngineContext::EcsView owner;
     ComponentType component{};
-    std::uintptr_t records{};
+    std::uintptr_t records{}, selected_address{};
     std::size_t registrations{}, entity_count{}, cursor{}, candidate_slot{}, published_slot{};
     EntityView candidate, published;
     std::uint64_t session{}, registry_ms{}, completed_ms{};
@@ -126,6 +127,14 @@ std::uint32_t scan_local_input(LocalInputState& state, const ResolvedLayout& lay
             return 5;
         }
         if (!present) continue;
+        if (state.selected_address) {
+            std::uintptr_t address{};
+            if (!component_address(entity, layout, state.component, address)) {
+                restart_scan(state);
+                return 5;
+            }
+            if (address != state.selected_address) continue;
+        }
         if (state.candidate.pointer && (state.candidate.pointer != entity.pointer ||
             state.candidate.id != entity.id || state.candidate.generation != entity.generation)) state.ambiguous = true;
         else { state.candidate = entity; state.candidate_slot = slot; }
@@ -165,6 +174,7 @@ bool LocalCursorInputAvailable(){
 
 bool MatchesPublishedLocalInput(const void* expected, std::uint64_t expected_session){
     if (!expected || !expected_session) return false;
+    const auto now = GetTickCount64();
     // A periodic full rescan can take several frames. Keep the last unique
     // result briefly while rechecking its owner, registry, entity identity,
     // component address and any conflicting candidate on every hook call.
@@ -176,7 +186,9 @@ bool MatchesPublishedLocalInput(const void* expected, std::uint64_t expected_ses
         (local_input.candidate.pointer && local_input.candidate != local_input.published) ||
         local_input.session != expected_session ||
         local_input.component.size != 1536 ||
-        GetTickCount64() - local_input.completed_ms > 12000 ||
+        now - local_input.completed_ms > 12000 ||
+        (local_input.selected_address &&
+            AutoRunMovement::StableInputForSession(expected_session, now) != expected) ||
         EcsImplementation::stop_requested.load(std::memory_order_acquire) ||
         KfcRuntimeWorldSessionId() != expected_session) return false;
     EngineContext::EcsView owner;
@@ -237,6 +249,12 @@ std::uint32_t ReadLocalCursorInput(std::size_t component_size, std::uint64_t exp
         local_input.registry_ms = now;
         local_input.configured = true;
     }
+    const auto selected = reinterpret_cast<std::uintptr_t>(
+        AutoRunMovement::StableInputForSession(expected_session, now));
+    if (local_input.selected_address != selected) {
+        restart_scan(local_input);
+        local_input.selected_address = selected;
+    }
     if (!current_registry_header(local_input)) { local_input = {}; return 5; }
     // A periodic discovery refresh may span several short slices. Keep the
     // last completely validated unique input while refreshing, but revalidate
@@ -253,6 +271,9 @@ std::uint32_t ReadLocalCursorInput(std::size_t component_size, std::uint64_t exp
     EngineContext::EcsView after;
     if (!sample_local_input(local_input, layout, sample) || !current_registry_header(local_input) ||
         !current_entity_header(local_input, layout) ||
+        (local_input.selected_address &&
+            AutoRunMovement::StableInputForSession(expected_session, GetTickCount64()) !=
+                reinterpret_cast<const void*>(local_input.selected_address)) ||
         EcsImplementation::stop_requested.load(std::memory_order_acquire) ||
         KfcRuntimeWorldSessionId() != expected_session || !EngineContext::ResolveClientEcs(after) || after != owner) {
         restart_scan(local_input);

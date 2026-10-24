@@ -2,6 +2,7 @@
 // All objects belong to this test process. No game, patch or engine call is used.
 #include <windows.h>
 #include <cstdlib>
+#include "player-input/autorun_movement.h"
 #include "voxels/voxel_request.h"
 namespace {
 unsigned page_query_count{};
@@ -908,6 +909,9 @@ int main() {
     check(!KfcRuntimeWorldEntityGetTransform(editor_prop.entity_handle,&editor_observed));
     Entity second_input = input_entity;
     second_input.id = 24;
+    EditorStorage second_input_storage;
+    std::fill(std::begin(second_input_storage.input), std::end(second_input_storage.input), std::uint8_t{0x6b});
+    second_input.storage = reinterpret_cast<std::uintptr_t>(&second_input_storage);
     client_table[1]=reinterpret_cast<std::uintptr_t>(&second_input);
     std::uintptr_t next_authority_table[4]{reinterpret_cast<std::uintptr_t>(&entity)};
     put(authority_execution.manager,392,reinterpret_cast<std::uintptr_t>(next_authority_table));
@@ -916,6 +920,21 @@ int main() {
     check(ambiguous_session && ambiguous_session!=editor_session);
     check(KfcRuntimeWorldCursorReadInput(input_bytes.size(),ambiguous_session,input_bytes.data(),input_bytes.size(),&input_sequence)==6);
     check(input_bytes==untouched_input && input_sequence==untouched_sequence);
+    const auto observed_now = GetTickCount64();
+    AutoRunMovement::ObserveInputForSession(input_storage.input,ambiguous_session,observed_now-600);
+    for (unsigned hit=1; hit<30; ++hit)
+        AutoRunMovement::ObserveInputForSession(input_storage.input,ambiguous_session,observed_now);
+    check(AutoRunMovement::StableInputForSession(ambiguous_session,observed_now)==input_storage.input);
+    for (unsigned attempt=0; attempt<20; ++attempt) {
+        input_status=KfcRuntimeWorldCursorReadInput(input_bytes.size(),ambiguous_session,input_bytes.data(),input_bytes.size(),&input_sequence);
+        if (input_status!=5) break;
+    }
+    check(input_status==1 && input_bytes==untouched_input && input_sequence>untouched_sequence);
+    const auto selected_sequence=input_sequence;
+    AutoRunMovement::ObserveInputForSession(second_input_storage.input,ambiguous_session,observed_now);
+    check(!AutoRunMovement::StableInputForSession(ambiguous_session,observed_now));
+    check(KfcRuntimeWorldCursorReadInput(input_bytes.size(),ambiguous_session,input_bytes.data(),input_bytes.size(),&input_sequence)==6);
+    check(input_bytes==untouched_input && input_sequence==selected_sequence);
     // An unreadable occupied candidate cannot be treated as an absent type.
     client_table[1]=1;
     put(authority_execution.manager,392,table_pointer);
