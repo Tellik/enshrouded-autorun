@@ -40,13 +40,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native hook emulation failed' }
       - name: Package
         run: |
-          python dev/build/package_wand_durability.py --dll build/wand-durability/Release/wand-durability.dll --out build/wand-durability-0.1.0.zip
+          python dev/build/package_wand_durability.py --dll build/wand-durability/Release/wand-durability.dll --out build/wand-durability-0.2.0.zip
           if ($LASTEXITCODE -ne 0) { throw 'Packaging failed' }
       - uses: actions/upload-artifact@v7
         with:
           name: wand-durability-windows-${{ github.run_id }}
           path: |
-            build/wand-durability-0.1.0.zip
-            build/wand-durability-0.1.0.zip.sha256
+            build/wand-durability-0.2.0.zip
+            build/wand-durability-0.2.0.zip.sha256
           if-no-files-found: error
           retention-days: 7

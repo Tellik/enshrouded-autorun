@@ -30,8 +30,17 @@ int main() {
         check(!costs.suppress(b), "another player's first projectile costs one");
         check(costs.suppress(a) && costs.suppress(b), "players are independent");
         b.actor_entity = a.actor_entity + 128;
-        check(!costs.suppress(b), "cache collision preserves original cost");
-        check(!costs.suppress(a), "evicted entries preserve original cost");
+        check(!costs.suppress(b), "same hash slot still costs on first projectile");
+        check(costs.suppress(a) && costs.suppress(b), "hash collision cannot lose either attack");
+        AttackCosts bounded;
+        check(!bounded.suppress(a), "first entry is charged");
+        for (std::uint32_t n = 0; n < 128; ++n) {
+            auto other = a;
+            other.actor_entity = 1000 + n;
+            other.actor += (n + 1) * 16;
+            check(!bounded.suppress(other), "distinct attacks are charged");
+        }
+        check(!bounded.suppress(a), "journal saturation preserves original cost");
         a.sequence = 0;
         check(!costs.suppress(a) && !costs.suppress(a), "non-wand costs never change");
         a.sequence = sequence; a.session = 0;

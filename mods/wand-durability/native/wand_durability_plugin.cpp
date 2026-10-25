@@ -18,11 +18,22 @@
 #include <vector>
 
 namespace {
-constexpr std::uintptr_t HookRva = 0x225450, SkipRva = 0x225461;
 constexpr std::uint8_t Original[]{0x41,0xb8,0xff,0xff,0xff,0xff};
-constexpr auto Signature = "41 B8 FF FF FF FF 48 8B CB 44 8B 08 E8 DF A1 18 00 48 8D 3D";
-constexpr auto ImageSha256 = "d64966e23b1a458ee6f147bcbceac0b577fa7e39a212f371287d8cc119817882";
-constexpr std::uint32_t ImageTimestamp = 1792507660u, ImageSize = 44163072u;
+struct ImageProfile {
+    const char* role;
+    const char* sha256;
+    std::uint32_t timestamp, size;
+    std::uintptr_t hook_rva, skip_rva;
+    const char* signature;
+};
+constexpr ImageProfile Profiles[]{
+    {"client", "d64966e23b1a458ee6f147bcbceac0b577fa7e39a212f371287d8cc119817882",
+        1792507660u, 44163072u, 0x225450, 0x225461,
+        "41 B8 FF FF FF FF 48 8B CB 44 8B 08 E8 DF A1 18 00 48 8D 3D"},
+    {"dedicated-server", "d7baa768eb00aa895d9f5a1cd8747ccf66858c7b542f50983092b2e3261588ee",
+        1792507668u, 31264768u, 0x430a0, 0x430b1,
+        "41 B8 FF FF FF FF 48 8B CB 44 8B 08 E8 2F 85 11 00 48 8D 3D"},
+};
 HMODULE plugin_module{};
 std::atomic<std::uint64_t> session{}, deadline{}, observed{}, charged{}, suppressed{}, unrecognized{}, invalid{};
 std::atomic<std::uint32_t> last_sequence{};
@@ -73,14 +84,18 @@ bool __cdecl suppress_cost(const void* actor, const void* durability, std::uint3
     return skip;
 }
 
-bool game_image_matches() {
+bool game_image_matches(const ImageProfile*& profile) {
+    profile = nullptr;
     auto* base = reinterpret_cast<std::uint8_t*>(GetModuleHandleW(nullptr));
     if (!base) return false;
     const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
     if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew <= 0) return false;
     const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
-    if (nt->Signature != IMAGE_NT_SIGNATURE || nt->FileHeader.TimeDateStamp != ImageTimestamp ||
-        nt->OptionalHeader.SizeOfImage != ImageSize) return false;
+    if (nt->Signature != IMAGE_NT_SIGNATURE) return false;
+    for (const auto& candidate : Profiles)
+        if (nt->FileHeader.TimeDateStamp == candidate.timestamp &&
+            nt->OptionalHeader.SizeOfImage == candidate.size) profile = &candidate;
+    if (!profile) return false;
     wchar_t path[32768]{};
     const auto length = GetModuleFileNameW(nullptr, path, static_cast<DWORD>(std::size(path)));
     if (!length || length >= std::size(path)) return false;
@@ -117,46 +132,50 @@ bool game_image_matches() {
         text[i * 2] = hex[digest[i] >> 4];
         text[i * 2 + 1] = hex[digest[i] & 15];
     }
-    return std::string_view(text, 64) == ImageSha256;
+    if (std::string_view(text, 64) != profile->sha256) {
+        profile = nullptr; return false;
+    }
+    return true;
 }
 
 
 
-bool install_hook() {
+const ImageProfile* install_hook() {
     auto* base = reinterpret_cast<std::uint8_t*>(GetModuleHandleW(nullptr));
-    if (!base || !game_image_matches()) return false;
-    const auto target = reinterpret_cast<std::uintptr_t>(base) + HookRva;
-    const auto match = EngineHooks::FindExecutableSignature(base, Signature, 2);
+    const ImageProfile* profile{};
+    if (!base || !game_image_matches(profile)) return nullptr;
+    const auto target = reinterpret_cast<std::uintptr_t>(base) + profile->hook_rva;
+    const auto match = EngineHooks::FindExecutableSignature(base, profile->signature, 2);
     if (match.count != 1 || match.address != target ||
-        std::memcmp(reinterpret_cast<void*>(target), Original, sizeof(Original))) return false;
+        std::memcmp(reinterpret_cast<void*>(target), Original, sizeof(Original))) return nullptr;
     HMODULE pinned{};
     if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
-        reinterpret_cast<LPCWSTR>(&install_hook), &pinned)) return false;
+        reinterpret_cast<LPCWSTR>(&install_hook), &pinned)) return nullptr;
     auto hook = WandDurability::make_hook(reinterpret_cast<std::uintptr_t>(&suppress_cost));
     auto& code = hook.bytes;
     auto* payload = static_cast<std::uint8_t*>(EngineHooks::AllocateNearCode(target, code.size()));
-    if (!payload) return false;
+    if (!payload) return nullptr;
     std::int32_t charge{}, skip{}, detour{};
     const auto address = reinterpret_cast<std::uintptr_t>(payload);
     if (!EngineHooks::EncodeRelativeJump(address + hook.charge_jump, target + sizeof(Original), charge) ||
-        !EngineHooks::EncodeRelativeJump(address + hook.skip_jump, reinterpret_cast<std::uintptr_t>(base) + SkipRva, skip) ||
+        !EngineHooks::EncodeRelativeJump(address + hook.skip_jump, reinterpret_cast<std::uintptr_t>(base) + profile->skip_rva, skip) ||
         !EngineHooks::EncodeRelativeJump(target, address, detour)) {
-        VirtualFree(payload, 0, MEM_RELEASE); return false;
+        VirtualFree(payload, 0, MEM_RELEASE); return nullptr;
     }
     std::memcpy(code.data() + hook.charge_jump + 1, &charge, 4);
     std::memcpy(code.data() + hook.skip_jump + 1, &skip, 4);
     std::memcpy(payload, code.data(), code.size());
     DWORD previous{};
     if (!VirtualProtect(payload, code.size(), PAGE_EXECUTE_READ, &previous)) {
-        VirtualFree(payload, 0, MEM_RELEASE); return false;
+        VirtualFree(payload, 0, MEM_RELEASE); return nullptr;
     }
     FlushInstructionCache(GetCurrentProcess(), payload, code.size());
     std::uint8_t replacement[sizeof(Original)]{0xe9,0,0,0,0,0x90};
     std::memcpy(replacement + 1, &detour, 4);
     if (!EngineHooks::ReplaceExecutableBytes(target, Original, replacement, sizeof(Original))) {
-        VirtualFree(payload, 0, MEM_RELEASE); return false;
+        VirtualFree(payload, 0, MEM_RELEASE); return nullptr;
     }
-    return true;
+    return profile;
 }
 
 std::filesystem::path plugin_dir() {
@@ -185,7 +204,7 @@ bool enabled(const std::filesystem::path& root) {
 DWORD WINAPI worker(void*) {
     const auto root = plugin_dir();
     if (root.empty()) return 0;
-    log(root, "Wand Durability 0.1.0 experimental plugin starting");
+    log(root, "Wand Durability 0.2.0 experimental plugin starting");
     auto* runtime = GetModuleHandleW(L"kfc-runtime.dll");
     for (unsigned i = 0; !runtime && i < 300; ++i) {
         Sleep(100); runtime = GetModuleHandleW(L"kfc-runtime.dll");
@@ -199,8 +218,10 @@ DWORD WINAPI worker(void*) {
     if (!abi || abi() != 12 || !world_session || !world_kind) {
         log(root, "Required stock ABI-12 world identity API unavailable; inactive"); return 0;
     }
-    if (!install_hook()) { log(root, "Unsupported image or changed hook bytes; inactive"); return 0; }
-    log(root, "Exact-build durability hook installed; waiting for enabled authoritative world");
+    const auto* profile = install_hook();
+    if (!profile) { log(root, "Unsupported image or changed hook bytes; inactive"); return 0; }
+    log(root, std::string("Exact-build ") + profile->role +
+        " durability hook installed; waiting for enabled authoritative world");
     std::uint64_t last_session{}, last_report{}, last_observed{};
     std::uint32_t last_kind = ~0u;
     bool was_enabled = false;

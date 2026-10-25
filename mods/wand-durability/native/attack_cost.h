@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <cstddef>
 #include <cstdint>
 
 namespace WandDurability {
@@ -28,14 +29,20 @@ struct Attack {
 // A bounded cache never retains engine pointers for later dereferencing.
 class AttackCosts {
     std::array<Attack, 128> attacks_{};
+    std::size_t next_{};
 public:
     bool suppress(const Attack& attack) {
         if (!attack.session || !attack.actor || !attack.durability ||
             !attack.actor_entity || !attack.weapon_entity ||
             !is_wand_sequence(attack.sequence)) return false;
-        auto& previous = attacks_[attack.actor_entity % attacks_.size()];
-        if (previous == attack) return true;
-        previous = attack;
+        // A shared world can interleave several players' projectile events.
+        // Keep identities independently, even when their entity IDs hash to
+        // the same slot. Saturation only forgets old attacks, so it can never
+        // grant a free durability charge to an unknown attack.
+        for (const auto& previous : attacks_)
+            if (previous == attack) return true;
+        attacks_[next_] = attack;
+        next_ = (next_ + 1) % attacks_.size();
         return false;
     }
 };
