@@ -19,18 +19,22 @@ Linux/Proton installation steps; gameplay has been tested on Linux/Proton in
 single-player and as a dedicated-server client. Native Windows gameplay
 remains untested.
 
-Wand Durability uses the same stock ShroudForge 1.7.6 runtime and currently
-targets client build `26082781` in single-player or player-hosted co-op worlds.
-The [Windows build and automated tests](https://github.com/Tellik/enshrouded-mods/actions/runs/40232119871)
-pass, including policy tests and native hook emulation. The Cryptic Wand's
+Wand Durability uses the same stock ShroudForge 1.7.6 runtime and has separate
+exact-build profiles for client build `26082781` and dedicated-server build
+`26083076`. The same [0.2.0 test package](https://github.com/Tellik/enshrouded-mods/actions/runs/40233421427)
+can be installed on a client or server. It automatically runs where the world
+is authoritative: in single-player, on a player host, or on a dedicated server.
+A server installation applies the correction to every player; a client copy
+stays inactive while connected to a remote server. The Windows build, policy
+tests, and native hook emulation pass. The Cryptic Wand's
 built-in Multishot +1 was verified in single-player under Proton on 2026-10-25;
 the plugin log recorded six allowed wand charges and six extra costs skipped
-across 12 projectile-cost calls. Other wand/skill cases, hosted co-op, and
-lifecycle behavior remain unverified. Its test packages are disabled by default
-and are **not a verified release**.
-A client-only install cannot change a dedicated server's durability accounting;
-a verified dedicated-server executable profile is still needed. A release will
-wait for broader gameplay testing.
+across 12 projectile-cost calls with 0.1.0. The 0.2.0 server hook loaded in a
+local test server and reached an authoritative world, but no player connected.
+Version 0.2.0 gameplay, other wand/skill cases, hosted co-op, dedicated-server
+attacks, and lifecycle behavior remain unverified. Test packages are disabled
+by default and are **not a verified release**. A release will wait for gameplay
+testing.
 
 The `main` branch contains this landing page, the [MIT license](LICENSE), and
 the entry point for Autorun's manually triggered Windows package workflow.
