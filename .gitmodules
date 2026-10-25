@@ -1,10 +1,3 @@
-[submodule "kfc-parser"]
-	path = kfc-parser
-	url = https://github.com/bonsaibauer/kfc-parser.git
-	branch = kfc4_compatibility
 [submodule "nlohmann-json"]
-	path = modules/game-runtime/native/json
+	path = standalone/autorun/native/json
 	url = https://github.com/nlohmann/json.git
-[submodule "sdl3"]
-	path = modules/hotkeys/SDL
-	url = https://github.com/libsdl-org/SDL.git

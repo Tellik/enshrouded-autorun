@@ -137,14 +137,14 @@ ABI, disable Autorun and wait for a compatible build.
 
 ## Development and attribution
 
-The release ZIP is built from [`standalone/autorun/`](standalone/autorun/).
-The older fork-integrated proof of concept and input probe remain in this
-repository as [development evidence](docs/development/autorun.en.md); they
-are not part of the Autorun release. The
+The release ZIP is built from [`standalone/autorun/`](standalone/autorun/). The
 [Windows package workflow](.github/workflows/autorun-windows.yml) builds and
 checks the standalone ZIP and checksum.
 
-ShroudForge is by bonsaibauer and its contributors. This fork preserves its
-[MIT license](LICENSE) and [original README](README.shroudforge.md). The
-Autorun package includes the notices for its compiled dependencies. Game
-binaries, assets, saves, and local logs are not distributed here.
+The source branch contains the mod, its build tools, the pinned JSON submodule,
+and only the native hook helpers needed from ShroudForge. It does not require a
+checkout of the ShroudForge fork. Those helpers retain ShroudForge's
+[MIT license](LICENSE); the pinned JSON dependency has its own
+[license notice](standalone/autorun/LICENSE.nlohmann). ShroudForge itself is by
+bonsaibauer and its contributors. The Autorun release includes these notices.
+Game binaries, assets, saves, and local logs are not distributed here.

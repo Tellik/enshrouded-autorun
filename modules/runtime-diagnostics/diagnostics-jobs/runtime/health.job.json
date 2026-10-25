@@ -1,7 +1,0 @@
-{
-  "schemaVersion": 1,
-  "id": "runtime.health",
-  "name": "Runtime health",
-  "description": "Native runtime provider and world health snapshot.",
-  "capabilities": ["runtime"]
-}

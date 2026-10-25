@@ -1,8 +1,0 @@
-{
-  "id": "shroudforge.modloader-ui",
-  "name": "ShroudForge Modloader UI",
-  "version": "1.0.0",
-  "entrypoint": "shroudforge.exe",
-  "mode": "--module-ui",
-  "refreshMilliseconds": 1000
-}
