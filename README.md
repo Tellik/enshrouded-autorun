@@ -12,8 +12,15 @@ executable and stays inactive on a different build. Single-player and joining
 a dedicated server were tested on Linux with Proton Experimental, with Autorun
 installed only on the client. Another player was online during a dedicated-server
 test, although their view of the movement was not checked. The Windows DLL
-builds successfully, but native Windows gameplay has not been tested. Menus,
-travel, death, and disconnects also need further testing.
+builds successfully, but native Windows gameplay has not been tested. Menus
+and disconnects also need further testing.
+
+The published **v0.2.0 ZIP** can stop responding after travel or death until
+you leave and rejoin the world. The current source fixes this by revalidating
+a replacement input source. A test build passed fast-travel and death checks
+without rejoining in both single-player and a dedicated-server client on
+Proton; the log recorded two input replacements in each session. **The fix is
+not in the published ZIP yet.**
 
 ## Download
 
