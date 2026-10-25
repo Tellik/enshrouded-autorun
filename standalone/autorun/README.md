@@ -24,6 +24,10 @@ and `shroudforge-1.7.6-40026840919.zip` from the separate
    `native-plugin.ini`, and `bin/autorun.dll`. Do not put the ZIP itself in
    `mods`; the native DLL loader needs a directory.
 
+On upgrade, the ZIP's `extended.mod.json` restores the disabled, default-F8
+settings. Restore your settings from the backup or re-enable and rebind Autorun
+in ShroudForge after extraction, then restart the game.
+
 The stock ShroudForge ZIP enables several bundled mods. World Editor uses
 F8, Autorun's default key. Disable World Editor or change Autorun's key;
 for an isolated first test, disable all bundled mods.

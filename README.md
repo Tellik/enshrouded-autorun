@@ -39,6 +39,11 @@ The Autorun ZIP contains only the mod; ShroudForge is a separate download.
    `Enshrouded/mods/autorun/bin/autorun.dll`. Do not leave the ZIP itself in
    `mods` or add an extra `autorun` folder level.
 
+If upgrading from v0.2.0, save your `mods/autorun/extended.mod.json` settings
+before extracting the new ZIP. The packaged settings default to disabled with
+F8 as the toggle. Re-enable Autorun and restore your preferred hotkey after
+upgrading, then restart the game.
+
 ShroudForge's ZIP enables several bundled mods. World Editor also uses F8;
 disable it or choose a different Autorun key. For an isolated first test,
 disable all bundled mods. No server installation or save changes are needed.
