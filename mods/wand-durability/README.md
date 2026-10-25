@@ -1,8 +1,10 @@
 # Wand Durability — experimental 0.1.0
 
-Charge one durability per primary wand attack, regardless of built-in Multishot
-or skill-generated bonus projectiles. Projectile count, timing, chance, damage,
-and the world's durability setting remain controlled by the game.
+Apply the normal single-shot durability cost once per primary wand attack,
+regardless of built-in Multishot or skill-generated bonus projectiles. Normally
+this is one durability. Projectile count, timing, chance, damage, existing
+durability-saving effects, and the world's durability setting remain controlled
+by the game.
 
 This is an experimental native plugin for stock ShroudForge 1.7.6, ABI 12,
 and Enshrouded **client build 26082781 only**. It is disabled by default.
@@ -20,13 +22,15 @@ requires inspecting its own build and adding a separate verified hook profile.
    folder alongside Autorun. Keep the stock ShroudForge runtime installed.
 2. Enable Wand Durability in ShroudForge and restart the game to load the DLL.
 3. In single-player, record the Cryptic Wand's durability, fire one complete
-   attack, then check durability again. Each attack should cost exactly one,
-   whether it emits one, two, or more projectiles.
+   attack, then check durability again. Without a durability-saving effect,
+   each attack should cost exactly one whether it emits one, two, or more
+   projectiles.
 4. Repeat with the Multishot skill, several consecutive attacks, another wand,
    and a melee weapon or bow. Test a nearly broken wand, fast travel, death,
    and world leave/rejoin. Verify bonus projectiles still hit and deal damage.
-5. Inspect `wand-durability.log` in this mod folder. `wand_charges` should count
-   charged attacks, and `bonus_costs_skipped` should increase on extra events.
+5. Inspect `wand-durability.log` in this mod folder. `wand_charges` counts original
+   charge calls allowed through, and `bonus_costs_skipped` should increase on
+   extra events. The original helper can still waive a cost for a saving effect.
 
 Existing Proton launch settings for ShroudForge also load this mod. No additional
 key binding or external program is required. Disabling the mod restores normal
@@ -58,6 +62,12 @@ does not leave an executable jump into freed memory.
 Source-derived inspection and unit tests cannot establish live gameplay behavior.
 Native Windows gameplay, Proton gameplay, hosted co-op, and lifecycle cases must
 be tested before treating this as a release. Dedicated-server support is pending.
+
+Completed locally: original resource audit (58 wand items, nine primary attack
+sequences, no other weapon types sharing them), exact-image hook signature and
+call-target checks, per-attack policy tests, and instruction emulation of both
+hook branches. Emulation verifies Windows x64 callback stack alignment, shadow
+space, flags, general-purpose registers, and all sixteen XMM registers.
 
 ## Build
 
