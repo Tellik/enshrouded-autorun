@@ -46,5 +46,11 @@ client with the mod installed reported `session=0 world_kind=2`, so its local
 cost hook remained inactive. With that client's Cryptic Wand and built-in
 Multishot +1, the player observed one durability lost per Multishot attack.
 The server log recorded six projectile-cost calls, three allowed wand charges,
-three bonus costs skipped, and zero invalid states or other sequences. No
-other player, wand, skill-generated Multishot, or hosted co-op case was tested.
+three bonus costs skipped, and zero invalid states or other sequences at that
+point. A second player then used the same Cryptic Wand with its built-in
+Multishot +1 modifier from a client without the mod and also observed one
+durability lost per attack. The server's recognized wand counters rose to six
+allowed charges and six bonus costs skipped. During the broader session, 19
+callbacks failed identity validation and one had an unrecognized sequence;
+these retained the game's original cost operation. Other wands,
+skill-generated Multishot, and hosted co-op were not tested.

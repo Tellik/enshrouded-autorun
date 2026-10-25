@@ -14,12 +14,13 @@ stay inactive.
 The earlier 0.1.0 client's Cryptic Wand Multishot +1 test passed in
 single-player under Proton on 2026-10-25. Its log recorded six allowed wand
 charges and six extra costs skipped across 12 projectile-cost calls. Version
-0.2.0 was then tested with the same wand on a Wine dedicated server. A connected
-player observed one durability lost per Multishot attack; the server logged
-three allowed wand charges and three extra costs skipped across six
-projectile-cost calls. The client copy reported a remote world and stayed
-inactive. Other wands, the Multishot skill, hosted co-op, additional players,
-and lifecycle cases remain untested in live gameplay.
+0.2.0 was then tested with the same wand on a Wine dedicated server. Two
+connected players each observed one durability lost per built-in Multishot
+attack. One client had the mod and reported a remote world, so its local copy
+stayed inactive; the other client did not have the mod. The server's recognized
+wand counters rose to six allowed charges and six extra costs skipped. Other
+wands, the Multishot skill, hosted co-op, and lifecycle cases remain untested
+in live gameplay.
 The mod acts in whichever process owns the world. In a player-hosted world, that
 is the host's client; on a dedicated server, install it on the server. One
 server installation applies to every player in that world, whether or not
@@ -28,8 +29,9 @@ their client has the mod. A client copy stays inactive in a remote world.
 **A client-only install cannot fix a dedicated server's durability accounting.**
 Version 0.2.0 adds a separate, exact-build server hook profile. The official
 server executable was inspected offline, a local test server loaded the hook,
-and a connected player's Cryptic Wand test passed on a Pterodactyl-hosted Wine
-server. Broader dedicated-server gameplay still needs testing.
+and two connected players' Cryptic Wand tests passed on a Pterodactyl-hosted
+Wine server, including one player without the client mod. Broader
+dedicated-server gameplay still needs testing.
 
 ## Install and test
 
@@ -86,10 +88,9 @@ The DLL and tiny hook allocation remain loaded until process exit so disabling
 does not leave an executable jump into freed memory.
 
 Source-derived inspection and unit tests cannot establish live gameplay behavior.
-The 0.1.0 single-player Proton and 0.2.0 dedicated-server tests above are the
-live gameplay validation so far. Native Windows gameplay, hosted co-op,
-additional dedicated-server players, other wand/skill cases, and lifecycle
-cases remain unverified.
+The 0.1.0 single-player Proton and two-player 0.2.0 dedicated-server tests
+above are the live gameplay validation so far. Native Windows gameplay,
+hosted co-op, other wand/skill cases, and lifecycle cases remain unverified.
 
 Completed locally: original resource audit (58 wand items, nine primary attack
 sequences, no other weapon types sharing them), exact client and server image
