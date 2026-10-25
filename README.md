@@ -21,7 +21,7 @@ remains untested.
 
 Wand Durability uses the same stock ShroudForge 1.7.6 runtime and has separate
 exact-build profiles for client build `26082781` and dedicated-server build
-`26083076`. The same [0.2.0 test package](https://github.com/Tellik/enshrouded-mods/actions/runs/40233421427)
+`26083076`. The same [0.2.0 test package](https://github.com/Tellik/enshrouded-mods/actions/runs/40233826795)
 can be installed on a client or server. It automatically runs where the world
 is authoritative: in single-player, on a player host, or on a dedicated server.
 A server installation applies the correction to every player; a client copy
@@ -29,12 +29,14 @@ stays inactive while connected to a remote server. The Windows build, policy
 tests, and native hook emulation pass. The Cryptic Wand's
 built-in Multishot +1 was verified in single-player under Proton on 2026-10-25;
 the plugin log recorded six allowed wand charges and six extra costs skipped
-across 12 projectile-cost calls with 0.1.0. The 0.2.0 server hook loaded in a
-local test server and reached an authoritative world, but no player connected.
-Version 0.2.0 gameplay, other wand/skill cases, hosted co-op, dedicated-server
-attacks, and lifecycle behavior remain unverified. Test packages are disabled
-by default and are **not a verified release**. A release will wait for gameplay
-testing.
+across 12 projectile-cost calls with 0.1.0. The 0.2.0 package also passed a
+connected-player test on a Wine dedicated server: the player observed one
+durability lost per Cryptic Wand Multishot attack, while the server logged
+three allowed charges and three extra costs skipped across six projectile-cost
+calls. The client copy stayed inactive in the remote world. Other wands, the
+Multishot skill, hosted co-op, additional players, and lifecycle behavior
+remain unverified. Test packages are disabled by default and are **not a
+verified release**. A release will wait for broader gameplay testing.
 
 The `main` branch contains this landing page, the [MIT license](LICENSE), and
 the entry point for Autorun's manually triggered Windows package workflow.
