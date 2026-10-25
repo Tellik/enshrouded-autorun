@@ -8,9 +8,13 @@ by the game.
 
 This is an experimental native plugin for stock ShroudForge 1.7.6, ABI 12,
 and Enshrouded **client build 26082781 only**. It is disabled by default.
-Gameplay validation is pending. It supports an authoritative world running in
-the client executable: single-player and player-hosted co-op. In a hosted world
-the effect applies to all players' primary wand attacks.
+The Cryptic Wand's built-in Multishot +1 was verified in single-player under
+Proton on 2026-10-25. The plugin log recorded six allowed wand charges and six
+extra costs skipped across 12 projectile-cost calls. Other wands, the Multishot
+skill, hosted co-op, and lifecycle cases remain untested. The mod supports an
+authoritative world running in the client executable: single-player and
+player-hosted co-op. In a hosted world the effect applies to all players'
+primary wand attacks.
 
 **A client-only install cannot fix a dedicated server's durability accounting.**
 This first package does not support the dedicated-server executable. That
@@ -60,8 +64,9 @@ The DLL and tiny hook allocation remain loaded until process exit so disabling
 does not leave an executable jump into freed memory.
 
 Source-derived inspection and unit tests cannot establish live gameplay behavior.
-Native Windows gameplay, Proton gameplay, hosted co-op, and lifecycle cases must
-be tested before treating this as a release. Dedicated-server support is pending.
+The single-player Proton test above is the only live gameplay validation so far.
+Native Windows gameplay, hosted co-op, other wand/skill cases, and lifecycle
+cases remain unverified. Dedicated-server support is pending.
 
 Completed locally: original resource audit (58 wand items, nine primary attack
 sequences, no other weapon types sharing them), exact-image hook signature and
