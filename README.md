@@ -30,13 +30,13 @@ tests, and native hook emulation pass. The Cryptic Wand's
 built-in Multishot +1 was verified in single-player under Proton on 2026-10-25;
 the plugin log recorded six allowed wand charges and six extra costs skipped
 across 12 projectile-cost calls with 0.1.0. The 0.2.0 package also passed a
-connected-player test on a Wine dedicated server: the player observed one
-durability lost per Cryptic Wand Multishot attack, while the server logged
-three allowed charges and three extra costs skipped across six projectile-cost
-calls. The client copy stayed inactive in the remote world. Other wands, the
-Multishot skill, hosted co-op, additional players, and lifecycle behavior
-remain unverified. Test packages are disabled by default and are **not a
-verified release**. A release will wait for broader gameplay testing.
+two-player test on a Wine dedicated server: both players observed one
+durability lost per Cryptic Wand Multishot attack, including a player without
+the client mod. The server's recognized wand counters rose to six allowed
+charges and six extra costs skipped. The client copy stayed inactive in the
+remote world. Other wands, the Multishot skill, hosted co-op, and lifecycle
+behavior remain unverified. Test packages are disabled by default and are
+**not a verified release**. A release will wait for broader gameplay testing.
 
 The `main` branch contains this landing page, the [MIT license](LICENSE), and
 the entry point for Autorun's manually triggered Windows package workflow.
