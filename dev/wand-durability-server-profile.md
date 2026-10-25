@@ -36,3 +36,15 @@ test server with stock ShroudForge 1.7.6 on 2026-10-25. Its mod log reported
 startup and the authority gate, not the durability effect. The hook must still
 be tested with a connected player's Multishot wand before a release claim.
 Other server builds fail closed.
+
+## Connected-player test
+
+On 2026-10-25, the same 0.2.0 test package ran on a Pterodactyl-hosted Wine
+dedicated server with the exact server image above and stock ShroudForge 1.7.6.
+The server mod log reported `enabled=1 session=5 world_kind=1`. A connected
+client with the mod installed reported `session=0 world_kind=2`, so its local
+cost hook remained inactive. With that client's Cryptic Wand and built-in
+Multishot +1, the player observed one durability lost per Multishot attack.
+The server log recorded six projectile-cost calls, three allowed wand charges,
+three bonus costs skipped, and zero invalid states or other sequences. No
+other player, wand, skill-generated Multishot, or hosted co-op case was tested.
