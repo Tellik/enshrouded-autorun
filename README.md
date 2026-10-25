@@ -1,22 +1,16 @@
-# Enshrouded Mods
+# Wand Durability
 
-This is the landing page for Enshrouded mod projects. Choose a branch for that
-project's source and instructions. [Releases](https://github.com/Tellik/enshrouded-mods/releases)
-are shared across the repository; download the ZIP asset named for the mod,
-not GitHub's automatically generated source archive.
+Experimental ShroudForge mod that charges durability once per primary wand
+attack, including built-in Multishot and skill-generated bonus projectiles.
 
-| Branch | Project | Where to start |
-| --- | --- | --- |
-| [`autorun`](https://github.com/Tellik/enshrouded-mods/tree/autorun) | Client-side Autorun mod with configurable hotkey | [Installation guide](https://github.com/Tellik/enshrouded-mods/blob/autorun/README.md) · [v0.3.0 prerelease](https://github.com/Tellik/enshrouded-mods/releases/tag/v0.3.0) (`autorun-0.3.0.zip`) |
-| [`1.7.6`](https://github.com/Tellik/enshrouded-mods/tree/1.7.6) | Unmodified ShroudForge 1.7.6 source snapshot | [ShroudForge README](https://github.com/Tellik/enshrouded-mods/blob/1.7.6/README.md) |
+See the [installation and testing guide](mods/wand-durability/README.md).
+The source and build instructions are in this branch. Automated build artifacts
+are test packages, not a validated gameplay release.
 
-Autorun requires the **unmodified** [ShroudForge 1.7.6 dev release](https://github.com/bonsaibauer/shroudforge/releases/tag/v1.7.6-dev.40026840919),
-downloaded from the upstream release. The `1.7.6` branch is a source reference;
-it is not a separate runtime package. Autorun's current package supports
-Enshrouded Steam build `26082781`. The Autorun branch has separate Windows and
-Linux/Proton installation steps; gameplay has been tested on Linux/Proton in
-single-player and as a dedicated-server client. Native Windows gameplay
-remains untested.
+Currently targets Enshrouded client build 26082781 with stock ShroudForge 1.7.6.
+Single-player and player-hosted worlds need gameplay testing. Dedicated-server
+support needs a separate verified executable profile. A client-only install does
+not alter a dedicated server's durability accounting.
 
-The `main` branch contains this landing page, the [MIT license](LICENSE), and
-the entry point for Autorun's manually triggered Windows package workflow.
+Other projects are listed on the repository's
+[main branch](https://github.com/Tellik/enshrouded-mods).

@@ -1,0 +1,3 @@
+[submodule "nlohmann-json"]
+	path = mods/wand-durability/native/json
+	url = https://github.com/nlohmann/json.git

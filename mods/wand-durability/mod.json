@@ -1,0 +1,12 @@
+{
+  "$schema": "https://bonsaibauer.github.io/shroudforge/schemas/manifest.schema.json",
+  "id": "wand-durability",
+  "name": "Wand Durability",
+  "version": "0.1.0",
+  "description": "Experimental: charge durability once per wand attack, including built-in and skill bonus projectiles.",
+  "authors": ["Tellik"],
+  "license": "MIT",
+  "icon": null,
+  "dependencies": [],
+  "capabilities": []
+}
