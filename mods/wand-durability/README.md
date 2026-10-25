@@ -1,69 +1,137 @@
-# Wand Durability — experimental 0.2.0
+# Wand Durability v0.2.0
 
 Apply the normal single-shot durability cost once per primary wand attack,
-regardless of built-in Multishot or skill-generated bonus projectiles. Normally
-this is one durability. Projectile count, timing, chance, damage, existing
-durability-saving effects, and the world's durability setting remain controlled
-by the game.
+including attacks with built-in Multishot or skill-generated bonus projectiles.
+This is normally one durability per attack. The game still controls projectile
+count, damage, durability-saving effects, and the world's durability setting.
 
-This is an experimental native plugin for stock ShroudForge 1.7.6, ABI 12,
-Enshrouded **client build 26082781**, and **dedicated-server build 26083076**.
-It is disabled by default. Exact executable hashes are required; unknown builds
-stay inactive.
+This experimental native mod requires the **unmodified ShroudForge 1.7.6 dev
+build 40026840919**. It supports the exact Enshrouded **client build
+26082781** and **dedicated-server build 26083076**. The mod stays inactive if
+the executable or ShroudForge ABI does not match.
 
-The earlier 0.1.0 client's Cryptic Wand Multishot +1 test passed in
-single-player under Proton on 2026-10-25. Its log recorded six allowed wand
-charges and six extra costs skipped across 12 projectile-cost calls. Version
-0.2.0 was then tested with the same wand on a Wine dedicated server. Two
-connected players each observed one durability lost per built-in Multishot
-attack. One client had the mod and reported a remote world, so its local copy
-stayed inactive; the other client did not have the mod. The server's recognized
-wand counters rose to six allowed charges and six extra costs skipped. Other
-wands, the Multishot skill, hosted co-op, and lifecycle cases remain untested
-in live gameplay.
-The mod acts in whichever process owns the world. In a player-hosted world, that
-is the host's client; on a dedicated server, install it on the server. One
-server installation applies to every player in that world, whether or not
-their client has the mod. A client copy stays inactive in a remote world.
+## Download
 
-**A client-only install cannot fix a dedicated server's durability accounting.**
-Version 0.2.0 adds a separate, exact-build server hook profile. The official
-server executable was inspected offline, a local test server loaded the hook,
-and two connected players' Cryptic Wand tests passed on a Pterodactyl-hosted
-Wine server, including one player without the client mod. Broader
-dedicated-server gameplay still needs testing.
+- [Wand Durability v0.2.0 prerelease](https://github.com/Tellik/enshrouded-mods/releases/tag/wand-durability-v0.2.0): download `wand-durability-0.2.0.zip`. Its `.sha256` asset is a checksum.
+- [ShroudForge 1.7.6 dev release](https://github.com/bonsaibauer/shroudforge/releases/tag/v1.7.6-dev.40026840919): download `shroudforge-1.7.6-40026840919.zip` separately.
 
-## Install and test
+Use the ZIP assets, not GitHub's generated source archives. The Wand Durability
+ZIP contains one `wand-durability` folder and no game files or ShroudForge
+runtime. The packaged mod is **disabled by default**; enable it after copying.
 
-1. Stop the game or server. Extract the `wand-durability` folder into `mods`
-   beside the relevant executable. Keep the stock ShroudForge 1.7.6 runtime
-   installed there. For a dedicated server, back up the world before testing.
-2. Set `enabled` to `true` in this mod's `extended.mod.json` and restart the
-   process. The same ZIP targets client and server; each process selects its own
-   exact executable profile.
-3. In single-player, record the Cryptic Wand's durability, fire one complete
-   attack, then check durability again. Without a durability-saving effect,
-   each attack should cost exactly one whether it emits one, two, or more
-   projectiles.
-4. Repeat with the Multishot skill, several consecutive attacks, another wand,
-   and a melee weapon or bow. Test a nearly broken wand, fast travel, death,
-   and world leave/rejoin. Verify bonus projectiles still hit and deal damage.
-5. For player-hosted co-op, install on the host and compare the host's and a
-   guest's wand costs. For a dedicated server, install on the server, restart it,
-   and test from a connected client. A client-side copy alone cannot change the
-   server's costs.
-6. Inspect `wand-durability.log` in the mod folder on the authoritative machine.
-   Confirm the exact-build hook for the client or dedicated-server role, plus a
-   nonzero `session` with `world_kind=1`. `wand_charges` counts original charge
-   calls allowed through, and `bonus_costs_skipped` should increase on extra
-   events. The original helper can still waive a cost for a saving effect.
+## Which machine needs the mod?
 
-Existing client Proton launch settings for ShroudForge also load this mod. A
-separate Proton server must load ShroudForge in its own process; ShroudForge's
-server guide documents the required DLL overrides for Proton Docker. No extra
-key binding is required. Disabling the mod restores normal costs within one
-second. Restart after removing the folder to unload its hook. No permanent game
-executable patch or save editing is performed.
+| World | Install and enable on | Connecting players |
+| --- | --- | --- |
+| Single-player | Your local Enshrouded client | None |
+| Player-hosted co-op | The host's Enshrouded client | Guests do not need it; hosted co-op gameplay is not yet verified |
+| Dedicated server | The dedicated server | No client install needed; tested with and without the client mod |
+| A remote world without the mod on its host/server | Install on that host/server to gain the correction | A client-only copy stays inactive and cannot change remote durability |
+
+Use the **same ZIP** for client and server. If you play single-player and also
+join a dedicated server, you may leave it installed and enabled on your client:
+it works in your local world and automatically stays inactive in the remote
+world. If that server has the mod, its installation applies to every player.
+No per-player handshake or manual switching is required.
+
+## Install on a local client
+
+These steps apply to Windows and Linux/Proton. They are required for
+single-player, or for the player **hosting** a co-op world. Guests joining that
+world do not need to install the mod.
+
+1. Close Enshrouded. Open its game folder, the one containing
+   `enshrouded.exe`. In Steam, use **Manage → Browse local files**.
+2. If ShroudForge is not installed, extract the **entire ShroudForge ZIP** into
+   this folder. Its `dbghelp.dll`, `dinput8.dll`, `winmm.dll`, `shroudforge`,
+   and `mods` entries must sit beside `enshrouded.exe`. ShroudForge's ZIP also
+   includes other gameplay mods; disable any you do not intend to use.
+3. Extract the Wand Durability ZIP **inside** `mods`. Confirm the resulting
+   files include `mods/wand-durability/mod.json` and
+   `mods/wand-durability/bin/wand-durability.dll`. Do not leave the ZIP in
+   `mods` or add another folder level.
+4. In `mods/wand-durability/extended.mod.json`, change `"enabled": false` to
+   `"enabled": true`, then start the game. If replacing an earlier test
+   package, save your enabled setting first; extracting this ZIP resets it to
+   `false`.
+
+On **Linux/Proton**, set these Steam launch options so Wine loads ShroudForge's
+local DLLs:
+
+```text
+WINEDLLOVERRIDES="dbghelp=n,b;winmm=n,b" %command%
+```
+
+If the ShroudForge Modloader window needs WebView2 and does not open, you can
+use the file setting above without the UI. While the game is closed, set
+`modules.modloaderUi.enabled` and `modules.debugConsole.enabled` to `false`
+in `shroudforge/config/modloader-config.json`. This leaves the native mod
+loaded. On Windows, the ShroudForge UI can also enable the mod, but restart the
+game afterward so its native DLL loads.
+
+## Install on a dedicated server
+
+Install on the **server machine**, in the folder containing
+`enshrouded_server.exe`. Installing only on a connecting client cannot change
+that server's durability costs. Players joining a modded server do not need
+ShroudForge or Wand Durability on their own clients.
+
+1. Stop the server using its normal control panel or service manager, and back
+   up the world. Keep it stopped while copying files.
+2. If ShroudForge is not installed, extract the **entire ShroudForge ZIP**
+   beside `enshrouded_server.exe`. Disable the bundled gameplay mods you do
+   not intend to run; some are enabled in the stock ZIP.
+3. Extract the Wand Durability ZIP into the server's `mods` folder, yielding
+   `mods/wand-durability/bin/wand-durability.dll`. Set `"enabled": true` in
+   `mods/wand-durability/extended.mod.json`.
+4. On a **Wine/Proton server**, set the DLL override for the game process.
+   For a launch script that runs Wine directly, the game launch can be:
+
+   ```text
+   WINEDLLOVERRIDES="dbghelp=native,builtin;winmm=native,builtin" wine ./enshrouded_server.exe
+   ```
+
+   Add the setting to your existing Pterodactyl/Docker launch configuration
+   if it starts Wine another way. A native Windows server does not need this
+   override.
+5. Start the server using its normal control panel. No client installation is
+   needed for the server-wide correction.
+
+## Check operation and update
+
+In `mods/wand-durability/wand-durability.log` on the machine that owns the
+world, look for `Exact-build client durability hook installed` or
+`Exact-build dedicated-server durability hook installed`, followed by a
+nonzero `session` and `world_kind=1`. A client connected to a remote world
+instead reports `session=0 world_kind=2`; its copy makes no durability changes.
+`wand_charges` counts allowed wand charge calls and `bonus_costs_skipped`
+counts extra calls suppressed. The original game may still waive a charge for
+a durability-saving effect.
+
+Without a saving effect, a Cryptic Wand attack should cost one durability
+whether or not Multishot adds a projectile. Bonus projectiles should still
+hit and deal damage. Other weapons retain the game's normal behavior. If the
+log says the image or ABI is unsupported, check the game and ShroudForge
+versions; the mod deliberately leaves costs unchanged on unknown builds.
+
+To disable the correction, set `"enabled": false` in the mod's
+`extended.mod.json`; it stops applying within one second. To remove the mod,
+stop the game or server first and remove `mods/wand-durability`. No permanent
+game executable patch or save edit is made.
+
+## Tested behavior and remaining limits
+
+The 0.1.0 client passed a single-player Proton test with the Cryptic Wand's
+built-in Multishot +1. Version 0.2.0 passed on a Pterodactyl-hosted Wine
+dedicated server: two connected players each observed one durability lost per
+Cryptic Wand Multishot attack, including a player without the client mod.
+The server's recognized wand counters reached six allowed charges and six
+extra costs skipped. The first player's installed client copy reported a
+remote world and stayed inactive.
+
+Native Windows gameplay, player-hosted co-op, other wands, skill-generated
+Multishot, and travel/death or world-rejoin cases remain unverified. This is
+why v0.2.0 is marked as a prerelease.
 
 ## Implementation and limits
 
