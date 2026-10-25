@@ -1,2 +1,0 @@
-r=0x9b2880
-for x in c.disasm(p.read(r,0x100),r): print(hex(x.address),x.mnemonic,x.op_str)

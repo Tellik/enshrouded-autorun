@@ -1,6 +1,0 @@
-{
-  "id": "shroudforge.runtime-diagnostics",
-  "name": "ShroudForge Runtime Diagnostics",
-  "version": "1.0.0",
-  "description": "Selectable, time-limited runtime diagnostic jobs with shared logging."
-}

@@ -1,9 +1,0 @@
-{
-  "id": "shroudforge.debug-console",
-  "name": "ShroudForge Debug Console",
-  "version": "1.0.0",
-  "entrypoint": "shroudforge.exe",
-  "mode": "--debug-console",
-  "refreshMilliseconds": 500,
-  "tailBytes": 1048576
-}

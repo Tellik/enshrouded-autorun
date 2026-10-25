@@ -1,7 +1,0 @@
-{
-  "id": "source-github",
-  "labelKey": "mod.link.badge.sourceGithub",
-  "descriptionKey": "mod.link.badge.sourceGithub.description",
-  "icon": "github",
-  "appearance": "github"
-}

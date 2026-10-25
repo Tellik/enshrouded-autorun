@@ -1,61 +1,19 @@
-# Build output
+# Generated files and local test data
 /build/
-x64/
-target/
-node_modules/
-coverage/
-artifacts/
-release/
-out/
-__pycache__/
-*.pyc
-*.obj
-*.pdb
-*.ilk
-*.exp
-*.lib
+/out/
+/release/
+/local-test/
+/proton-prefix/
+*.log
+*.zip
+*.tar.gz
 *.tmp
 *.bak
 *.dmp
-*.exe.WebView2/
-*.profraw
-*.profdata
-
-# Visual Studio
-.vs/
-.vscode/
-*.user
-*.suo
-*.VC.db
-*.VC.VC.opendb
-*.code-workspace
-
-# Runtime output
-*.log
-/shroudforge/
-mods/**/.mod-json.lock
-
-# Local environment and operating system files
+__pycache__/
+*.pyc
 .env
 .env.*
-!.env.example
 .DS_Store
 Thumbs.db
-Desktop.ini
-
-# Local runtime investigation captures
-/dev/profiles/captures/
-
-# Legacy UI outputs. Current generators write to /build/ui/.
-/modules/modloader/ui/dist/
-/modules/modloader/ui/generated-flags.ts
-
-# Local autorun test inputs, game installation, and Proton output
-/*.zip
-/*.tar.gz
-/local-test/
-/proton-prefix/
-enshrouded*.exe
-enshrouded*.dat
-enshrouded*.kfc
-enshrouded*.kfc_resources
+.vscode/

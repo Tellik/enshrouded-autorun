@@ -1,5 +1,0 @@
-<Project>
-  <PropertyGroup>
-    <IntDir>$(MSBuildThisFileDirectory)build\obj\$(Configuration)\$(MSBuildProjectName)\</IntDir>
-  </PropertyGroup>
-</Project>

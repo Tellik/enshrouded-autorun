@@ -1,26 +1,20 @@
 # Enshrouded Mods
 
-This repository collects Enshrouded mods. The `main` branch is an index; each
-mod has its own branch, folder, source, and installation guide. GitHub Releases
-are shared across the repository, so choose the asset named for the mod and
-follow the guide on that mod's branch.
+This is the landing page for Enshrouded mod projects. Choose a branch for that
+project's source and instructions. [Releases](https://github.com/Tellik/enshrouded-mods/releases)
+are shared across the repository; download the ZIP asset named for the mod,
+not GitHub's automatically generated source archive.
 
-| Mod | Source and instructions | Latest package | Status |
-| --- | --- | --- | --- |
-| Autorun | [`autorun` branch](https://github.com/Tellik/enshrouded-mods/tree/autorun) · [`standalone/autorun/` folder](https://github.com/Tellik/enshrouded-mods/tree/autorun/standalone/autorun) | [v0.3.0 prerelease](https://github.com/Tellik/enshrouded-mods/releases/tag/v0.3.0) (`autorun-0.3.0.zip`) | Tested in single-player and as a dedicated-server client on Linux/Proton; native Windows gameplay remains untested. |
+| Branch | Project | Where to start |
+| --- | --- | --- |
+| [`autorun`](https://github.com/Tellik/enshrouded-mods/tree/autorun) | Client-side Autorun mod with configurable hotkey | [Installation guide](https://github.com/Tellik/enshrouded-mods/blob/autorun/README.md) · [v0.3.0 prerelease](https://github.com/Tellik/enshrouded-mods/releases/tag/v0.3.0) (`autorun-0.3.0.zip`) |
+| [`1.7.5`](https://github.com/Tellik/enshrouded-mods/tree/1.7.5) | ShroudForge 1.7.5 development fork | [Fork README](https://github.com/Tellik/enshrouded-mods/blob/1.7.5/README.md) |
 
-Autorun toggles normal forward movement with a configurable hotkey. It is a
-client-side mod loaded by **unmodified ShroudForge 1.7.6**. Download ShroudForge
-separately from its [1.7.6 dev release](https://github.com/bonsaibauer/shroudforge/releases/tag/v1.7.6-dev.40026840919),
-then follow the [Autorun installation guide](https://github.com/Tellik/enshrouded-mods/blob/autorun/README.md)
-for Windows or Linux/Proton. The current Autorun package supports Enshrouded
-Steam build `26082781` and stays inactive on other game builds.
+Autorun requires the **unmodified** [ShroudForge 1.7.6 dev release](https://github.com/bonsaibauer/shroudforge/releases/tag/v1.7.6-dev.40026840919),
+not the `1.7.5` development fork. Its current package supports Enshrouded Steam
+build `26082781`. The Autorun branch has separate Windows and Linux/Proton
+installation steps; gameplay has been tested on Linux/Proton in single-player
+and as a dedicated-server client. Native Windows gameplay remains untested.
 
-For a release, download the named ZIP asset rather than GitHub's automatically
-generated source archive. Existing release tags and assets remain available
-from this repository's [Releases page](https://github.com/Tellik/enshrouded-mods/releases).
-
-This repository is a fork of ShroudForge, and its supporting source remains on
-`main`. The released Autorun package, its earlier development files, and its
-detailed documentation live on the `autorun` branch. The MIT license is in
-[LICENSE](LICENSE).
+The `main` branch contains this landing page, the [MIT license](LICENSE), and
+the entry point for Autorun's manually triggered Windows package workflow.
