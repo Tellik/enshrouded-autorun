@@ -15,16 +15,15 @@ test, although their view of the movement was not checked. The Windows DLL
 builds successfully, but native Windows gameplay has not been tested. Menus
 and disconnects also need further testing.
 
-The published **v0.2.0 ZIP** can stop responding after travel or death until
-you leave and rejoin the world. The current source fixes this by revalidating
-a replacement input source. A test build passed fast-travel and death checks
-without rejoining in both single-player and a dedicated-server client on
-Proton; the log recorded two input replacements in each session. **The fix is
-not in the published ZIP yet.**
+Version 0.3.0 revalidates a replacement input source after travel or death.
+The same plugin code passed fast-travel and death checks without rejoining in
+both single-player and a dedicated-server client on Proton; the log recorded
+two input replacements in each session. This fixes the world-rejoin problem
+present in v0.2.0.
 
 ## Download
 
-- [Autorun v0.2.0 release](https://github.com/Tellik/enshrouded-autorun/releases/tag/v0.2.0): download **`autorun-0.2.0.zip`**.
+- [Autorun v0.3.0 prerelease](https://github.com/Tellik/enshrouded-autorun/releases/tag/v0.3.0): download **`autorun-0.3.0.zip`**.
 - [ShroudForge 1.7.6 dev release](https://github.com/bonsaibauer/shroudforge/releases/tag/v1.7.6-dev.40026840919): download **[the ShroudForge ZIP](https://github.com/bonsaibauer/shroudforge/releases/download/v1.7.6-dev.40026840919/shroudforge-1.7.6-40026840919.zip)**.
 
 Use the ZIP assets, not GitHub's automatically generated source archives.
