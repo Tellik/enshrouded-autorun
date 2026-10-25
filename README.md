@@ -1,5 +1,7 @@
 # Enshrouded Autorun
 
+This is the `autorun` branch of [Enshrouded Mods](https://github.com/Tellik/enshrouded-mods). The default branch lists the available mods.
+
 Autorun is a standalone, client-side mod for Enshrouded. Press **F8** to move
 forward at the game's normal speed, press **F8** again to stop, or press your
 backward key (**S** by default) to cancel. The toggle key is configurable.
@@ -23,7 +25,7 @@ present in v0.2.0.
 
 ## Download
 
-- [Autorun v0.3.0 prerelease](https://github.com/Tellik/enshrouded-autorun/releases/tag/v0.3.0): download **`autorun-0.3.0.zip`**.
+- [Autorun v0.3.0 prerelease](https://github.com/Tellik/enshrouded-mods/releases/tag/v0.3.0): download **`autorun-0.3.0.zip`**.
 - [ShroudForge 1.7.6 dev release](https://github.com/bonsaibauer/shroudforge/releases/tag/v1.7.6-dev.40026840919): download **[the ShroudForge ZIP](https://github.com/bonsaibauer/shroudforge/releases/download/v1.7.6-dev.40026840919/shroudforge-1.7.6-40026840919.zip)**.
 
 Use the ZIP assets, not GitHub's automatically generated source archives.

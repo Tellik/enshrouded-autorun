@@ -148,7 +148,7 @@ The next source stage added a 500 ms renewed native request, a one-second hook
 and local-input activity limit, exact-build and world/focus guards, native
 backward cancellation, and the `mods/autorun/` F8 toggle. The mod is disabled
 by default. The Windows build and repository tests passed in
-[run 40114984834](https://github.com/Tellik/enshrouded-autorun/actions/runs/40114984834).
+[run 40114984834](https://github.com/Tellik/enshrouded-mods/actions/runs/40114984834).
 The first single-player Proton test visibly moved the character at about the
 normal W speed after F8. A second F8 stopped it, and S canceled a later run;
 the game stayed stable. The native log counted 74 of 74 local hook writes
@@ -166,7 +166,7 @@ release as `(0, 0)`. The current implementation matches that observed input
 address against the component addresses of all ECS candidates and fails closed
 if the producer changes input addresses, the session changes, or the ECS match
 is missing or ambiguous. The Windows native ECS check and upstream tests passed
-in [run 40119687161](https://github.com/Tellik/enshrouded-autorun/actions/runs/40119687161).
+in [run 40119687161](https://github.com/Tellik/enshrouded-mods/actions/runs/40119687161).
 With only the client mod installed, the next dedicated-server Proton test moved
 the character forward after F8 and stayed stable. The first activation recorded
 115 local hook matches and 114 writes before S canceled it. The second recorded
@@ -187,7 +187,7 @@ defaults. It also accepts supported alternate keys and fails closed on invalid
 settings or an unsupported game image. The ZIP contains no replacement
 ShroudForge runtime DLLs.
 
-[Windows build 40122879851](https://github.com/Tellik/enshrouded-autorun/actions/runs/40122879851)
+[Windows build 40122879851](https://github.com/Tellik/enshrouded-mods/actions/runs/40122879851)
 compiled and packaged the independent plugin. The ZIP layout and checksum
 passed verification. Its DLL imports only Windows system libraries and no
 dynamic MSVC C++ runtime. In the local install test, both installed ShroudForge
@@ -229,6 +229,6 @@ KFC data files, and both stock ShroudForge runtime DLLs retained their original
 hashes. The standalone installation guide now includes the Proton pre-launch
 settings and the F8 conflict with World Editor found during this check.
 The corrected standalone ZIP and checksum passed packaging in
-[Windows build 40124296476](https://github.com/Tellik/enshrouded-autorun/actions/runs/40124296476).
+[Windows build 40124296476](https://github.com/Tellik/enshrouded-mods/actions/runs/40124296476).
 Its compiled plugin differed from the gameplay-tested DLL only in PE
 timestamps; the code bytes matched.

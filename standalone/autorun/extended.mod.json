@@ -5,7 +5,7 @@
   "targets": ["client"],
   "launcher": "SF",
   "links": {
-    "source-github": "https://github.com/Tellik/enshrouded-autorun"
+    "source-github": "https://github.com/Tellik/enshrouded-mods/tree/autorun/standalone/autorun"
   },
   "settings": {
     "toggleAutorun": {
