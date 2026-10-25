@@ -17,12 +17,15 @@ charges and six extra costs skipped across 12 projectile-cost calls. Version
 0.2.0, other wands, the Multishot skill, hosted co-op, dedicated-server play,
 and lifecycle cases remain untested in live gameplay.
 The mod acts in whichever process owns the world. In a player-hosted world, that
-is the host's client; on a dedicated server, install it on the server. The
-client copy stays inactive while connected to a remote world.
+is the host's client; on a dedicated server, install it on the server. One
+server installation applies to every player in that world, whether or not
+their client has the mod. A client copy stays inactive in a remote world.
 
 **A client-only install cannot fix a dedicated server's durability accounting.**
 Version 0.2.0 adds a separate, exact-build server hook profile. The official
-server executable was inspected offline, but its live effect still needs testing.
+server executable was inspected offline, and a local test server loaded the
+hook and reached an authoritative world. A connected player's durability
+effect still needs testing.
 
 ## Install and test
 

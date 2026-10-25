@@ -29,7 +29,10 @@ client reports a read-only world as `2` and does not suppress costs. The
 `extended.mod.json` target list includes client and server, but both are
 disabled by default in the distributable package.
 
-These static checks do not establish live multiplayer behavior. A matching
-server must load stock ShroudForge, report the exact-build server hook in its
-mod log, and then be tested with a connected player's Multishot wand before a
-release claim. Other server builds fail closed.
+The verified 0.2.0 Windows package was loaded into a local, localhost-bound
+test server with stock ShroudForge 1.7.6 on 2026-10-25. Its mod log reported
+`Exact-build dedicated-server durability hook installed` and then
+`enabled=1 session=5 world_kind=1`. No player connected, so this validates
+startup and the authority gate, not the durability effect. The hook must still
+be tested with a connected player's Multishot wand before a release claim.
+Other server builds fail closed.

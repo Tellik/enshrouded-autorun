@@ -14,9 +14,10 @@ Proton on 2026-10-25; its log recorded six allowed wand charges and six extra
 costs skipped across 12 projectile-cost calls. Version 0.2.0 and other wands,
 the Multishot skill, player-hosted co-op, dedicated-server play, and lifecycle
 cases still need gameplay testing. Install the mod on the authoritative host or
-dedicated server for multiplayer; a client-only install cannot alter a dedicated
-server's durability accounting. The server profile is binary-inspected but not yet tested
-in a live server session.
+dedicated server for multiplayer; its correction then applies to every player
+in that world. A client-only install cannot alter a dedicated server's costs.
+The server hook loaded in a local test server and reached an authoritative
+world, but no connected-player attack has been tested yet.
 
 Other projects are listed on the repository's
 [main branch](https://github.com/Tellik/enshrouded-mods).
