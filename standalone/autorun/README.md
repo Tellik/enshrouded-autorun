@@ -1,4 +1,4 @@
-# Enshrouded Autorun (standalone test build)
+# Enshrouded Autorun (standalone prerelease)
 
 This is a separate, client-only ShroudForge mod. It does not replace
 `kfc-runtime.dll`, `shroudforge-runtime.dll`, or any other ShroudForge file.
@@ -8,8 +8,8 @@ ShroudForge 1.7.6 loads the mod's own `bin/autorun.dll` through
 not match. Single-player and dedicated-server Proton tests on stock
 ShroudForge 1.7.6 passed with F7 as a custom hotkey.
 
-Download the `autorun-0.2.0.zip` asset from the
-[Autorun release](https://github.com/Tellik/enshrouded-autorun/releases/tag/v0.2.0)
+Download the `autorun-0.3.0.zip` asset from the
+[Autorun v0.3.0 prerelease](https://github.com/Tellik/enshrouded-autorun/releases/tag/v0.3.0)
 and `shroudforge-1.7.6-40026840919.zip` from the separate
 [ShroudForge 1.7.6 dev release](https://github.com/bonsaibauer/shroudforge/releases/tag/v1.7.6-dev.40026840919).
 
@@ -23,6 +23,10 @@ and `shroudforge-1.7.6-40026840919.zip` from the separate
    must be `Enshrouded/mods/autorun/mod.json`, `extended.mod.json`,
    `native-plugin.ini`, and `bin/autorun.dll`. Do not put the ZIP itself in
    `mods`; the native DLL loader needs a directory.
+
+On upgrade, the ZIP's `extended.mod.json` restores the disabled, default-F8
+settings. Restore your settings from the backup or re-enable and rebind Autorun
+in ShroudForge after extraction, then restart the game.
 
 The stock ShroudForge ZIP enables several bundled mods. World Editor uses
 F8, Autorun's default key. Disable World Editor or change Autorun's key;
@@ -112,11 +116,10 @@ dedicated checks. Another player was online during a dedicated-server test,
 but their view of the movement was not checked. The plugin does
 not force sprint or the game's slower Walk action.
 
-The current source revalidates a replacement input source after travel or
-death. A development build passed fast-travel and death checks without a world
-rejoin in both single-player and a dedicated-server client on Proton; the log
-recorded two input replacements in each session. The published v0.2.0 ZIP
-predates this fix and can still require a world rejoin after travel or death.
+Version 0.3.0 revalidates a replacement input source after travel or death.
+The same plugin code passed fast-travel and death checks without a world rejoin
+in both single-player and a dedicated-server client on Proton; the log recorded
+two input replacements in each session. The v0.2.0 ZIP predates this fix.
 
 For a first check, tap F8 and release all movement keys: the character should
 continue forward. Tap F8 again to stop. Tap F8 once more and press S to
@@ -139,7 +142,7 @@ applying Wine's `windowmanagerdecorated=n` setting. Native Windows gameplay
 remains untested.
 
 A separate clean-install check removed the previous ShroudForge and mod files,
-then extracted the stock ShroudForge 1.7.6 ZIP and this Autorun ZIP into the
+then extracted the stock ShroudForge 1.7.6 ZIP and v0.2.0 Autorun ZIP into the
 paths above. After the Linux/Proton and bundled-mod settings above, the game
 opened without a WebView2 error. The packaged default F8 binding moved
 forward, F8 stopped it, and S canceled it in both single-player and a

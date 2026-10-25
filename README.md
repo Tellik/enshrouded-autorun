@@ -15,16 +15,15 @@ test, although their view of the movement was not checked. The Windows DLL
 builds successfully, but native Windows gameplay has not been tested. Menus
 and disconnects also need further testing.
 
-The published **v0.2.0 ZIP** can stop responding after travel or death until
-you leave and rejoin the world. The current source fixes this by revalidating
-a replacement input source. A test build passed fast-travel and death checks
-without rejoining in both single-player and a dedicated-server client on
-Proton; the log recorded two input replacements in each session. **The fix is
-not in the published ZIP yet.**
+Version 0.3.0 revalidates a replacement input source after travel or death.
+The same plugin code passed fast-travel and death checks without rejoining in
+both single-player and a dedicated-server client on Proton; the log recorded
+two input replacements in each session. This fixes the world-rejoin problem
+present in v0.2.0.
 
 ## Download
 
-- [Autorun v0.2.0 release](https://github.com/Tellik/enshrouded-autorun/releases/tag/v0.2.0): download **`autorun-0.2.0.zip`**.
+- [Autorun v0.3.0 prerelease](https://github.com/Tellik/enshrouded-autorun/releases/tag/v0.3.0): download **`autorun-0.3.0.zip`**.
 - [ShroudForge 1.7.6 dev release](https://github.com/bonsaibauer/shroudforge/releases/tag/v1.7.6-dev.40026840919): download **[the ShroudForge ZIP](https://github.com/bonsaibauer/shroudforge/releases/download/v1.7.6-dev.40026840919/shroudforge-1.7.6-40026840919.zip)**.
 
 Use the ZIP assets, not GitHub's automatically generated source archives.
@@ -39,6 +38,11 @@ The Autorun ZIP contains only the mod; ShroudForge is a separate download.
    is `Enshrouded/mods/autorun/mod.json` and
    `Enshrouded/mods/autorun/bin/autorun.dll`. Do not leave the ZIP itself in
    `mods` or add an extra `autorun` folder level.
+
+If upgrading from v0.2.0, save your `mods/autorun/extended.mod.json` settings
+before extracting the new ZIP. The packaged settings default to disabled with
+F8 as the toggle. Re-enable Autorun and restore your preferred hotkey after
+upgrading, then restart the game.
 
 ShroudForge's ZIP enables several bundled mods. World Editor also uses F8;
 disable it or choose a different Autorun key. For an isolated first test,
