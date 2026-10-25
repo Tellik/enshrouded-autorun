@@ -33,6 +33,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Autorun plugin configuration failed.' }
           & $runtimeCmake --build .\build\autorun-plugin --config Release --target enshrouded-autorun
           if ($LASTEXITCODE -ne 0) { throw 'Autorun plugin build failed.' }
+          & $runtimeCmake --build .\build\autorun-plugin --config Release --target input-observation-test
+          if ($LASTEXITCODE -ne 0) { throw 'Input observation test build failed.' }
+          & $runtimeCmake --build .\build\autorun-plugin --config Release --target RUN_TESTS
+          if ($LASTEXITCODE -ne 0) { throw 'Input observation tests failed.' }
           $plugin = Get-ChildItem .\build\autorun-plugin -Recurse -Filter autorun.dll | Select-Object -First 1
           if (-not $plugin) { throw 'Autorun plugin DLL is missing.' }
           $manifest = Get-Content .\standalone\autorun\mod.json -Raw | ConvertFrom-Json

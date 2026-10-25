@@ -2,6 +2,7 @@
 #include "engine-hooks/encode_relative_jump.h"
 #include "engine-hooks/scan_executable_signature.h"
 #include "engine-hooks/write_executable_bytes.h"
+#include "input_observation.h"
 #include <nlohmann/json.hpp>
 #include <windows.h>
 #include <bcrypt.h>
@@ -32,8 +33,6 @@ constexpr auto Signature = "0F B6 C8 84 C0 74 5A 83 F9 01 74 20";
 constexpr auto ImageSha256 = "d64966e23b1a458ee6f147bcbceac0b577fa7e39a212f371287d8cc119817882";
 constexpr std::uint32_t ImageTimestamp = 1792507660u;
 constexpr std::uint32_t ImageSize = 44163072u;
-constexpr std::uint64_t InputAgeMs = 1000, MinimumObservationMs = 500;
-constexpr std::uint64_t MinimumObservationHits = 30;
 constexpr std::uint64_t WorkerDeadlineMs = 250;
 
 using SessionIdFn = std::uint64_t (__cdecl*)();
@@ -66,13 +65,8 @@ void stop(StopReason reason) {
         stop_reason.store(reason, std::memory_order_release);
 }
 
-struct Observation {
-    std::uint64_t session{}, first_ms{}, last_ms{}, hits{};
-    const void* input{};
-    bool conflicting{};
-};
 std::mutex observation_mutex;
-Observation observation;
+AutorunInput::Observation observation;
 
 bool foreground_game() {
     const auto window = GetForegroundWindow();
@@ -86,28 +80,32 @@ void observe_input(const void* input, std::uint64_t session, std::uint64_t now) 
     if (!input || !session) return;
     std::unique_lock lock(observation_mutex, std::try_to_lock);
     if (!lock.owns_lock()) return;
-    if (observation.session != session) observation = {};
-    observation.session = session;
-    if (!observation.input) {
-        observation.input = input;
-        observation.first_ms = now;
-    } else if (observation.input != input) {
-        observation.conflicting = true;
-        stop(InputChanged);
-    }
-    if (observation.input == input) {
-        ++observation.hits;
-        observation.last_ms = now;
-    }
+    const bool changed = observation.observe(input, session, now);
+    lock.unlock();
+    if (changed) stop(InputChanged);
 }
 
-const void* stable_input(std::uint64_t session, std::uint64_t now) {
+AutorunInput::Snapshot input_snapshot(std::uint64_t session, std::uint64_t now) {
     std::unique_lock lock(observation_mutex, std::try_to_lock);
-    if (!lock.owns_lock() || observation.session != session || !observation.input ||
-        observation.conflicting || observation.hits < MinimumObservationHits ||
-        now < observation.first_ms || now - observation.first_ms < MinimumObservationMs ||
-        now < observation.last_ms || now - observation.last_ms > InputAgeMs) return nullptr;
-    return observation.input;
+    if (!lock.owns_lock()) return {AutorunInput::Readiness::Busy};
+    return observation.snapshot(session, now);
+}
+
+std::string input_status(const AutorunInput::Snapshot& snapshot) {
+    using AutorunInput::Readiness;
+    switch (snapshot.readiness) {
+    case Readiness::Ready: return "ready";
+    case Readiness::Missing: return "no input callback observed";
+    case Readiness::DifferentSession: return "waiting for current world input";
+    case Readiness::Stale: return "input callback stale, idle_ms=" + std::to_string(snapshot.idle_ms);
+    case Readiness::Warming: return "input warming, hits=" + std::to_string(snapshot.hits) +
+            " age_ms=" + std::to_string(snapshot.age_ms);
+    case Readiness::Revalidating: return "input revalidating after replacement, hits=" +
+            std::to_string(snapshot.hits) + " age_ms=" + std::to_string(snapshot.age_ms) +
+            " replacements=" + std::to_string(snapshot.replacements);
+    case Readiness::Busy: return "input observation busy";
+    }
+    return "unknown input state";
 }
 
 bool read_axes(void* input, float& x, float& y) {
@@ -151,7 +149,7 @@ void __cdecl on_movement_input(void* input) {
     }
     if (!foreground_game()) { stop(Focus); return; }
     if (now > deadline_ms.load(std::memory_order_acquire)) { stop(Expired); return; }
-    if (stable_input(session, now) != input) return;
+    if (input_snapshot(session, now).stable_input != input) return;
     local_hits.fetch_add(1, std::memory_order_relaxed);
     float x{}, y{};
     if (!read_axes(input, x, y)) { stop(InputChanged); return; }
@@ -449,16 +447,19 @@ DWORD WINAPI worker(void*) {
         }
         const bool foreground = foreground_game();
         if (!foreground || !current || !context()) stop(foreground ? Session : Focus);
-        if (active.load(std::memory_order_acquire) &&
-            (now > last_hook_ms.load(std::memory_order_acquire) + InputAgeMs ||
-             stable_input(current, now) == nullptr)) stop(Expired);
+        if (active.load(std::memory_order_acquire)) {
+            const auto snapshot = input_snapshot(current, now);
+            if (now > last_hook_ms.load(std::memory_order_acquire) + AutorunInput::MaximumAgeMs ||
+                (snapshot.readiness != AutorunInput::Readiness::Busy &&
+                 snapshot.readiness != AutorunInput::Readiness::Ready)) stop(Expired);
+        }
         if (settings && settings->enabled && foreground && current && context()) {
             const bool cancel = binding_down(settings->cancel);
             const bool toggle = binding_down(settings->toggle);
             if (cancel) stop(Backward);
             else if (toggle && !previous_toggle) {
                 if (active.load(std::memory_order_acquire)) stop(Toggle);
-                else if (stable_input(current, now)) {
+                else if (const auto snapshot = input_snapshot(current, now); snapshot.stable_input) {
                     hook_hits.store(0, std::memory_order_relaxed);
                     local_hits.store(0, std::memory_order_relaxed);
                     writes.store(0, std::memory_order_relaxed);
@@ -467,8 +468,8 @@ DWORD WINAPI worker(void*) {
                     deadline_ms.store(now + WorkerDeadlineMs, std::memory_order_release);
                     active.store(true, std::memory_order_release);
                     reports = 0;
-                    log(root, "ON");
-                } else log(root, "Cannot start: stable local input not observed");
+                    log(root, "ON input_replacements=" + std::to_string(snapshot.replacements));
+                } else log(root, "Cannot start: " + input_status(snapshot));
             }
             previous_toggle = toggle;
             previous_cancel = cancel;

@@ -20,3 +20,8 @@ target_link_libraries(enshrouded-autorun PRIVATE bcrypt)
 set_property(TARGET enshrouded-autorun PROPERTY
     MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 set_target_properties(enshrouded-autorun PROPERTIES OUTPUT_NAME "autorun" PREFIX "")
+
+enable_testing()
+add_executable(input-observation-test input_observation_test.cpp)
+target_compile_features(input-observation-test PRIVATE cxx_std_20)
+add_test(NAME input-observation COMMAND input-observation-test)
