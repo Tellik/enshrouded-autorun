@@ -107,10 +107,16 @@ can enable it after checking its game build and bindings.
 Wait for the world to load in a safe open area, then tap the toggle. Forward
 movement uses the game's ordinary input speed and preserves left/right
 steering. Backward movement or loss of game focus stops it. Turn it off before
-opening menus. Menu, death, travel, disconnect, and native Windows gameplay
-still need dedicated checks. Another player was online during a dedicated-server
-test, but their view of the movement was not checked. The plugin does
+opening menus. Menu, disconnect, and native Windows gameplay still need
+dedicated checks. Another player was online during a dedicated-server test,
+but their view of the movement was not checked. The plugin does
 not force sprint or the game's slower Walk action.
+
+The current source revalidates a replacement input source after travel or
+death. A development build passed fast-travel and death checks without a world
+rejoin in both single-player and a dedicated-server client on Proton; the log
+recorded two input replacements in each session. The published v0.2.0 ZIP
+predates this fix and can still require a world rejoin after travel or death.
 
 For a first check, tap F8 and release all movement keys: the character should
 continue forward. Tap F8 again to stop. Tap F8 once more and press S to
