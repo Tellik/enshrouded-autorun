@@ -22,11 +22,15 @@ remains untested.
 Wand Durability uses the same stock ShroudForge 1.7.6 runtime and currently
 targets client build `26082781` in single-player or player-hosted co-op worlds.
 The [Windows build and automated tests](https://github.com/Tellik/enshrouded-mods/actions/runs/40232119871)
-pass, including policy tests and native hook emulation; gameplay testing is pending.
-Its test packages are disabled by default and are **not a verified release**.
+pass, including policy tests and native hook emulation. The Cryptic Wand's
+built-in Multishot +1 was verified in single-player under Proton on 2026-10-25;
+the plugin log recorded six allowed wand charges and six extra costs skipped
+across 12 projectile-cost calls. Other wand/skill cases, hosted co-op, and
+lifecycle behavior remain unverified. Its test packages are disabled by default
+and are **not a verified release**.
 A client-only install cannot change a dedicated server's durability accounting;
 a verified dedicated-server executable profile is still needed. A release will
-wait until gameplay testing is verified.
+wait for broader gameplay testing.
 
 The `main` branch contains this landing page, the [MIT license](LICENSE), and
 the entry point for Autorun's manually triggered Windows package workflow.
